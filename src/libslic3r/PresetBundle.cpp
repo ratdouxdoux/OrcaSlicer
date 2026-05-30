@@ -3139,8 +3139,11 @@ std::pair<PresetsConfigSubstitutions, size_t> PresetBundle::load_vendor_configs_
     // 3) paste the process/filament/print configs
     PresetCollection         *presets = nullptr;
     size_t                   presets_loaded = 0;
+    size_t                   missing_filament_id_fallback_count = 0;
+    std::vector<std::string> missing_filament_id_samples;
 
-    auto parse_subfile = [this, path, vendor_name, presets_loaded, current_vendor_profile, base_bundle](
+    auto parse_subfile = [this, path, vendor_name, current_vendor_profile, base_bundle,
+                          &missing_filament_id_fallback_count, &missing_filament_id_samples](
         ConfigSubstitutionContext& substitution_context,
         PresetsConfigSubstitutions& substitutions,
         LoadConfigBundleAttributes& flags,
@@ -3197,9 +3200,9 @@ std::pair<PresetsConfigSubstitutions, size_t> PresetBundle::load_vendor_configs_
                 // Some system bundles only provide setting_id for filaments. Treat it as a stable fallback
                 // instead of aborting the entire vendor import and losing all dependent presets.
                 filament_id = setting_id;
-                BOOST_LOG_TRIVIAL(warning) << __FUNCTION__
-                                           << ": missing filament_id for " << preset_name
-                                           << ", falling back to setting_id " << setting_id;
+                ++missing_filament_id_fallback_count;
+                if (missing_filament_id_samples.size() < 8)
+                    missing_filament_id_samples.emplace_back(preset_name + "->" + setting_id);
             }
             //check whether it inherits other preset or not
             auto it1 = key_values.find(BBL_JSON_KEY_INHERITS);
@@ -3422,6 +3425,17 @@ std::pair<PresetsConfigSubstitutions, size_t> PresetBundle::load_vendor_configs_
             BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(", got error when parse filament setting from %1%") % subfile_path;
             throw ConfigurationError((boost::format("Failed loading configuration file %1%\nSuggest cleaning the directory %2% firstly") % subfile_path % path).str());
         }
+    }
+    if (missing_filament_id_fallback_count > 0) {
+        std::string samples;
+        for (size_t i = 0; i < missing_filament_id_samples.size(); ++i) {
+            if (i > 0)
+                samples += ", ";
+            samples += missing_filament_id_samples[i];
+        }
+        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << ": missing filament_id fallback vendor=" << vendor_name
+                                   << " count=" << missing_filament_id_fallback_count
+                                   << " samples=[" << samples << "]";
     }
     if (startup_profile) {
         const auto filament_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - filament_start).count();

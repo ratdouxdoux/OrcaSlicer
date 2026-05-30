@@ -991,9 +991,7 @@ void GUI_App::post_init()
             plater_->canvas3D()->init();
 
             BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", finished init canvas3D";
-            wxGetApp().imgui()->new_frame();
-
-            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", finished init imgui frame";
+            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", defer imgui frame until first render";
             plater_->canvas3D()->enable_render(true);
 
             if (!slow_bootup) {

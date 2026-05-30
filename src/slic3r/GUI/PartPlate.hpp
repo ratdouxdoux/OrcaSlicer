@@ -574,6 +574,7 @@ class PartPlateList : public ObjectBase
     GLTexture m_plate_name_edit_texture;
     GLTexture m_plate_name_edit_hovered_texture;
     GLTexture m_idx_textures[MAX_PLATE_COUNT];
+    bool m_idx_textures_loaded[MAX_PLATE_COUNT] {};
     // set render option
     bool render_bedtype_logo = true;
     bool render_plate_settings = true;
@@ -592,6 +593,7 @@ class PartPlateList : public ObjectBase
     Vec2d compute_shape_position(int index, int cols);
     //generate icon textures
     void generate_icon_textures();
+    void ensure_plate_index_texture(int plate_index);
     void release_icon_textures();
 
     void set_default_wipe_tower_pos_for_plate(int plate_idx);

@@ -5,6 +5,9 @@
 #include <string>
 #include <regex>
 #include <future>
+#include <chrono>
+#include <cctype>
+#include <cstdlib>
 #include <GL/glew.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/optional.hpp>
@@ -58,6 +61,50 @@ static const int PARTPLATE_ICON_GAP_TOP = 3;
 static const int PARTPLATE_ICON_GAP_LEFT = 3;
 static const int PARTPLATE_ICON_GAP_Y = 5;
 static const int PARTPLATE_TEXT_OFFSET_X1 = 3;
+
+namespace {
+
+bool startup_profile_enabled()
+{
+    static const bool enabled = [] {
+        const char* value = std::getenv("ORCA_STARTUP_PROFILE");
+        if (value == nullptr)
+            return false;
+
+        std::string normalized(value);
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
+    }();
+    return enabled;
+}
+
+class StartupProfiler
+{
+public:
+    explicit StartupProfiler(const char* phase)
+        : m_phase(phase)
+        , m_enabled(startup_profile_enabled())
+        , m_start(std::chrono::steady_clock::now())
+    {
+        if (m_enabled)
+            BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=" << m_phase << " begin";
+    }
+
+    ~StartupProfiler()
+    {
+        if (!m_enabled)
+            return;
+        const auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_start).count();
+        BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=" << m_phase << " end total_ms=" << total_ms;
+    }
+
+private:
+    const char*                           m_phase;
+    bool                                  m_enabled;
+    std::chrono::steady_clock::time_point m_start;
+};
+
+} // namespace
 static const int PARTPLATE_TEXT_OFFSET_X2 = 1;
 static const int PARTPLATE_TEXT_OFFSET_Y = 1;
 static const int PARTPLATE_PLATENAME_OFFSET_Y  = 10;
@@ -1081,6 +1128,7 @@ void PartPlate::render_icons(bool bottom, bool only_name, int hover_id)
             }
 
             if (m_plate_index >= 0 && m_plate_index < MAX_PLATE_COUNT) {
+                m_partplate_list->ensure_plate_index_texture(m_plate_index);
                 render_icon_texture(m_plate_idx_icon, m_partplate_list->m_idx_textures[m_plate_index]);
             }
         }
@@ -1116,6 +1164,7 @@ void PartPlate::render_only_numbers(bool bottom)
         glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
 
         if (m_plate_index >=0 && m_plate_index < MAX_PLATE_COUNT) {
+            m_partplate_list->ensure_plate_index_texture(m_plate_index);
             render_icon_texture(m_plate_idx_icon, m_partplate_list->m_idx_textures[m_plate_index]);
         }
 
@@ -3380,6 +3429,7 @@ Vec2d PartPlateList::compute_shape_position(int index, int cols)
 //generate icon textures
 void PartPlateList::generate_icon_textures()
 {
+    StartupProfiler profiler("PartPlateList::generate_icon_textures");
 	// use higher resolution images if graphic card and opengl version allow
 	GLint max_tex_size = OpenGLManager::get_gl_info().get_max_tex_size(), icon_size = max_tex_size / 8;
 	std::string path = resources_dir() + "/images/";
@@ -3530,27 +3580,23 @@ void PartPlateList::generate_icon_textures()
 		BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(":load file %1% failed") % file_name;
 		}
 	}
+}
 
-	std::string text_str = "01";
-    // ORCA also scale font size to prevent low res texture
-    int size = wxGetApp().em_unit() * PARTPLATE_ICON_SIZE;
-    auto l = Label::sysFont(int(size), true);
-    wxFont* font = &l;
+void PartPlateList::ensure_plate_index_texture(int plate_index)
+{
+    if (plate_index < 0 || plate_index >= MAX_PLATE_COUNT || m_idx_textures_loaded[plate_index])
+        return;
 
-	for (int i = 0; i < MAX_PLATE_COUNT; i++) {
-		if (m_idx_textures[i].get_id() == 0) {
-			//file_name = path + (boost::format("plate_%1%.svg") % (i + 1)).str();
-			if ( i < 9 )
-				file_name = std::string("0") + std::to_string(i+1);
-			else
-				file_name = std::to_string(i+1);
-
-			wxColour foreground(0xf2, 0x75, 0x4e, 0xff);
-			if (!m_idx_textures[i].generate_from_text_string(file_name, *font, *wxBLACK, foreground)) {
-				BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(":load file %1% failed") % file_name;
-			}
-		}
-	}
+    StartupProfiler profiler("PartPlateList::ensure_plate_index_texture");
+    const int size = wxGetApp().em_unit() * PARTPLATE_ICON_SIZE;
+    auto font_holder = Label::sysFont(int(size), true);
+    wxFont* font = &font_holder;
+    std::string file_name = plate_index < 9 ? std::string("0") + std::to_string(plate_index + 1) : std::to_string(plate_index + 1);
+    wxColour foreground(0xf2, 0x75, 0x4e, 0xff);
+    if (!m_idx_textures[plate_index].generate_from_text_string(file_name, *font, *wxBLACK, foreground)) {
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(":load text %1% failed") % file_name;
+    }
+    m_idx_textures_loaded[plate_index] = true;
 }
 
 void PartPlateList::release_icon_textures()
@@ -3576,6 +3622,7 @@ void PartPlateList::release_icon_textures()
 	m_plate_name_edit_hovered_texture.reset();
 	for (int i = 0;i < MAX_PLATE_COUNT; i++) {
 		m_idx_textures[i].reset();
+        m_idx_textures_loaded[i] = false;
 	}
 	//reset
 	PartPlateList::is_load_bedtype_textures = false;

@@ -4,6 +4,10 @@
 #include <vector>
 #include <cmath>
 #include <stdexcept>
+#include <algorithm>
+#include <chrono>
+#include <cctype>
+#include <cstdlib>
 
 #include <boost/format.hpp>
 #include <boost/log/trivial.hpp>
@@ -45,6 +49,56 @@
 
 namespace Slic3r {
 namespace GUI {
+
+namespace {
+
+bool startup_profile_enabled()
+{
+    static const bool enabled = [] {
+        const char* value = std::getenv("ORCA_STARTUP_PROFILE");
+        if (value == nullptr)
+            return false;
+
+        std::string normalized(value);
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
+    }();
+    return enabled;
+}
+
+class StartupProfiler
+{
+public:
+    explicit StartupProfiler(const char* phase)
+        : m_phase(phase)
+        , m_enabled(startup_profile_enabled())
+        , m_start(std::chrono::steady_clock::now())
+    {
+        if (m_enabled)
+            BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=" << m_phase << " begin";
+    }
+
+    void note(const std::string& message) const
+    {
+        if (m_enabled)
+            BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=" << m_phase << " " << message;
+    }
+
+    ~StartupProfiler()
+    {
+        if (!m_enabled)
+            return;
+        const auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_start).count();
+        BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=" << m_phase << " end total_ms=" << total_ms;
+    }
+
+private:
+    const char*                           m_phase;
+    bool                                  m_enabled;
+    std::chrono::steady_clock::time_point m_start;
+};
+
+} // namespace
 
 static const std::map<const wchar_t, std::string> font_icons = {
     {ImGui::PrintIconMarker       , "cog"                           },
@@ -521,7 +575,7 @@ void ImGuiWrapper::new_frame()
     }
 
     if (m_font_texture == 0) {
-        init_font(true);
+        init_font(false);
     }
 
     ImGui::NewFrame();
@@ -2660,6 +2714,7 @@ void ImGuiWrapper::pop_radio_style()
 
 void ImGuiWrapper::init_font(bool compress)
 {
+    StartupProfiler profiler("ImGuiWrapper::init_font");
     destroy_font();
 
     ImGuiIO& io = ImGui::GetIO();
@@ -2747,6 +2802,7 @@ void ImGuiWrapper::init_font(bool compress)
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);   // Load as RGBA 32-bits (75% of the memory is wasted, but default font is so small) because it is more likely to be compatible with user's existing shaders. If your ImTextureId represent a higher-level concept than just a GL texture id, consider calling GetTexDataAsAlpha8() instead to save on GPU memory.
     BOOST_LOG_TRIVIAL(trace) << "Build default font texture done. width: " << width << ", height: " << height;
+    profiler.note("atlas width=" + std::to_string(width) + " height=" + std::to_string(height) + " compress=" + std::to_string(compress ? 1 : 0));
 
     auto load_icon_from_svg = [this, &io, pixels, width, &rect_id](const std::pair<const wchar_t, std::string> icon, int icon_sz) {
         if (const ImFontAtlas::CustomRect* rect = io.Fonts->GetCustomRectByIndex(rect_id)) {
@@ -2793,6 +2849,7 @@ void ImGuiWrapper::init_font(bool compress)
         glsafe(::glTexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGBA_S3TC_DXT5_EXT, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels));
     else
         glsafe(::glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels));
+    profiler.note("uploaded texture_id=" + std::to_string(m_font_texture));
 
     // Store our identifier
     io.Fonts->TexID = (ImTextureID)(intptr_t)m_font_texture;

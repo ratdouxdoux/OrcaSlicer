@@ -39,6 +39,7 @@
 class Notebook;
 class wxBookCtrlBase;
 class wxProgressDialog;
+class wxPanel;
 
 namespace Slic3r {
 
@@ -262,6 +263,10 @@ public:
 	void        update_title_colour_after_set_title();
     void        show_option(bool show);
     void        init_tabpanel();
+    MonitorPanel* ensure_monitor_panel();
+    MultiMachinePage* ensure_multi_machine_page();
+    CalibrationPanel* ensure_calibration_panel();
+    PrinterWebView* ensure_printer_view();
     void        create_preset_tabs();
     //BBS: GUI refactor
     void        add_created_tab(Tab* panel, const std::string& bmp_name = "");
@@ -370,12 +375,15 @@ public:
     Plater*               m_plater { nullptr };
     //BBS: GUI refactor
     MonitorPanel*         m_monitor{ nullptr };
+    wxPanel*              m_monitor_placeholder{ nullptr };
 
     //AuxiliaryPanel*       m_auxiliary{ nullptr };
     MultiMachinePage*     m_multi_machine{ nullptr };
+    wxPanel*              m_multi_machine_placeholder{ nullptr };
     ProjectPanel*         m_project{ nullptr };
 
     CalibrationPanel*     m_calibration{ nullptr };
+    wxPanel*              m_calibration_placeholder{ nullptr };
     WebViewPanel*         m_webview { nullptr };
     PrinterWebView*       m_printer_view{nullptr};
     wxLogWindow*          m_log_window { nullptr };

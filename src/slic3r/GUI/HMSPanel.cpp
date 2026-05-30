@@ -121,7 +121,8 @@ HMSNotifyItem::HMSNotifyItem(wxWindow *parent, HMSItem& item)
         if (!m_url.empty()) wxLaunchDefaultBrowser(m_url);
             wxCommandEvent evt(EVT_ALREADY_READ_HMS);
             evt.SetString(long_error_code);
-            wxPostEvent(wxGetApp().mainframe->m_monitor, evt);
+            if (MonitorPanel* monitor = wxGetApp().mainframe->ensure_monitor_panel())
+                wxPostEvent(monitor, evt);
         });
 #endif
 }

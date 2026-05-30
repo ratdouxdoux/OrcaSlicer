@@ -68,6 +68,9 @@
 #include <float.h>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
+#include <cctype>
+#include <cstdlib>
 
 #ifndef IMGUI_DEFINE_MATH_OPERATORS
 #define IMGUI_DEFINE_MATH_OPERATORS
@@ -77,6 +80,24 @@
 #include <imguizmo/ImGuizmo.h>
 
 static constexpr const float TRACKBALLSIZE = 0.8f;
+
+namespace {
+
+bool startup_profile_enabled()
+{
+    static const bool enabled = [] {
+        const char* value = std::getenv("ORCA_STARTUP_PROFILE");
+        if (value == nullptr)
+            return false;
+
+        std::string normalized(value);
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
+    }();
+    return enabled;
+}
+
+} // namespace
 
 static Slic3r::ColorRGBA DEFAULT_BG_LIGHT_COLOR      = { 0.906f, 0.906f, 0.906f, 1.0f };
 static Slic3r::ColorRGBA DEFAULT_BG_LIGHT_COLOR_DARK = { 0.329f, 0.329f, 0.353f, 1.0f };
@@ -1856,6 +1877,10 @@ bool GLCanvas3D::make_current_for_postinit() {
 
 void GLCanvas3D::render(bool only_init)
 {
+    static bool s_first_render_profiled = false;
+    const bool profile_first_render = startup_profile_enabled() && !s_first_render_profiled;
+    const auto render_start = std::chrono::steady_clock::now();
+
     if (m_in_render) {
         // if called recursively, return
         m_dirty = true;
@@ -1928,7 +1953,12 @@ void GLCanvas3D::render(bool only_init)
 
     camera.apply_projection(_max_bounding_box(true, true, true));
 
+    const auto imgui_start = std::chrono::steady_clock::now();
     wxGetApp().imgui()->new_frame();
+    if (profile_first_render) {
+        const auto imgui_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - imgui_start).count();
+        BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=GLCanvas3D::render step=imgui_new_frame step_ms=" << imgui_ms;
+    }
 
     if (m_picking_enabled) {
         if (m_rectangle_selection.is_dragging())
@@ -2124,6 +2154,11 @@ void GLCanvas3D::render(bool only_init)
 
     m_canvas->SwapBuffers();
     m_render_stats.increment_fps_counter();
+    if (profile_first_render) {
+        const auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - render_start).count();
+        BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=GLCanvas3D::render first_frame_total_ms=" << total_ms << " only_init=" << only_init;
+        s_first_render_profiled = true;
+    }
 }
 
 void GLCanvas3D::render_thumbnail(ThumbnailData &         thumbnail_data,

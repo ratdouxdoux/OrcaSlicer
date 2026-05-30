@@ -27,6 +27,8 @@ __declspec(dllexport) int   AmdPowerXpressRequestHighPerformance = 0;
 
 #include <string>
 #include <vector>
+#include <chrono>
+#include <cwchar>
 
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/classification.hpp>
@@ -211,6 +213,32 @@ typedef int(__stdcall* Slic3rMainFunc)(int argc, wchar_t** argv);
 Slic3rMainFunc Snapmaker_Orca_main = nullptr;
 }
 
+static bool startup_profile_enabled_wrapper()
+{
+    wchar_t value[32] = {0};
+    const DWORD len = GetEnvironmentVariableW(L"ORCA_STARTUP_PROFILE", value, 32);
+    if (len == 0 || len >= 32)
+        return false;
+    return _wcsicmp(value, L"1") == 0 || _wcsicmp(value, L"true") == 0 || _wcsicmp(value, L"yes") == 0 || _wcsicmp(value, L"on") == 0;
+}
+
+static void startup_profile_log_wrapper(const wchar_t* step, long long total_ms)
+{
+    if (!startup_profile_enabled_wrapper())
+        return;
+
+    wchar_t log_path[MAX_PATH + 1] = {0};
+    if (GetTempPathW(MAX_PATH, log_path) == 0)
+        return;
+    wcscat_s(log_path, L"Snapmaker_Orca_startup_wrapper.log");
+
+    FILE* file = nullptr;
+    if (_wfopen_s(&file, log_path, L"a, ccs=UTF-8") == 0 && file) {
+        fwprintf(file, L"[StartupProfile] phase=Snapmaker_Orca_app_msvc step=%ls total_ms=%lld\n", step, total_ms);
+        fclose(file);
+    }
+}
+
 extern "C" {
 #ifdef SLIC3R_WRAPPER_NOCONSOLE
 int APIENTRY wWinMain(HINSTANCE /* hInstance */, HINSTANCE /* hPrevInstance */, PWSTR /* lpCmdLine */, int /* nCmdShow */)
@@ -221,6 +249,12 @@ int APIENTRY wWinMain(HINSTANCE /* hInstance */, HINSTANCE /* hPrevInstance */, 
 int wmain(int argc, wchar_t** argv)
 {
 #endif
+    const auto wrapper_start = std::chrono::steady_clock::now();
+    auto wrapper_elapsed_ms = [&wrapper_start]() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - wrapper_start).count();
+    };
+    startup_profile_log_wrapper(L"begin", 0);
+
     // Allow the asserts to open message box, such message box allows to ignore the assert and continue with the application.
     // Without this call, the seemingly same message box is being opened by the abort() function, but that is too late and
     // the application will be killed even if "Ignore" button is pressed.
@@ -258,6 +292,7 @@ int wmain(int argc, wchar_t** argv)
         force_mesa ||
         // Try to load the default OpenGL driver and test its context version.
         !opengl_version_check.load_opengl_dll() || !opengl_version_check.is_version_greater_or_equal_to(2, 0);
+    startup_profile_log_wrapper(load_mesa ? L"opengl_check_load_mesa" : L"opengl_check_system", wrapper_elapsed_ms());
 #endif /* SLIC3R_GUI */
 
     wchar_t path_to_exe[MAX_PATH + 1] = {0};
@@ -291,6 +326,7 @@ int wmain(int argc, wchar_t** argv)
     wcscat(path_to_slic3r, L"Snapmaker_Orca.dll");
     //	printf("Loading Slic3r library: %S\n", path_to_slic3r);
     HINSTANCE hInstance_Slic3r = LoadLibraryExW(path_to_slic3r, nullptr, 0);
+    startup_profile_log_wrapper(L"LoadLibraryEx Snapmaker_Orca.dll", wrapper_elapsed_ms());
     if (hInstance_Slic3r == nullptr) {
         printf("Snapmaker_Orca.dll was not loaded, error=%d\n", GetLastError());
 
@@ -319,9 +355,11 @@ int wmain(int argc, wchar_t** argv)
         exitSentry();
         return -1;
     }
+    startup_profile_log_wrapper(L"GetProcAddress Snapmaker_Orca_main", wrapper_elapsed_ms());
 
     // argc minus the trailing nullptr of the argv
     auto res = Snapmaker_Orca_main((int) argv_extended.size() - 1, argv_extended.data());
+    startup_profile_log_wrapper(L"Snapmaker_Orca_main returned", wrapper_elapsed_ms());
     auto        soft_end_time = get_time_timestamp();
     std::string softEndTime   = BP_SOFT_WORKS_TIME + std::string(":") + get_works_time(soft_end_time - soft_start_time);
     sentryReportLog(SENTRY_LOG_TRACE, softEndTime, BP_START_SOFT);

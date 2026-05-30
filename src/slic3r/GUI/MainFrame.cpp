@@ -77,6 +77,11 @@
 #include "sentry_wrapper/SentryWrapper.hpp"
 #include "GenericDownloadDialog.hpp"
 
+#include <algorithm>
+#include <chrono>
+#include <cctype>
+#include <cstdlib>
+
 #define UPDATE_BUSER    true
 #define UPDATE_BUAUTO   false
 
@@ -95,6 +100,78 @@ wxDEFINE_EVENT(EVT_UPDATE_PRESET_CB, SimpleEvent);
 wxDEFINE_EVENT(EVT_BACKUP_POST, wxCommandEvent);
 wxDEFINE_EVENT(EVT_LOAD_URL, wxCommandEvent);
 wxDEFINE_EVENT(EVT_LOAD_PRINTER_URL, LoadPrinterViewEvent);
+
+namespace {
+
+bool startup_profile_enabled()
+{
+    static const bool enabled = [] {
+        const char* value = std::getenv("ORCA_STARTUP_PROFILE");
+        if (value == nullptr)
+            return false;
+
+        std::string normalized(value);
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
+    }();
+    return enabled;
+}
+
+class StartupProfiler
+{
+public:
+    explicit StartupProfiler(const char* phase)
+        : m_phase(phase)
+        , m_enabled(startup_profile_enabled())
+        , m_phase_start(std::chrono::steady_clock::now())
+        , m_step_start(m_phase_start)
+    {
+        if (m_enabled)
+            BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=" << m_phase << " begin";
+    }
+
+    void mark(const char* step)
+    {
+        if (!m_enabled)
+            return;
+        const auto now      = std::chrono::steady_clock::now();
+        const auto step_ms  = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_step_start).count();
+        const auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase_start).count();
+        BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=" << m_phase << " step=" << step << " step_ms=" << step_ms << " total_ms=" << total_ms;
+        m_step_start = now;
+    }
+
+    ~StartupProfiler()
+    {
+        if (!m_enabled)
+            return;
+        const auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_phase_start).count();
+        BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=" << m_phase << " end total_ms=" << total_ms;
+    }
+
+private:
+    const char*                           m_phase;
+    bool                                  m_enabled;
+    std::chrono::steady_clock::time_point m_phase_start;
+    std::chrono::steady_clock::time_point m_step_start;
+};
+
+wxPanel* create_tab_placeholder(wxWindow* parent)
+{
+    auto* panel = new wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize);
+    panel->SetBackgroundColour(*wxWHITE);
+    return panel;
+}
+
+void destroy_placeholder(wxPanel*& placeholder)
+{
+    if (placeholder) {
+        placeholder->Destroy();
+        placeholder = nullptr;
+    }
+}
+
+} // namespace
 
 enum class ERescaleTarget
 {
@@ -1017,6 +1094,7 @@ void MainFrame::show_option(bool show)
 }
 
 void MainFrame::init_tabpanel() {
+    StartupProfiler profiler("MainFrame::init_tabpanel");
     // wxNB_NOPAGETHEME: Disable Windows Vista theme for the Notebook background. The theme performance is terrible on
     // Windows 10 with multiple high resolution displays connected.
     // BBS
@@ -1030,6 +1108,7 @@ void MainFrame::init_tabpanel() {
 #endif
     m_tabpanel->Hide();
     m_settings_dialog.set_tabpanel(m_tabpanel);
+    profiler.mark("create notebook");
 
 #ifdef __WXMSW__
     m_tabpanel->Bind(wxEVT_BOOKCTRL_PAGE_CHANGED, [this](wxBookCtrlEvent& e) {
@@ -1039,6 +1118,12 @@ void MainFrame::init_tabpanel() {
         //BBS
         wxWindow* panel = m_tabpanel->GetCurrentPage();
         int sel = m_tabpanel->GetSelection();
+        if (panel == m_monitor_placeholder)
+            panel = ensure_monitor_panel();
+        else if (panel == m_multi_machine_placeholder)
+            panel = ensure_multi_machine_page();
+        else if (panel == m_calibration_placeholder)
+            panel = ensure_calibration_panel();
         //wxString page_text = m_tabpanel->GetPageText(sel);
         m_last_selected_tab = m_tabpanel->GetSelection();
         if (panel == m_plater) {
@@ -1138,42 +1223,41 @@ void MainFrame::init_tabpanel() {
         m_param_panel = new ParamsPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBK_LEFT | wxTAB_TRAVERSAL);
       
     }
+    profiler.mark("home and params");
     m_plater = new Plater(this, this);
     m_plater->SetBackgroundColour(*wxWHITE);
     m_plater->Hide();
 
     wxGetApp().plater_ = m_plater;
+    profiler.mark("plater");
 
     create_preset_tabs();
+    profiler.mark("preset tabs");
 
         //BBS add pages
-    m_monitor = new MonitorPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-    m_monitor->SetBackgroundColour(*wxWHITE);
-    m_tabpanel->AddPage(m_monitor, _L("Device"), std::string("tab_monitor_active"), std::string("tab_monitor_active"), false);
+    m_monitor_placeholder = create_tab_placeholder(m_tabpanel);
+    m_tabpanel->AddPage(m_monitor_placeholder, _L("Device"), std::string("tab_monitor_active"), std::string("tab_monitor_active"), false);
 
-    m_printer_view = new PrinterWebView(m_tabpanel);
     Bind(EVT_LOAD_PRINTER_URL, [this](LoadPrinterViewEvent &evt) {
         wxString url = evt.GetString();
         wxString key = evt.GetAPIkey();
-        m_printer_view->load_url(url, key);
+        ensure_printer_view()->load_url(url, key);
     });
 
-    m_printer_view->Hide();
-
     if (wxGetApp().is_enable_multi_machine()) {
-        m_multi_machine = new MultiMachinePage(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-        m_multi_machine->SetBackgroundColour(*wxWHITE);
+        m_multi_machine_placeholder = create_tab_placeholder(m_tabpanel);
         // TODO: change the bitmap
-        m_tabpanel->AddPage(m_multi_machine, _L("Multi-device"), std::string("tab_multi_active"), std::string("tab_multi_active"), false);
+        m_tabpanel->AddPage(m_multi_machine_placeholder, _L("Multi-device"), std::string("tab_multi_active"), std::string("tab_multi_active"), false);
     }
 
     m_project = new ProjectPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
     m_project->SetBackgroundColour(*wxWHITE);
     m_tabpanel->AddPage(m_project, _L("Project"), std::string("tab_auxiliary_active"), std::string("tab_auxiliary_active"), false);
+    profiler.mark("project");
 
-    m_calibration = new CalibrationPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-    m_calibration->SetBackgroundColour(*wxWHITE);
-    m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"), std::string("tab_calibration_active"), false);
+    m_calibration_placeholder = create_tab_placeholder(m_tabpanel);
+    m_tabpanel->AddPage(m_calibration_placeholder, _L("Calibration"), std::string("tab_calibration_active"), std::string("tab_calibration_active"), false);
+    profiler.mark("lazy tab placeholders");
 
     if (m_plater) {
         // load initial config
@@ -1187,76 +1271,186 @@ void MainFrame::init_tabpanel() {
             m_plater->on_filaments_change(full_config.option<ConfigOptionStrings>("filament_colour")->values.size());
         }
     }
+    profiler.mark("initial config");
+}
+
+MonitorPanel* MainFrame::ensure_monitor_panel()
+{
+    if (m_monitor)
+        return m_monitor;
+
+    StartupProfiler profiler("MainFrame::ensure_monitor_panel");
+    const int page_idx = m_monitor_placeholder ? m_tabpanel->FindPage(m_monitor_placeholder) : wxNOT_FOUND;
+    const bool select_page = page_idx != wxNOT_FOUND && m_tabpanel->GetSelection() == page_idx;
+
+    if (page_idx != wxNOT_FOUND)
+        m_tabpanel->RemovePage(page_idx);
+
+    m_monitor = new MonitorPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
+    m_monitor->SetBackgroundColour(*wxWHITE);
+    profiler.mark("construct MonitorPanel");
+
+    if (page_idx != wxNOT_FOUND)
+        m_tabpanel->InsertPage(page_idx, m_monitor, _L("Device"), std::string("tab_monitor_active"), std::string("tab_monitor_active"), select_page);
+    else
+        m_tabpanel->AddPage(m_monitor, _L("Device"), std::string("tab_monitor_active"), std::string("tab_monitor_active"), select_page);
+
+    destroy_placeholder(m_monitor_placeholder);
+    profiler.mark("insert MonitorPanel");
+    return m_monitor;
+}
+
+MultiMachinePage* MainFrame::ensure_multi_machine_page()
+{
+    if (m_multi_machine)
+        return m_multi_machine;
+    if (!wxGetApp().is_enable_multi_machine())
+        return nullptr;
+
+    StartupProfiler profiler("MainFrame::ensure_multi_machine_page");
+    const int page_idx = m_multi_machine_placeholder ? m_tabpanel->FindPage(m_multi_machine_placeholder) : wxNOT_FOUND;
+    const bool select_page = page_idx != wxNOT_FOUND && m_tabpanel->GetSelection() == page_idx;
+
+    if (page_idx != wxNOT_FOUND)
+        m_tabpanel->RemovePage(page_idx);
+
+    m_multi_machine = new MultiMachinePage(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
+    m_multi_machine->SetBackgroundColour(*wxWHITE);
+    profiler.mark("construct MultiMachinePage");
+
+    if (page_idx != wxNOT_FOUND)
+        m_tabpanel->InsertPage(page_idx, m_multi_machine, _L("Multi-device"), std::string("tab_multi_active"),
+                               std::string("tab_multi_active"), select_page);
+    else
+        m_tabpanel->InsertPage(tpMultiDevice, m_multi_machine, _L("Multi-device"), std::string("tab_multi_active"),
+                               std::string("tab_multi_active"), select_page);
+
+    destroy_placeholder(m_multi_machine_placeholder);
+    profiler.mark("insert MultiMachinePage");
+    return m_multi_machine;
+}
+
+CalibrationPanel* MainFrame::ensure_calibration_panel()
+{
+    if (m_calibration)
+        return m_calibration;
+
+    StartupProfiler profiler("MainFrame::ensure_calibration_panel");
+    const int page_idx = m_calibration_placeholder ? m_tabpanel->FindPage(m_calibration_placeholder) : wxNOT_FOUND;
+    const bool select_page = page_idx != wxNOT_FOUND && m_tabpanel->GetSelection() == page_idx;
+
+    if (page_idx != wxNOT_FOUND)
+        m_tabpanel->RemovePage(page_idx);
+
+    m_calibration = new CalibrationPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
+    m_calibration->SetBackgroundColour(*wxWHITE);
+    profiler.mark("construct CalibrationPanel");
+
+    // Calibration is always the last page, so don't use InsertPage if the placeholder is gone.
+    if (page_idx != wxNOT_FOUND)
+        m_tabpanel->InsertPage(page_idx, m_calibration, _L("Calibration"), std::string("tab_calibration_active"),
+                               std::string("tab_calibration_active"), select_page);
+    else
+        m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"),
+                            std::string("tab_calibration_active"), select_page);
+
+    destroy_placeholder(m_calibration_placeholder);
+    profiler.mark("insert CalibrationPanel");
+    return m_calibration;
+}
+
+PrinterWebView* MainFrame::ensure_printer_view()
+{
+    if (m_printer_view)
+        return m_printer_view;
+
+    StartupProfiler profiler("MainFrame::ensure_printer_view");
+    m_printer_view = new PrinterWebView(m_tabpanel);
+    m_printer_view->Hide();
+    profiler.mark("construct PrinterWebView");
+    return m_printer_view;
 }
 
 // SoftFever
 void MainFrame::show_device(bool bBBLPrinter) {
     auto idx = -1;
     if (bBBLPrinter) {
-        if (m_tabpanel->FindPage(m_monitor) != wxNOT_FOUND)
+        const bool monitor_page_present =
+            (m_monitor && m_tabpanel->FindPage(m_monitor) != wxNOT_FOUND) ||
+            (m_monitor_placeholder && m_tabpanel->FindPage(m_monitor_placeholder) != wxNOT_FOUND);
+        const bool printer_page_present = m_printer_view && m_tabpanel->FindPage(m_printer_view) != wxNOT_FOUND;
+        if (monitor_page_present && !printer_page_present)
             return;
         // Remove printer view
-        if ((idx = m_tabpanel->FindPage(m_printer_view)) != wxNOT_FOUND) {
+        if (m_printer_view && (idx = m_tabpanel->FindPage(m_printer_view)) != wxNOT_FOUND) {
             m_printer_view->Show(false);
             m_tabpanel->RemovePage(idx);
         }
 
-        // Create/insert monitor page
-        if (!m_monitor) {
-            m_monitor = new MonitorPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-            m_monitor->SetBackgroundColour(*wxWHITE);
+        // Keep the Device tab visible, but defer creating MonitorPanel until it is selected.
+        if (!m_monitor && !m_monitor_placeholder) {
+            m_monitor_placeholder = create_tab_placeholder(m_tabpanel);
         }
-        m_monitor->Show(false);
-        m_tabpanel->InsertPage(tpMonitor, m_monitor, _L("Device"), std::string("tab_monitor_active"), std::string("tab_monitor_active"));
+        wxWindow* monitor_page = m_monitor ? static_cast<wxWindow*>(m_monitor) : static_cast<wxWindow*>(m_monitor_placeholder);
+        monitor_page->Show(false);
+        if (m_tabpanel->FindPage(monitor_page) == wxNOT_FOUND)
+            m_tabpanel->InsertPage(tpMonitor, monitor_page, _L("Device"), std::string("tab_monitor_active"), std::string("tab_monitor_active"));
 
         if (wxGetApp().is_enable_multi_machine()) {
-            if (!m_multi_machine) {
-                m_multi_machine = new MultiMachinePage(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-                m_multi_machine->SetBackgroundColour(*wxWHITE);
+            if (!m_multi_machine && !m_multi_machine_placeholder) {
+                m_multi_machine_placeholder = create_tab_placeholder(m_tabpanel);
             }
             // TODO: change the bitmap
-            m_multi_machine->Show(false);
-            m_tabpanel->InsertPage(tpMultiDevice, m_multi_machine, _L("Multi-device"), std::string("tab_multi_active"),
-                                   std::string("tab_multi_active"), false);
+            wxWindow* multi_page = m_multi_machine ? static_cast<wxWindow*>(m_multi_machine) : static_cast<wxWindow*>(m_multi_machine_placeholder);
+            multi_page->Show(false);
+            if (m_tabpanel->FindPage(multi_page) == wxNOT_FOUND)
+                m_tabpanel->InsertPage(tpMultiDevice, multi_page, _L("Multi-device"), std::string("tab_multi_active"),
+                                       std::string("tab_multi_active"), false);
         }
-        if (!m_calibration) {
-            m_calibration = new CalibrationPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-            m_calibration->SetBackgroundColour(*wxWHITE);
+        if (!m_calibration && !m_calibration_placeholder) {
+            m_calibration_placeholder = create_tab_placeholder(m_tabpanel);
         }
-        m_calibration->Show(false);
+        wxWindow* calibration_page = m_calibration ? static_cast<wxWindow*>(m_calibration) : static_cast<wxWindow*>(m_calibration_placeholder);
+        calibration_page->Show(false);
         // Calibration is always the last page, so don't use InsertPage here. Otherwise, if multi_machine page is not enabled,
         // the calibration tab won't be properly added as well, due to the TabPosition::tpCalibration no longer matches the real tab position.
-        m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"),
-                               std::string("tab_calibration_active"), false);
+        if (m_tabpanel->FindPage(calibration_page) == wxNOT_FOUND)
+            m_tabpanel->AddPage(calibration_page, _L("Calibration"), std::string("tab_calibration_active"),
+                                std::string("tab_calibration_active"), false);
 
 #ifdef _MSW_DARK_MODE
         wxGetApp().UpdateDarkUIWin(this);
 #endif // _MSW_DARK_MODE
 
     } else {
-        if (m_tabpanel->FindPage(m_printer_view) != wxNOT_FOUND)
+        if (m_printer_view && m_tabpanel->FindPage(m_printer_view) != wxNOT_FOUND)
             return;
 
-        if ((idx = m_tabpanel->FindPage(m_calibration)) != wxNOT_FOUND) {
+        if (m_calibration && (idx = m_tabpanel->FindPage(m_calibration)) != wxNOT_FOUND) {
             m_calibration->Show(false);
             m_tabpanel->RemovePage(idx);
         }
-        if ((idx = m_tabpanel->FindPage(m_multi_machine)) != wxNOT_FOUND) {
+        if (m_calibration_placeholder && (idx = m_tabpanel->FindPage(m_calibration_placeholder)) != wxNOT_FOUND) {
+            m_calibration_placeholder->Show(false);
+            m_tabpanel->RemovePage(idx);
+        }
+        if (m_multi_machine && (idx = m_tabpanel->FindPage(m_multi_machine)) != wxNOT_FOUND) {
             m_multi_machine->Show(false);
             m_tabpanel->RemovePage(idx);
         }
-        if ((idx = m_tabpanel->FindPage(m_monitor)) != wxNOT_FOUND) {
+        if (m_multi_machine_placeholder && (idx = m_tabpanel->FindPage(m_multi_machine_placeholder)) != wxNOT_FOUND) {
+            m_multi_machine_placeholder->Show(false);
+            m_tabpanel->RemovePage(idx);
+        }
+        if (m_monitor && (idx = m_tabpanel->FindPage(m_monitor)) != wxNOT_FOUND) {
             m_monitor->Show(false);
             m_tabpanel->RemovePage(idx);
         }
-        if (m_printer_view == nullptr) {
-            m_printer_view = new PrinterWebView(m_tabpanel);
-            Bind(EVT_LOAD_PRINTER_URL, [this](LoadPrinterViewEvent& evt) {
-                wxString url = evt.GetString();
-                wxString key = evt.GetAPIkey();
-                m_printer_view->load_url(url, key);
-            });
+        if (m_monitor_placeholder && (idx = m_tabpanel->FindPage(m_monitor_placeholder)) != wxNOT_FOUND) {
+            m_monitor_placeholder->Show(false);
+            m_tabpanel->RemovePage(idx);
         }
+        ensure_printer_view();
         m_printer_view->Show(false);
         m_tabpanel->InsertPage(tpMonitor, m_printer_view, _L("Device"), std::string("tab_monitor_active"),
                                std::string("tab_monitor_active"));
@@ -3468,7 +3662,7 @@ void MainFrame::select_tab(wxPanel* panel)
 //BBS
 void MainFrame::jump_to_monitor(std::string dev_id)
 {
-    if(!m_monitor)
+    if(!ensure_monitor_panel())
         return;
     m_tabpanel->SetSelection(tpMonitor);
     ((MonitorPanel*)m_monitor)->select_machine(dev_id);
@@ -3476,7 +3670,7 @@ void MainFrame::jump_to_monitor(std::string dev_id)
 
 void MainFrame::jump_to_multipage()
 {
-    if(!m_multi_machine)
+    if(!ensure_multi_machine_page())
         return;
     m_tabpanel->SetSelection(tpMultiDevice);
     ((MultiMachinePage*)m_multi_machine)->jump_to_send_page();
@@ -3495,6 +3689,13 @@ void MainFrame::select_tab(size_t tab/* = size_t(-1)*/)
         //BBS GUI refactor: remove unused layout new/dlg
         //size_t new_selection = tab == (size_t)(-1) ? m_last_selected_tab : (m_layout == ESettingsLayout::Dlg && tab != 0) ? tab - 1 : tab;
         size_t new_selection = tab == (size_t)(-1) ? m_last_selected_tab : tab;
+
+        if (new_selection == tpMonitor && m_monitor_placeholder)
+            ensure_monitor_panel();
+        else if (new_selection == tpMultiDevice && m_multi_machine_placeholder)
+            ensure_multi_machine_page();
+        else if (new_selection == tpCalibration && m_calibration_placeholder)
+            ensure_calibration_panel();
 
         if (m_tabpanel->GetSelection() != (int)new_selection)
             m_tabpanel->SetSelection(new_selection);
@@ -3526,9 +3727,8 @@ void MainFrame::request_select_tab(TabPosition pos)
 }
 
 int MainFrame::get_calibration_curr_tab() {
-    if (m_calibration)
-        return m_calibration->get_tabpanel()->GetSelection();
-    return -1;
+    CalibrationPanel* calibration = ensure_calibration_panel();
+    return calibration ? calibration->get_tabpanel()->GetSelection() : -1;
 }
 
 // Set a camera direction, zoom to all objects.

@@ -16,6 +16,11 @@
 #include <wx/glcanvas.h>
 #include <wx/msgdlg.h>
 
+#include <algorithm>
+#include <chrono>
+#include <cctype>
+#include <cstdlib>
+
 #ifdef __APPLE__
 // Part of hack to remove crash when closing the application on OSX 10.9.5 when building against newer wxWidgets
 #include <wx/platinfo.h>
@@ -25,6 +30,24 @@
 
 namespace Slic3r {
 namespace GUI {
+
+namespace {
+
+bool startup_profile_enabled()
+{
+    static const bool enabled = [] {
+        const char* value = std::getenv("ORCA_STARTUP_PROFILE");
+        if (value == nullptr)
+            return false;
+
+        std::string normalized(value);
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
+    }();
+    return enabled;
+}
+
+} // namespace
 
 // A safe wrapper around glGetString to report a "N/A" string in case glGetString returns nullptr.
 std::string gl_get_string_safe(GLenum param, const std::string& default_value)
@@ -95,6 +118,7 @@ float OpenGLManager::GLInfo::get_max_anisotropy() const
 
 void OpenGLManager::GLInfo::detect() const
 {
+    const auto detect_start = std::chrono::steady_clock::now();
     *const_cast<std::string*>(&m_version) = gl_get_string_safe(GL_VERSION, "N/A");
     *const_cast<std::string*>(&m_glsl_version) = gl_get_string_safe(GL_SHADING_LANGUAGE_VERSION, "N/A");
     *const_cast<std::string*>(&m_vendor) = gl_get_string_safe(GL_VENDOR, "N/A");
@@ -115,6 +139,14 @@ void OpenGLManager::GLInfo::detect() const
         glsafe(::glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, max_anisotropy));
     }
     *const_cast<bool*>(&m_detected) = true;
+    if (startup_profile_enabled()) {
+        const auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - detect_start).count();
+        BOOST_LOG_TRIVIAL(warning) << "[StartupProfile] phase=OpenGLManager::GLInfo::detect total_ms=" << total_ms
+                                   << " version=" << m_version
+                                   << " vendor=" << m_vendor
+                                   << " renderer=" << m_renderer
+                                   << " max_tex_size=" << m_max_tex_size;
+    }
 }
 
 static bool version_greater_or_equal_to(const std::string& version, unsigned int major, unsigned int minor)
