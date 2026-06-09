@@ -862,6 +862,22 @@ TEST_CASE("Mixed filament add_custom_filament guards and auto-swap", "[MixedFila
     CHECK(mgr_swap.mixed_filaments().front().component_b == 2);
 }
 
+TEST_CASE("Mixed filament custom rows can fill the combined 256 filament limit", "[MixedFilament][Lifecycle]")
+{
+    MixedFilamentManager mgr;
+    const std::vector<std::string> colors = {"#FF0000", "#00FF00"};
+
+    for (size_t i = 0; i < MAXIMUM_FILAMENT_NUMBER; ++i)
+        mgr.add_custom_filament(1, 2, 50, colors);
+
+    CHECK(mgr.total_filaments(colors.size()) == MAXIMUM_FILAMENT_NUMBER);
+    CHECK(mgr.mixed_filaments().size() == MAXIMUM_FILAMENT_NUMBER - colors.size());
+
+    mgr.add_custom_filament(1, 2, 50, colors);
+    CHECK(mgr.total_filaments(colors.size()) == MAXIMUM_FILAMENT_NUMBER);
+    CHECK(mgr.mixed_filaments().size() == MAXIMUM_FILAMENT_NUMBER - colors.size());
+}
+
 TEST_CASE("Mixed filament auto_generate preserves state and respects disable", "[MixedFilament][Lifecycle]")
 {
     const std::vector<std::string> colors = {"#FF0000", "#00FF00", "#0000FF"};

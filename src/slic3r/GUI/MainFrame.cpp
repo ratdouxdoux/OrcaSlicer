@@ -65,6 +65,7 @@
 #include "MarkdownTip.hpp"
 #include "NetworkTestDialog.hpp"
 #include "ConfigWizard.hpp"
+#include "CalibrationSwatchesDialog.hpp"
 #include "Widgets/WebView.hpp"
 #include "DailyTips.hpp"
 
@@ -1223,11 +1224,13 @@ void MainFrame::show_device(bool bBBLPrinter) {
             m_calibration = new CalibrationPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
             m_calibration->SetBackgroundColour(*wxWHITE);
         }
-        m_calibration->Show(false);
-        // Calibration is always the last page, so don't use InsertPage here. Otherwise, if multi_machine page is not enabled,
-        // the calibration tab won't be properly added as well, due to the TabPosition::tpCalibration no longer matches the real tab position.
-        m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"),
-                               std::string("tab_calibration_active"), false);
+        if (m_tabpanel->FindPage(m_calibration) == wxNOT_FOUND) {
+            m_calibration->Show(false);
+            // Calibration is always the last page, so don't use InsertPage here. Otherwise, if multi_machine page is not enabled,
+            // the calibration tab won't be properly added as well, due to the TabPosition::tpCalibration no longer matches the real tab position.
+            m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"),
+                                   std::string("tab_calibration_active"), false);
+        }
 
 #ifdef _MSW_DARK_MODE
         wxGetApp().UpdateDarkUIWin(this);
@@ -1237,10 +1240,6 @@ void MainFrame::show_device(bool bBBLPrinter) {
         if (m_tabpanel->FindPage(m_printer_view) != wxNOT_FOUND)
             return;
 
-        if ((idx = m_tabpanel->FindPage(m_calibration)) != wxNOT_FOUND) {
-            m_calibration->Show(false);
-            m_tabpanel->RemovePage(idx);
-        }
         if ((idx = m_tabpanel->FindPage(m_multi_machine)) != wxNOT_FOUND) {
             m_multi_machine->Show(false);
             m_tabpanel->RemovePage(idx);
@@ -2912,6 +2911,13 @@ void MainFrame::init_menubar_as_editor()
         }, "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
 
+    append_menu_item(m_topbar->GetCalibMenu(), wxID_ANY, _L("Color swatches"), _L("Generate calibration swatches"),
+        [this](wxCommandEvent&) {
+            CalibrationSwatchesDialog dlg((wxWindow*)this, m_plater);
+            dlg.ShowModal();
+        }, "", nullptr,
+        [this]() { return m_plater && m_plater->is_view3D_shown(); }, this);
+
     // Cornering (with submenu)
     auto cornering_menu = new wxMenu();
     append_menu_item(
@@ -3033,6 +3039,13 @@ void MainFrame::init_menubar_as_editor()
             m_vol_test_dlg->ShowModal();
         }, "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
+
+    append_menu_item(calib_menu, wxID_ANY, _L("Color swatches"), _L("Generate calibration swatches"),
+        [this](wxCommandEvent&) {
+            CalibrationSwatchesDialog dlg((wxWindow*)this, m_plater);
+            dlg.ShowModal();
+        }, "", nullptr,
+        [this]() { return m_plater && m_plater->is_view3D_shown(); }, this);
 
     // Cornering (with submenu)
     auto cornering_menu = new wxMenu();

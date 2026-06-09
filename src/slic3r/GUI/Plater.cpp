@@ -11,10 +11,12 @@
 
 #include <cstddef>
 #include <array>
+#include <ctime>
 #include <cctype>
 #include <cstdlib>
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <numeric>
 #include <memory>
 #include <limits>
@@ -26,6 +28,7 @@
 #include <regex>
 #include <future>
 #include <functional>
+#include <map>
 #include <sstream>
 #include <boost/algorithm/string.hpp>
 #include <boost/iterator/counting_iterator.hpp>
@@ -34,6 +37,7 @@
 #include <boost/filesystem/operations.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/nowide/convert.hpp>
+#include <boost/nowide/fstream.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -79,10 +83,13 @@
 //#include "libslic3r/Format/3mf.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
+#include "libslic3r/ColorCalibrationSwatches.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/SLA/Hollowing.hpp"
 #include "libslic3r/SLA/SupportPoint.hpp"
 #include "libslic3r/SLA/ReprojectPointsOnMesh.hpp"
+#include "libslic3r/Shape/TextShape.hpp"
+#include "libslic3r/TextConfiguration.hpp"
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -16056,6 +16063,1160 @@ void Plater::add_model(bool imperial_units, std::string fname)
 
         wxGetApp().mainframe->update_title();
     }
+}
+
+namespace {
+
+namespace CCS = ColorCalibrationSwatches;
+
+static TriangleMesh make_side_coupon_block(double width, double depth, double height, double y_offset, double z_offset = 0.0)
+{
+    TriangleMesh mesh = make_cube(width, depth, height);
+    mesh.translate(Vec3f(float(-width * 0.5), float(y_offset), float(z_offset)));
+    return mesh;
+}
+
+static void place_text_on_rear_side(TriangleMesh &mesh,
+                                    const CCS::BackTextFormatOptions &text_options,
+                                    double back_y,
+                                    double face_height_mm)
+{
+    const float right_angle = float(std::acos(-1.0) * 0.5);
+    mesh.rotate_x(right_angle);
+    if (text_options.embossed)
+        mesh.mirror_y();
+
+    const BoundingBoxf3 bbox = mesh.bounding_box();
+    const Vec3f         center = bbox.center().cast<float>();
+    const float y_shift = text_options.embossed ? float(back_y - bbox.min.y()) : float(back_y - bbox.max.y());
+    mesh.translate(Vec3f(-center.x(), y_shift, float(face_height_mm * 0.5 - center.z())));
+}
+
+static std::vector<std::string> split_text_lines(const std::string &text)
+{
+    std::vector<std::string> lines;
+    std::string current;
+    for (const char ch : text) {
+        if (ch == '\r')
+            continue;
+        if (ch == '\n') {
+            lines.emplace_back(std::move(current));
+            current.clear();
+        } else {
+            current.push_back(ch);
+        }
+    }
+    lines.emplace_back(std::move(current));
+    return lines;
+}
+
+static void thicken_text_mesh(TriangleMesh &mesh, double stroke_width_mm)
+{
+    if (mesh.empty() || stroke_width_mm <= 0.0)
+        return;
+
+    const TriangleMesh base = mesh;
+    TriangleMesh merged = base;
+    const float radius = float(std::clamp(stroke_width_mm * 0.5, 0.0, 2.0));
+    if (radius <= 0.f)
+        return;
+
+    const float diagonal = radius * float(1.0 / std::sqrt(2.0));
+    const std::array<Vec3f, 8> offsets {
+        Vec3f( radius, 0.f, 0.f),
+        Vec3f(-radius, 0.f, 0.f),
+        Vec3f(0.f,  radius, 0.f),
+        Vec3f(0.f, -radius, 0.f),
+        Vec3f( diagonal,  diagonal, 0.f),
+        Vec3f(-diagonal,  diagonal, 0.f),
+        Vec3f( diagonal, -diagonal, 0.f),
+        Vec3f(-diagonal, -diagonal, 0.f)
+    };
+
+    for (const Vec3f &offset : offsets) {
+        TriangleMesh copy = base;
+        copy.translate(offset);
+        merged.merge(copy);
+    }
+
+    mesh = std::move(merged);
+}
+
+static bool load_text_line_mesh(const std::string &line,
+                                double text_size_mm,
+                                double text_depth_mm,
+                                double stroke_width_mm,
+                                TriangleMesh &mesh)
+{
+    if (line.empty())
+        return false;
+
+    std::vector<std::string> font_candidates { "", "Arial" };
+    const std::vector<std::string> occt_fonts = init_occt_fonts();
+    for (const std::string &font : occt_fonts) {
+        if (font_candidates.size() >= 10)
+            break;
+        if (std::find(font_candidates.begin(), font_candidates.end(), font) == font_candidates.end())
+            font_candidates.emplace_back(font);
+    }
+
+    for (const std::string &font : font_candidates) {
+        TextResult result;
+        load_text_shape(line.c_str(), font.c_str(), float(text_size_mm), float(text_depth_mm), stroke_width_mm > 0.0, false, result);
+        if (!result.text_mesh.empty()) {
+            mesh = std::move(result.text_mesh);
+            thicken_text_mesh(mesh, stroke_width_mm);
+            return true;
+        }
+    }
+    return false;
+}
+
+static TriangleMesh make_back_text_mesh(const std::string &text,
+                                        const CCS::BackTextFormatOptions &text_options,
+                                        double chip_width_mm,
+                                        double chip_depth_mm,
+                                        double stroke_width_mm = 0.0)
+{
+    TriangleMesh merged;
+    if (text.empty() || text_options.text_size_mm <= 0.0 || text_options.text_depth_mm <= 0.0)
+        return merged;
+
+    const std::vector<std::string> lines = split_text_lines(text);
+    const double line_advance = text_options.text_size_mm + text_options.line_spacing_mm;
+
+    for (size_t line_idx = 0; line_idx < lines.size(); ++line_idx) {
+        TriangleMesh line_mesh;
+        if (!load_text_line_mesh(lines[line_idx], text_options.text_size_mm, text_options.text_depth_mm, stroke_width_mm, line_mesh))
+            continue;
+        line_mesh.translate(Vec3f(0.f, float(-double(line_idx) * line_advance), 0.f));
+        if (merged.empty())
+            merged = std::move(line_mesh);
+        else
+            merged.merge(line_mesh);
+    }
+
+    if (merged.empty())
+        return merged;
+
+    if (text_options.mirror)
+        merged.mirror_x();
+
+    if (std::abs(text_options.rotation_degrees) > 1e-6) {
+        const double radians = text_options.rotation_degrees * std::acos(-1.0) / 180.0;
+        merged.rotate_z(float(radians));
+    }
+
+    BoundingBoxf3 bbox = merged.bounding_box();
+    const Vec3f   size = bbox.size().cast<float>();
+    const double  available_width = std::max(1.0, chip_width_mm - 2.0 * text_options.margin_mm);
+    const double  max_width = available_width;
+    const double  max_depth = std::max(1.0, chip_depth_mm - 2.0 * text_options.margin_mm);
+    double        scale = 1.0;
+    if (size.x() > 1e-6)
+        scale = std::min(scale, max_width / double(size.x()));
+    if (size.y() > 1e-6)
+        scale = std::min(scale, max_depth / double(size.y()));
+    if (scale > 0.0 && scale < 1.0)
+        merged.scale(Vec3f(float(scale), float(scale), 1.f));
+
+    bbox = merged.bounding_box();
+    const Vec3f center = bbox.center().cast<float>();
+    merged.translate(Vec3f(-center.x(), -center.y(), -bbox.min.z()));
+    return merged;
+}
+
+static void set_volume_source(ModelVolume *volume, size_t object_idx, size_t volume_idx)
+{
+    if (volume == nullptr)
+        return;
+    volume->source.object_idx = int(object_idx);
+    volume->source.volume_idx = int(volume_idx);
+}
+
+static void set_volume_extruder(ModelVolume *volume, int extruder_id)
+{
+    if (volume != nullptr && extruder_id > 0)
+        volume->config.set_key_value("extruder", new ConfigOptionInt(extruder_id));
+}
+
+static int dominant_physical_extruder(const CCS::SwatchSpec &spec)
+{
+    if (spec.filaments.empty())
+        return 1;
+    if (spec.ratios.size() == spec.filaments.size()) {
+        size_t best_idx = 0;
+        for (size_t i = 1; i < spec.ratios.size(); ++i)
+            if (spec.ratios[i] > spec.ratios[best_idx])
+                best_idx = i;
+        return int(spec.filaments[best_idx].slot);
+    }
+    return int(spec.filaments.front().slot);
+}
+
+static std::string ratio_weights_token(const std::vector<int> &ratios)
+{
+    std::ostringstream ss;
+    for (size_t i = 0; i < ratios.size(); ++i) {
+        if (i != 0)
+            ss << '/';
+        ss << ratios[i];
+    }
+    return ss.str();
+}
+
+static std::string swatch_mix_key(const CCS::SwatchSpec &spec)
+{
+    std::ostringstream ss;
+    ss << spec.filaments.size() << ':';
+    for (const CCS::FilamentSlot &filament : spec.filaments)
+        ss << filament.slot << ':';
+    for (const int ratio : spec.ratios)
+        ss << ratio << ':';
+    return ss.str();
+}
+
+static int find_existing_pair_virtual_id(const MixedFilamentManager &mgr,
+                                         size_t num_physical,
+                                         unsigned int a,
+                                         unsigned int b,
+                                         int mix_b_percent,
+                                         int ratio_a,
+                                         int ratio_b)
+{
+    const std::vector<MixedFilament> &mixed = mgr.mixed_filaments();
+    size_t enabled_seen = 0;
+    for (size_t i = 0; i < mixed.size(); ++i) {
+        const MixedFilament &mf = mixed[i];
+        if (!mf.enabled || mf.deleted)
+            continue;
+        if (mf.component_a == a && mf.component_b == b &&
+            mf.mix_b_percent == mix_b_percent &&
+            mf.ratio_a == ratio_a && mf.ratio_b == ratio_b &&
+            mf.distribution_mode == int(MixedFilament::LayerCycle) &&
+            mf.manual_pattern.empty() && mf.gradient_component_ids.empty() && mf.gradient_component_weights.empty())
+            return int(num_physical + enabled_seen + 1);
+        ++enabled_seen;
+    }
+    return 0;
+}
+
+static int find_existing_gradient_virtual_id(const MixedFilamentManager &mgr,
+                                             size_t num_physical,
+                                             const std::string &component_ids,
+                                             const std::string &component_weights)
+{
+    const std::vector<MixedFilament> &mixed = mgr.mixed_filaments();
+    size_t enabled_seen = 0;
+    for (size_t i = 0; i < mixed.size(); ++i) {
+        const MixedFilament &mf = mixed[i];
+        if (!mf.enabled || mf.deleted)
+            continue;
+        if (mf.gradient_component_ids == component_ids && mf.gradient_component_weights == component_weights)
+            return int(num_physical + enabled_seen + 1);
+        ++enabled_seen;
+    }
+    return 0;
+}
+
+static bool swatch_mixed_recipe_exists(const MixedFilamentManager &mgr,
+                                       size_t                      num_physical,
+                                       const CCS::SwatchSpec      &spec)
+{
+    if (num_physical < 2 || spec.filaments.size() < 2 || spec.ratios.size() != spec.filaments.size())
+        return true;
+
+    if (spec.filaments.size() == 2) {
+        const unsigned int a = spec.filaments[0].slot;
+        const unsigned int b = spec.filaments[1].slot;
+        if (a < 1 || b < 1 || a > num_physical || b > num_physical)
+            return true;
+
+        const int ratio_a = std::max(1, spec.ratios[0]);
+        const int ratio_b = std::max(1, spec.ratios[1]);
+        const int ratio_total = std::max(1, ratio_a + ratio_b);
+        const int mix_b_percent = std::clamp(int(std::lround(100.0 * double(ratio_b) / double(ratio_total))), 1, 99);
+        return find_existing_pair_virtual_id(mgr, num_physical, a, b, mix_b_percent, ratio_a, ratio_b) > 0;
+    }
+
+    std::vector<unsigned int> component_ids;
+    component_ids.reserve(spec.filaments.size());
+    for (const CCS::FilamentSlot &filament : spec.filaments) {
+        if (filament.slot < 1 || filament.slot > num_physical)
+            return true;
+        component_ids.emplace_back(filament.slot);
+    }
+
+    const std::string encoded_ids = MixedFilamentManager::encode_gradient_component_ids(component_ids);
+    const std::string weights = ratio_weights_token(spec.ratios);
+    return find_existing_gradient_virtual_id(mgr, num_physical, encoded_ids, weights) > 0;
+}
+
+static size_t count_new_swatch_mixed_recipes(const CCS::SwatchPlan        &plan,
+                                             const MixedFilamentManager   &mgr,
+                                             size_t                        num_physical)
+{
+    std::set<std::string> new_recipe_keys;
+    for (const CCS::SwatchRecord &record : plan.records) {
+        const CCS::SwatchSpec &spec = record.spec;
+        if (spec.ratios.empty())
+            continue;
+
+        const std::string key = swatch_mix_key(spec);
+        if (new_recipe_keys.count(key) != 0)
+            continue;
+        if (!swatch_mixed_recipe_exists(mgr, num_physical, spec))
+            new_recipe_keys.emplace(key);
+    }
+    return new_recipe_keys.size();
+}
+
+static bool validate_swatch_mixed_capacity(PresetBundle                 *preset_bundle,
+                                           const std::vector<std::string> &physical_colors,
+                                           const CCS::SwatchPlan          &plan,
+                                           wxString                       &message)
+{
+    if (preset_bundle == nullptr || physical_colors.size() < 2)
+        return true;
+
+    const size_t num_physical = physical_colors.size();
+    const size_t current_total = preset_bundle->mixed_filaments.total_filaments(num_physical);
+    const size_t available = current_total < MAXIMUM_FILAMENT_NUMBER ? MAXIMUM_FILAMENT_NUMBER - current_total : 0;
+    const size_t needed = count_new_swatch_mixed_recipes(plan, preset_bundle->mixed_filaments, num_physical);
+    if (needed <= available)
+        return true;
+
+    message = wxString::Format(
+        _L("This swatch set needs %zu new mixed filament definitions, but only %zu slot(s) are available "
+           "under the %zu total filament limit. Reduce Max 1-to-many ratio, disable some swatch families, "
+           "or remove existing mixed filaments."),
+        needed,
+        available,
+        size_t(MAXIMUM_FILAMENT_NUMBER));
+    return false;
+}
+
+static int ensure_virtual_mixed_extruder(PresetBundle *preset_bundle,
+                                         const std::vector<std::string> &physical_colors,
+                                         const CCS::SwatchSpec &spec,
+                                         std::map<std::string, int> &virtual_ids,
+                                         bool &created_mixed_filament)
+{
+    if (preset_bundle == nullptr || physical_colors.size() < 2 || spec.filaments.size() < 2 || spec.ratios.size() != spec.filaments.size())
+        return dominant_physical_extruder(spec);
+
+    if (const auto it = virtual_ids.find(swatch_mix_key(spec)); it != virtual_ids.end())
+        return it->second;
+
+    const size_t num_physical = physical_colors.size();
+    auto &mgr = preset_bundle->mixed_filaments;
+
+    if (spec.filaments.size() == 2) {
+        const unsigned int a = spec.filaments[0].slot;
+        const unsigned int b = spec.filaments[1].slot;
+        if (a < 1 || b < 1 || a > num_physical || b > num_physical)
+            return dominant_physical_extruder(spec);
+
+        const int ratio_a = std::max(1, spec.ratios[0]);
+        const int ratio_b = std::max(1, spec.ratios[1]);
+        const int ratio_total = std::max(1, ratio_a + ratio_b);
+        const int mix_b_percent = std::clamp(int(std::lround(100.0 * double(ratio_b) / double(ratio_total))), 1, 99);
+
+        if (const int existing_id = find_existing_pair_virtual_id(mgr, num_physical, a, b, mix_b_percent, ratio_a, ratio_b);
+            existing_id > 0) {
+            virtual_ids.emplace(swatch_mix_key(spec), existing_id);
+            return existing_id;
+        }
+
+        const size_t before_enabled = mgr.enabled_count();
+        const int virtual_id = int(num_physical + before_enabled + 1);
+        mgr.add_custom_filament(a, b, mix_b_percent, physical_colors);
+        if (mgr.enabled_count() <= before_enabled)
+            return dominant_physical_extruder(spec);
+
+        std::vector<MixedFilament> &mixed = mgr.mixed_filaments();
+        MixedFilament &created = mixed.back();
+        created.ratio_a = ratio_a;
+        created.ratio_b = ratio_b;
+        created.mix_b_percent = mix_b_percent;
+        created.distribution_mode = int(MixedFilament::LayerCycle);
+        created.custom = true;
+
+        created_mixed_filament = true;
+        virtual_ids.emplace(swatch_mix_key(spec), virtual_id);
+        return virtual_id;
+    }
+
+    std::vector<unsigned int> component_ids;
+    component_ids.reserve(spec.filaments.size());
+    for (const CCS::FilamentSlot &filament : spec.filaments) {
+        if (filament.slot < 1 || filament.slot > num_physical)
+            return dominant_physical_extruder(spec);
+        component_ids.emplace_back(filament.slot);
+    }
+
+    const std::string encoded_ids = MixedFilamentManager::encode_gradient_component_ids(component_ids);
+    const std::string weights = ratio_weights_token(spec.ratios);
+    if (const int existing_id = find_existing_gradient_virtual_id(mgr, num_physical, encoded_ids, weights); existing_id > 0) {
+        virtual_ids.emplace(swatch_mix_key(spec), existing_id);
+        return existing_id;
+    }
+
+    const size_t before_enabled = mgr.enabled_count();
+    const int virtual_id = int(num_physical + before_enabled + 1);
+    mgr.add_custom_filament(component_ids[0], component_ids[1], 50, physical_colors);
+    if (mgr.enabled_count() <= before_enabled)
+        return dominant_physical_extruder(spec);
+
+    std::vector<MixedFilament> &mixed = mgr.mixed_filaments();
+    MixedFilament &created = mixed.back();
+    created.gradient_component_ids = encoded_ids;
+    created.gradient_component_weights = weights;
+    created.distribution_mode = int(MixedFilament::LayerCycle);
+    created.custom = true;
+
+    std::vector<std::pair<std::string, int>> color_percents;
+    color_percents.reserve(component_ids.size());
+    for (size_t i = 0; i < component_ids.size(); ++i)
+        color_percents.emplace_back(physical_colors[component_ids[i] - 1], spec.ratios[i]);
+    created.display_color = MixedFilamentManager::blend_color_multi(color_percents);
+
+    created_mixed_filament = true;
+    virtual_ids.emplace(swatch_mix_key(spec), virtual_id);
+    return virtual_id;
+}
+
+static int swatch_extruder_id(PresetBundle *preset_bundle,
+                              const std::vector<std::string> &physical_colors,
+                              const CCS::SwatchSpec &spec,
+                              std::map<std::string, int> &virtual_ids,
+                              bool &created_mixed_filament)
+{
+    if (spec.ratios.empty())
+        return dominant_physical_extruder(spec);
+    return ensure_virtual_mixed_extruder(preset_bundle, physical_colors, spec, virtual_ids, created_mixed_filament);
+}
+
+static int backing_extruder_id(const CCS::Backing &backing, const CCS::SwatchSpec &spec)
+{
+    if (backing.slot > 0)
+        return int(backing.slot);
+    return dominant_physical_extruder(spec);
+}
+
+static void persist_mixed_filament_definitions(PresetBundle *preset_bundle)
+{
+    if (preset_bundle == nullptr || !preset_bundle->project_config.has("mixed_filament_definitions"))
+        return;
+    if (ConfigOptionString *opt = preset_bundle->project_config.option<ConfigOptionString>("mixed_filament_definitions"))
+        opt->value = preset_bundle->mixed_filaments.serialize_custom_entries();
+}
+
+struct PlateLabelSummary
+{
+    size_t swatches = 0;
+    size_t pair     = 0;
+    size_t ternary  = 0;
+};
+
+static std::string label_decimal(double value)
+{
+    if (std::abs(value) < 0.0005)
+        value = 0.0;
+
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(3) << value;
+    std::string out = ss.str();
+    while (!out.empty() && out.back() == '0')
+        out.pop_back();
+    if (!out.empty() && out.back() == '.')
+        out.pop_back();
+    return out.empty() ? std::string("0") : out;
+}
+
+static std::map<unsigned int, PlateLabelSummary> plate_label_summaries(const CCS::SwatchPlan &plan)
+{
+    std::map<unsigned int, PlateLabelSummary> summaries;
+    for (const CCS::SwatchRecord &record : plan.records) {
+        PlateLabelSummary &summary = summaries[record.position.plate_index];
+        ++summary.swatches;
+        if (record.spec.type == CCS::SwatchType::PairMix || record.spec.type == CCS::SwatchType::PairOrder)
+            ++summary.pair;
+        else if (record.spec.type == CCS::SwatchType::TernaryMix)
+            ++summary.ternary;
+    }
+    return summaries;
+}
+
+static std::string make_plate_label_text(const CCS::SwatchGeneratorConfig &config,
+                                         const PlateLabelSummary          &summary,
+                                         unsigned int                      plate_index,
+                                         size_t                            plate_count)
+{
+    std::ostringstream ss;
+    if (!config.plate_label.title.empty())
+        ss << config.plate_label.title << '\n';
+    ss << "Plate " << (plate_index + 1) << "/" << std::max<size_t>(plate_count, 1) << '\n';
+    ss << "Swatches " << summary.swatches << '\n';
+    ss << "Width " << label_decimal(config.layout.chip_width_mm) << "mm"
+       << "  Depth " << label_decimal(config.anchor_thickness_mm) << "mm" << '\n';
+    ss << "Layer " << label_decimal(config.nominal_layer_height_mm) << "mm" << '\n';
+    ss << "Pair " << summary.pair << "  Ternary " << summary.ternary;
+    return ss.str();
+}
+
+static TriangleMesh make_plate_label_mesh(const std::string &text,
+                                          const CCS::PlateLabelOptions &label,
+                                          const CCS::SwatchLayoutOptions &layout)
+{
+    CCS::BackTextFormatOptions text_options;
+    text_options.mirror          = false;
+    text_options.wrap_lines      = false;
+    text_options.text_size_mm    = label.text_size_mm;
+    text_options.text_depth_mm   = label.text_depth_mm;
+    text_options.line_spacing_mm = 0.55;
+    text_options.margin_mm       = 0.5;
+
+    const double label_width = std::max(1.0, std::min(label.reserved_width_mm, layout.plate_width_mm - 2.0 * label.margin_x_mm));
+    const double label_depth = std::max(1.0, label.reserved_height_mm - 2.0);
+    return make_back_text_mesh(text, text_options, label_width, label_depth, label.stroke_width_mm);
+}
+
+static int plate_label_extruder(const CCS::SwatchGeneratorConfig &config)
+{
+    return config.filaments.empty() ? 1 : int(config.filaments.front().slot);
+}
+
+static TriangleMesh make_spectro_jig_disk(double diameter_mm, double thickness_mm)
+{
+    return make_cylinder(std::max(1.0, diameter_mm * 0.5), std::max(0.2, thickness_mm));
+}
+
+static TriangleMesh make_spectro_jig_wall(const CCS::SpectroJigOptions &jig)
+{
+    if (!jig.wall_enabled || jig.wall_thickness_mm <= 0.0 || jig.wall_height_mm <= 0.0 || jig.wall_arc_degrees <= 0.0)
+        return {};
+
+    const double inner_radius = std::max(1.0, jig.diameter_mm * 0.5 + std::max(0.0, jig.ring_clearance_mm));
+    const double outer_radius = inner_radius + std::max(0.1, jig.wall_thickness_mm);
+    const double height = std::max(std::max(0.2, jig.thickness_mm), jig.wall_height_mm);
+    const double arc = std::clamp(jig.wall_arc_degrees, 5.0, 360.0) * std::acos(-1.0) / 180.0;
+    const double center_angle = std::acos(-1.0) * 0.5;
+    const double start_angle = center_angle - arc * 0.5;
+    const unsigned int segments = std::max(8u, static_cast<unsigned int>(std::ceil(arc / (std::acos(-1.0) / 48.0))));
+
+    std::vector<Vec3f> vertices;
+    std::vector<Vec3i32> faces;
+    vertices.reserve(size_t(segments + 1) * 4);
+    faces.reserve(size_t(segments) * 8 + 4);
+
+    for (unsigned int i = 0; i <= segments; ++i) {
+        const double angle = start_angle + arc * double(i) / double(segments);
+        const float c = float(std::cos(angle));
+        const float s = float(std::sin(angle));
+        vertices.emplace_back(Vec3f(float(inner_radius) * c, float(inner_radius) * s, 0.f));
+        vertices.emplace_back(Vec3f(float(outer_radius) * c, float(outer_radius) * s, 0.f));
+        vertices.emplace_back(Vec3f(float(inner_radius) * c, float(inner_radius) * s, float(height)));
+        vertices.emplace_back(Vec3f(float(outer_radius) * c, float(outer_radius) * s, float(height)));
+    }
+
+    for (unsigned int i = 0; i < segments; ++i) {
+        const int a = int(i * 4);
+        const int b = int((i + 1) * 4);
+
+        faces.emplace_back(a + 1, b + 1, b + 3);
+        faces.emplace_back(a + 1, b + 3, a + 3);
+        faces.emplace_back(a + 0, b + 2, b + 0);
+        faces.emplace_back(a + 0, a + 2, b + 2);
+        faces.emplace_back(a + 2, a + 3, b + 3);
+        faces.emplace_back(a + 2, b + 3, b + 2);
+        faces.emplace_back(a + 0, b + 0, b + 1);
+        faces.emplace_back(a + 0, b + 1, a + 1);
+    }
+
+    const int first = 0;
+    const int last = int(segments * 4);
+    faces.emplace_back(first + 0, first + 1, first + 3);
+    faces.emplace_back(first + 0, first + 3, first + 2);
+    faces.emplace_back(last + 0, last + 3, last + 1);
+    faces.emplace_back(last + 0, last + 2, last + 3);
+
+    return TriangleMesh(std::move(vertices), std::move(faces));
+}
+
+static TriangleMesh make_spectro_jig_cutout(const CCS::SwatchGeneratorConfig &config)
+{
+    const double clearance = std::max(0.0, config.spectro_jig.clearance_mm);
+    const double width = std::max(1.0, config.layout.chip_width_mm + clearance);
+    const double depth = std::max(1.0, config.layout.chip_depth_mm + clearance);
+    const double height = std::max(0.4, config.spectro_jig.thickness_mm + 0.8);
+
+    TriangleMesh mesh = make_cube(width, depth, height);
+    mesh.translate(Vec3f(float(-width * 0.5), float(-depth * 0.5), -0.4f));
+    return mesh;
+}
+
+static double spectro_jig_footprint_radius(const CCS::SwatchGeneratorConfig &config)
+{
+    double radius = std::max(1.0, config.spectro_jig.diameter_mm * 0.5);
+    if (config.spectro_jig.wall_enabled)
+        radius += std::max(0.0, config.spectro_jig.ring_clearance_mm) + std::max(0.0, config.spectro_jig.wall_thickness_mm);
+    return radius;
+}
+
+struct SwatchLayoutRect
+{
+    double min_x = 0.0;
+    double min_y = 0.0;
+    double max_x = 0.0;
+    double max_y = 0.0;
+};
+
+static bool swatch_rects_overlap(const SwatchLayoutRect &a, const SwatchLayoutRect &b)
+{
+    return a.min_x < b.max_x && a.max_x > b.min_x && a.min_y < b.max_y && a.max_y > b.min_y;
+}
+
+static bool swatch_rect_fits_plate(const SwatchLayoutRect &rect, const CCS::SwatchLayoutOptions &layout)
+{
+    return rect.min_x >= layout.margin_x_mm - 1e-6 &&
+           rect.min_y >= layout.margin_y_mm - 1e-6 &&
+           rect.max_x <= layout.plate_width_mm - layout.margin_x_mm + 1e-6 &&
+           rect.max_y <= layout.plate_depth_mm - layout.margin_y_mm + 1e-6;
+}
+
+static bool prime_tower_reserved_rect(const CCS::SwatchGeneratorConfig &config, SwatchLayoutRect &rect)
+{
+    const CCS::SwatchLayoutOptions &layout = config.layout;
+    if (!layout.reserve_prime_tower || layout.prime_tower_width_mm <= 0.0 || layout.prime_tower_depth_mm <= 0.0)
+        return false;
+
+    const double min_x = layout.margin_x_mm;
+    const double max_x = std::min(layout.plate_width_mm - layout.margin_x_mm, min_x + layout.prime_tower_width_mm);
+    const double max_y = layout.plate_depth_mm - layout.margin_y_mm;
+    const double min_y = std::max(layout.margin_y_mm, max_y - layout.prime_tower_depth_mm);
+    if (min_x >= max_x || min_y >= max_y)
+        return false;
+
+    rect = { min_x, min_y, max_x, max_y };
+    return true;
+}
+
+static bool plate_label_reserved_rect(const CCS::SwatchGeneratorConfig &config, SwatchLayoutRect &rect)
+{
+    if (!config.plate_label.enabled || config.plate_label.reserved_height_mm <= 0.0 || config.plate_label.reserved_width_mm <= 0.0)
+        return false;
+
+    const double max_x = std::max(config.layout.margin_x_mm, config.layout.plate_width_mm - config.plate_label.margin_x_mm);
+    const double min_x = std::max(config.layout.margin_x_mm, max_x - config.plate_label.reserved_width_mm);
+    const double min_y = config.layout.margin_y_mm;
+    const double max_y = std::min(config.layout.plate_depth_mm - config.layout.margin_y_mm,
+                                  min_y + config.plate_label.reserved_height_mm);
+    if (min_x >= max_x || min_y >= max_y)
+        return false;
+
+    rect = { min_x, min_y, max_x, max_y };
+    return true;
+}
+
+static std::vector<SwatchLayoutRect> base_swatch_layout_blockers(const CCS::SwatchGeneratorConfig &config)
+{
+    std::vector<SwatchLayoutRect> blockers;
+
+    SwatchLayoutRect rect;
+    if (plate_label_reserved_rect(config, rect))
+        blockers.emplace_back(rect);
+    if (prime_tower_reserved_rect(config, rect))
+        blockers.emplace_back(rect);
+
+    return blockers;
+}
+
+static CCS::PlatePosition spectro_jig_position(const CCS::SwatchGeneratorConfig &config)
+{
+    CCS::PlatePosition position;
+    position.plate_index = 0;
+
+    const CCS::SwatchLayoutOptions &layout = config.layout;
+    const double radius = spectro_jig_footprint_radius(config);
+    const double min_x = layout.margin_x_mm + radius;
+    const double max_x = layout.plate_width_mm - layout.margin_x_mm - radius;
+    const double min_y = layout.margin_y_mm + radius;
+    const double max_y = layout.plate_depth_mm - layout.margin_y_mm - radius;
+
+    const std::vector<Vec2d> candidates {
+        Vec2d(max_x, max_y),
+        Vec2d(min_x, min_y),
+        Vec2d(max_x, min_y)
+    };
+    const std::vector<SwatchLayoutRect> blockers = base_swatch_layout_blockers(config);
+
+    for (const Vec2d &candidate : candidates) {
+        const SwatchLayoutRect rect {
+            candidate.x() - radius,
+            candidate.y() - radius,
+            candidate.x() + radius,
+            candidate.y() + radius
+        };
+        if (!swatch_rect_fits_plate(rect, layout))
+            continue;
+        const bool blocked = std::any_of(blockers.begin(), blockers.end(), [&rect](const SwatchLayoutRect &blocker) {
+            return swatch_rects_overlap(rect, blocker);
+        });
+        if (blocked)
+            continue;
+
+        position.x_mm = candidate.x();
+        position.y_mm = candidate.y();
+        return position;
+    }
+
+    position.x_mm = std::clamp(max_x, radius, std::max(radius, layout.plate_width_mm - radius));
+    position.y_mm = std::clamp(max_y, radius, std::max(radius, layout.plate_depth_mm - radius));
+    return position;
+}
+
+static Vec3d plate_label_position(const CCS::SwatchGeneratorConfig &config)
+{
+    const double label_width = std::max(1.0, std::min(config.plate_label.reserved_width_mm,
+                                                      config.layout.plate_width_mm - 2.0 * config.plate_label.margin_x_mm));
+    const double label_height = std::max(1.0, config.plate_label.reserved_height_mm);
+    const double x = config.layout.plate_width_mm - config.plate_label.margin_x_mm - label_width * 0.5;
+    const double y = config.layout.margin_y_mm + label_height * 0.5;
+    return Vec3d(x, y, 0.0);
+}
+
+static bool write_swatch_manifest_files(const CCS::SwatchPlan             &plan,
+                                        const CCS::SwatchGeneratorConfig  &config,
+                                        const std::string                 &manifest_dir,
+                                        std::string                       &error)
+{
+    if (manifest_dir.empty())
+        return true;
+
+    auto sanitize_hex_token = [](const std::string &color) {
+        std::string token;
+        token.reserve(color.size());
+        for (char ch : color) {
+            const unsigned char uch = static_cast<unsigned char>(ch);
+            if (std::isxdigit(uch))
+                token.push_back(char(std::toupper(uch)));
+        }
+        return token.empty() ? std::string("NA") : token;
+    };
+
+    auto sanitize_filename_token = [](const std::string &value, const std::string &fallback) {
+        std::string token;
+        token.reserve(value.size());
+        bool pending_separator = false;
+        for (char ch : value) {
+            const unsigned char uch = static_cast<unsigned char>(ch);
+            if (std::isalnum(uch)) {
+                if (pending_separator && !token.empty())
+                    token.push_back('-');
+                token.push_back(char(ch));
+                pending_separator = false;
+            } else if (ch == '-' || ch == '_') {
+                if (!token.empty()) {
+                    token.push_back(ch);
+                    pending_separator = false;
+                }
+            } else if (!token.empty()) {
+                pending_separator = true;
+            }
+
+            if (token.size() >= 48)
+                break;
+        }
+
+        while (!token.empty() && (token.back() == '-' || token.back() == '_'))
+            token.pop_back();
+        return token.empty() ? fallback : token;
+    };
+
+    auto timestamp_token = []() {
+        const auto now = std::chrono::system_clock::now();
+        const std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+        const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
+        std::tm local_time {};
+#ifdef _WIN32
+        localtime_s(&local_time, &now_time);
+#else
+        localtime_r(&now_time, &local_time);
+#endif
+        std::ostringstream ss;
+        ss << std::put_time(&local_time, "%Y%m%d_%H%M%S") << "_" << std::setw(3) << std::setfill('0') << millis;
+        return ss.str();
+    };
+
+    std::map<unsigned int, std::string> filament_colors;
+    for (const CCS::SwatchRecord &record : plan.records) {
+        for (const CCS::FilamentSlot &filament : record.spec.filaments)
+            if (!filament.color_hex.empty())
+                filament_colors.emplace(filament.slot, sanitize_hex_token(filament.color_hex));
+    }
+
+    const std::string title_token = sanitize_filename_token(config.plate_label.title, "Calibration-Swatch");
+    std::string stem = title_token +
+        "_SC" + std::to_string(plan.records.size()) +
+        "_LH" + CCS::format_decimal_token(plan.nominal_layer_height_mm) +
+        "_SD" + CCS::format_decimal_token(plan.swatch_depth_mm);
+    for (const auto &[slot, color] : filament_colors)
+        stem += "_" + color;
+    stem += "_" + timestamp_token();
+
+    try {
+        fs::path dir(manifest_dir);
+        if (!fs::exists(dir))
+            fs::create_directories(dir);
+
+        const fs::path json_path = dir / (stem + ".manifest.json");
+        const fs::path csv_path  = dir / (stem + ".csv");
+
+        {
+            boost::nowide::ofstream out(json_path.string());
+            if (!out) {
+                error = "Failed to write " + json_path.string();
+                return false;
+            }
+            out << CCS::manifest_json_string(plan, json_path.filename().string(), csv_path.filename().string());
+        }
+        {
+            boost::nowide::ofstream out(csv_path.string());
+            if (!out) {
+                error = "Failed to write " + csv_path.string();
+                return false;
+            }
+            out << CCS::manifest_csv_string(plan);
+        }
+    } catch (const std::exception &ex) {
+        error = ex.what();
+        return false;
+    }
+
+    return true;
+}
+
+static void add_named_volume(ModelObject *object,
+                             size_t object_idx,
+                             TriangleMesh &&mesh,
+                             ModelVolumeType volume_type,
+                             const std::string &name,
+                             int extruder_id,
+                             bool text_volume,
+                             const std::string &text,
+                             double text_size_mm,
+                             double text_stroke_width_mm = 0.0)
+{
+    ModelVolume *volume = object->add_volume(std::move(mesh), volume_type, false);
+    volume->name = name;
+    set_volume_source(volume, object_idx, object->volumes.size() - 1);
+    set_volume_extruder(volume, extruder_id);
+    if (text_volume) {
+        TextConfiguration text_config;
+        text_config.text = text;
+        text_config.style.name = "Calibration Swatch";
+        text_config.style.prop.size_in_mm = float(text_size_mm);
+        if (text_stroke_width_mm > 0.0)
+            text_config.style.prop.boldness = float(text_stroke_width_mm);
+        volume->text_configuration = std::move(text_config);
+    }
+}
+
+} // namespace
+
+namespace CCS = ColorCalibrationSwatches;
+
+void Plater::generate_calibration_swatches(const CCS::SwatchGeneratorConfig &config, const std::string &manifest_dir)
+{
+    CCS::SwatchPlan plan = CCS::generate_swatch_plan(config);
+    const std::vector<CCS::ValidationIssue> issues = CCS::validate_swatch_plan(plan, config);
+    for (const CCS::ValidationIssue &issue : issues) {
+        if (issue.severity == CCS::ValidationSeverity::Error) {
+            MessageDialog(this, wxString::FromUTF8(issue.message.c_str()), _L("Calibration swatches"), wxOK | wxICON_WARNING).ShowModal();
+            return;
+        }
+    }
+
+    if (plan.records.empty()) {
+        MessageDialog(this, _L("No calibration swatches were generated."), _L("Calibration swatches"), wxOK | wxICON_WARNING).ShowModal();
+        return;
+    }
+
+    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+    std::vector<std::string> physical_colors = get_extruder_colors_from_plater_config(nullptr, false);
+    size_t max_slot = 0;
+    for (const CCS::FilamentSlot &filament : config.filaments)
+        max_slot = std::max<size_t>(max_slot, filament.slot);
+    physical_colors.resize(max_slot, "#26A69A");
+
+    wxString capacity_error;
+    if (!validate_swatch_mixed_capacity(preset_bundle, physical_colors, plan, capacity_error)) {
+        MessageDialog(this, capacity_error, _L("Calibration swatches"), wxOK | wxICON_WARNING).ShowModal();
+        return;
+    }
+
+    if (new_project(false, false, _L("Calibration Swatches")) == wxID_CANCEL)
+        return;
+
+    wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
+
+    if (preset_bundle != nullptr && physical_colors.size() >= 2)
+        preset_bundle->mixed_filaments.set_display_context(build_mixed_filament_display_context(physical_colors));
+
+    std::map<std::string, int> virtual_ids;
+    std::map<std::string, TriangleMesh> text_mesh_cache;
+    const std::map<unsigned int, PlateLabelSummary> plate_summaries = plate_label_summaries(plan);
+    const size_t plate_count = plate_summaries.empty() ? 0 : size_t(plate_summaries.rbegin()->first) + 1;
+    std::vector<size_t> object_idxs;
+    object_idxs.reserve(plan.records.size() + (config.plate_label.enabled ? plate_summaries.size() : 0) +
+                        (config.spectro_jig.enabled ? 1 : 0));
+
+    bool created_mixed_filament = false;
+    size_t skipped_text_count = 0;
+    size_t skipped_plate_label_count = 0;
+
+    for (CCS::SwatchRecord &record : plan.records) {
+        ModelObject *object = model().add_object();
+        const size_t object_idx = model().objects.size() - 1;
+        object->name = record.object_name;
+        object->input_file.clear();
+
+        const int main_extruder = swatch_extruder_id(preset_bundle, physical_colors, record.spec, virtual_ids, created_mixed_filament);
+        object->config.set_key_value("extruder", new ConfigOptionInt(main_extruder));
+
+        const double face_width = std::max(1.0, config.layout.chip_width_mm);
+        const double face_height = std::max(1.0, config.layout.chip_depth_mm);
+        const double material_depth = std::max(0.2, record.spec.total_thickness_mm);
+        const double backing_depth = CCS::has_backing(record.spec.backing) ? std::max(0.2, std::min(0.4, material_depth * 0.25)) : 0.0;
+        const double total_depth = material_depth + backing_depth;
+        const double front_y = -total_depth * 0.5;
+        const double material_y = front_y;
+        const double backing_y = front_y + material_depth;
+        const double rear_y = total_depth * 0.5;
+
+        double top_height = 0.0;
+        if ((record.spec.type == CCS::SwatchType::PairOrder || record.spec.type == CCS::SwatchType::LayerLineStrip) &&
+            record.spec.top_material_slot > 0 && record.spec.top_layer_count > 0 && record.spec.layer_height_mm > 0.0)
+            top_height = std::min(face_height, record.spec.top_layer_count * record.spec.layer_height_mm);
+
+        const double body_height = std::max(0.0, face_height - top_height);
+        if (body_height > 0.0) {
+            add_named_volume(object,
+                             object_idx,
+                             make_side_coupon_block(face_width, material_depth, body_height, material_y, 0.0),
+                             ModelVolumeType::MODEL_PART,
+                             record.volume_names.empty() ? "chip_" + record.swatch_id : record.volume_names.front(),
+                             main_extruder,
+                             false,
+                             {},
+                             0.0);
+        }
+
+        if (top_height > 0.0) {
+            const std::string top_name = "top_" + std::to_string(record.spec.top_material_slot) + "_" + record.swatch_id;
+            record.volume_names.emplace_back(top_name);
+            add_named_volume(object,
+                             object_idx,
+                             make_side_coupon_block(face_width, material_depth, top_height, material_y, body_height),
+                             ModelVolumeType::MODEL_PART,
+                             top_name,
+                             int(record.spec.top_material_slot),
+                             false,
+                             {},
+                             0.0);
+        }
+
+        if (CCS::has_backing(record.spec.backing)) {
+            const std::string backing_name = "backing_" + record.swatch_id;
+            if (std::find(record.volume_names.begin(), record.volume_names.end(), backing_name) == record.volume_names.end())
+                record.volume_names.emplace_back(backing_name);
+            add_named_volume(object,
+                             object_idx,
+                             make_side_coupon_block(face_width, backing_depth, face_height, backing_y, 0.0),
+                             ModelVolumeType::MODEL_PART,
+                             backing_name,
+                             backing_extruder_id(record.spec.backing, record.spec),
+                             false,
+                             {},
+                             0.0);
+        }
+
+        if (config.back_text_format.enabled && !record.back_text.empty()) {
+            const std::string text_volume_name = "back_text_" + record.swatch_id;
+            CCS::BackTextFormatOptions text_options = config.back_text_format;
+            if (!text_options.embossed)
+                text_options.text_depth_mm = std::min(text_options.text_depth_mm, std::max(0.03, total_depth * 0.45));
+
+            const std::string text_cache_key = record.back_text + "\n@depth=" + CCS::format_decimal_token(text_options.text_depth_mm);
+            auto cache_it = text_mesh_cache.find(text_cache_key);
+            if (cache_it == text_mesh_cache.end()) {
+                TriangleMesh text_mesh = make_back_text_mesh(record.back_text,
+                                                             text_options,
+                                                             config.layout.chip_width_mm,
+                                                             config.layout.chip_depth_mm);
+                cache_it = text_mesh_cache.emplace(text_cache_key, std::move(text_mesh)).first;
+            }
+
+            if (!cache_it->second.empty()) {
+                TriangleMesh text_mesh = cache_it->second;
+                ModelVolumeType text_type = text_options.embossed ? ModelVolumeType::MODEL_PART : ModelVolumeType::NEGATIVE_VOLUME;
+                place_text_on_rear_side(text_mesh, text_options, rear_y, face_height);
+                add_named_volume(object,
+                                 object_idx,
+                                 std::move(text_mesh),
+                                 text_type,
+                                 text_volume_name,
+                                 main_extruder,
+                                 true,
+                                 record.back_text,
+                                 text_options.text_size_mm);
+            } else {
+                record.volume_names.erase(std::remove(record.volume_names.begin(), record.volume_names.end(), text_volume_name),
+                                          record.volume_names.end());
+                ++skipped_text_count;
+                record.warnings.emplace_back("back text mesh could not be generated");
+            }
+        }
+
+        object->add_instance();
+
+        size_t plate_idx = record.position.plate_index;
+        auto cur_plate = get_partplate_list().get_plate(plate_idx);
+        while (cur_plate == nullptr) {
+            get_partplate_list().create_plate();
+            cur_plate = get_partplate_list().get_plate(plate_idx);
+        }
+
+        get_partplate_list().add_to_plate(object_idx, 0, plate_idx);
+        object->instances[0]->set_offset(cur_plate->get_origin() + Vec3d(record.position.x_mm, record.position.y_mm, 0.0));
+        object->ensure_on_bed();
+        object_idxs.emplace_back(object_idx);
+    }
+
+    if (config.spectro_jig.enabled) {
+        const int jig_extruder = config.spectro_jig.filament_slot > 0 ? int(config.spectro_jig.filament_slot) : 1;
+        ModelObject *object = model().add_object();
+        const size_t object_idx = model().objects.size() - 1;
+        object->name = "CS_spectro_jig";
+        object->input_file.clear();
+        object->config.set_key_value("extruder", new ConfigOptionInt(jig_extruder));
+
+        add_named_volume(object,
+                         object_idx,
+                         make_spectro_jig_disk(config.spectro_jig.diameter_mm, config.spectro_jig.thickness_mm),
+                         ModelVolumeType::MODEL_PART,
+                         "spectro_jig_body",
+                         jig_extruder,
+                         false,
+                         {},
+                         0.0);
+        add_named_volume(object,
+                         object_idx,
+                         make_spectro_jig_cutout(config),
+                         ModelVolumeType::NEGATIVE_VOLUME,
+                         "swatch_cutout",
+                         jig_extruder,
+                         false,
+                         {},
+                         0.0);
+        if (config.spectro_jig.wall_enabled) {
+            TriangleMesh wall_mesh = make_spectro_jig_wall(config.spectro_jig);
+            if (!wall_mesh.empty()) {
+                add_named_volume(object,
+                                 object_idx,
+                                 std::move(wall_mesh),
+                                 ModelVolumeType::MODEL_PART,
+                                 "spectro_locator_wall",
+                                 jig_extruder,
+                                 false,
+                                 {},
+                                 0.0);
+            }
+        }
+        object->add_instance();
+
+        const CCS::PlatePosition jig_position = spectro_jig_position(config);
+        auto cur_plate = get_partplate_list().get_plate(jig_position.plate_index);
+        while (cur_plate == nullptr) {
+            get_partplate_list().create_plate();
+            cur_plate = get_partplate_list().get_plate(jig_position.plate_index);
+        }
+
+        get_partplate_list().add_to_plate(object_idx, 0, jig_position.plate_index);
+        object->instances[0]->set_offset(cur_plate->get_origin() + Vec3d(jig_position.x_mm, jig_position.y_mm, 0.0));
+        object->ensure_on_bed();
+        object_idxs.emplace_back(object_idx);
+    }
+
+    if (config.plate_label.enabled && config.plate_label.reserved_height_mm > 0.0) {
+        const int label_extruder = plate_label_extruder(config);
+        const Vec3d label_offset = plate_label_position(config);
+
+        for (const auto &[plate_idx, summary] : plate_summaries) {
+            const std::string label_text = make_plate_label_text(config, summary, plate_idx, plate_count);
+            TriangleMesh label_mesh = make_plate_label_mesh(label_text, config.plate_label, config.layout);
+            if (label_mesh.empty()) {
+                ++skipped_plate_label_count;
+                continue;
+            }
+
+            ModelObject *object = model().add_object();
+            const size_t object_idx = model().objects.size() - 1;
+            object->name = "CS_plate_label_" + std::to_string(plate_idx + 1);
+            object->input_file.clear();
+            object->config.set_key_value("extruder", new ConfigOptionInt(label_extruder));
+
+            add_named_volume(object,
+                             object_idx,
+                             std::move(label_mesh),
+                             ModelVolumeType::MODEL_PART,
+                             "plate_label_text",
+                             label_extruder,
+                             true,
+                             label_text,
+                             config.plate_label.text_size_mm,
+                             config.plate_label.stroke_width_mm);
+
+            object->add_instance();
+
+            auto cur_plate = get_partplate_list().get_plate(plate_idx);
+            while (cur_plate == nullptr) {
+                get_partplate_list().create_plate();
+                cur_plate = get_partplate_list().get_plate(plate_idx);
+            }
+
+            get_partplate_list().add_to_plate(object_idx, 0, plate_idx);
+            object->instances[0]->set_offset(cur_plate->get_origin() + label_offset);
+            object->ensure_on_bed();
+            object_idxs.emplace_back(object_idx);
+        }
+    }
+
+    if (created_mixed_filament) {
+        persist_mixed_filament_definitions(preset_bundle);
+        sidebar().update_mixed_filament_panel(false);
+        sidebar().update_color_mix_panel();
+    }
+
+    sidebar().obj_list()->add_objects_to_list(object_idxs);
+    changed_objects(object_idxs);
+
+    std::string manifest_error;
+    if (!write_swatch_manifest_files(plan, config, manifest_dir, manifest_error)) {
+        MessageDialog(this, wxString::FromUTF8(manifest_error.c_str()), _L("Calibration swatches"), wxOK | wxICON_WARNING).ShowModal();
+    }
+
+    wxString message = wxString::Format(_L("Generated %zu calibration swatches."), plan.records.size());
+    if (!manifest_dir.empty())
+        message += "\n" + _L("Manifest files were written.");
+    if (skipped_text_count > 0)
+        message += "\n" + wxString::Format(_L("%zu back text meshes could not be generated."), skipped_text_count);
+    if (skipped_plate_label_count > 0)
+        message += "\n" + wxString::Format(_L("%zu plate label meshes could not be generated."), skipped_plate_label_count);
+    if (config.spectro_jig.enabled)
+        message += "\n" + _L("Generated spectro jig.");
+    get_notification_manager()->push_notification(message.ToUTF8().data());
 }
 
 void Plater::calib_pa(const Calib_Params& params)

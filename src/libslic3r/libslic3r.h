@@ -61,11 +61,11 @@ static constexpr double SCALING_FACTOR_INTERNAL = 0.000001;
 static constexpr double SCALING_FACTOR_INTERNAL_LARGE_PRINTER = 0.00001;
 static constexpr double LARGE_BED_THRESHOLD = 2147;
 
-// Orca: maximum number of extruders is 64. For SEMM printers, it defines maximum filament number.
+// Orca: maximum number of physical extruders is 64.
 static constexpr size_t MAXIMUM_EXTRUDER_NUMBER = 64;
 
 // Combined upper limit for physical + mixed filaments.
-static constexpr size_t MAXIMUM_FILAMENT_NUMBER = 64;
+static constexpr size_t MAXIMUM_FILAMENT_NUMBER = 256;
 
 // Orca: maximum line width is 5 times the nozzle diameter
 static constexpr float MAX_LINE_WIDTH_MULTIPLIER = 5;

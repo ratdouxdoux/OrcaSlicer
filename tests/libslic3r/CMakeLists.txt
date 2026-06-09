@@ -6,6 +6,7 @@ add_executable(${_TEST_NAME}_tests
 	test_aabbindirect.cpp
 	test_clipper_offset.cpp
 	test_clipper_utils.cpp
+	test_color_calibration_swatches.cpp
 	test_config.cpp
 	test_custom_gcode.cpp
 	test_elephant_foot_compensation.cpp
