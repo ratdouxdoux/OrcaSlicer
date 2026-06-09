@@ -13,6 +13,7 @@
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/clrpicker.h>
+#include <wx/collpane.h>
 #include <wx/datetime.h>
 #include <wx/filedlg.h>
 #include <wx/filename.h>
@@ -214,28 +215,31 @@ public:
         toolbar->Add(clear_values, 0, wxRIGHT, FromDIP(8));
         root->Add(toolbar, 0, wxEXPAND | wxALL, FromDIP(12));
 
+        auto *metadata_pane = new wxCollapsiblePane(this, wxID_ANY, _L("Manifest and primaries"));
+        wxWindow *metadata_parent = metadata_pane->GetPane();
         auto *meta_grid = new wxFlexGridSizer(2, FromDIP(6), FromDIP(10));
         meta_grid->AddGrowableCol(1);
-        m_manifest_path = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_READONLY);
-        m_instrument    = new wxTextCtrl(this, wxID_ANY, "3nh CR9");
-        m_illuminant    = new wxTextCtrl(this, wxID_ANY, "D65");
-        m_observer      = new wxTextCtrl(this, wxID_ANY, "10");
-        m_geometry      = new wxTextCtrl(this, wxID_ANY, _L("side"));
+        metadata_parent->SetSizer(meta_grid);
+        m_manifest_path = new wxTextCtrl(metadata_parent, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_READONLY);
+        m_instrument    = new wxTextCtrl(metadata_parent, wxID_ANY, "3nh CR9");
+        m_illuminant    = new wxTextCtrl(metadata_parent, wxID_ANY, "D65");
+        m_observer      = new wxTextCtrl(metadata_parent, wxID_ANY, "10");
+        m_geometry      = new wxTextCtrl(metadata_parent, wxID_ANY, _L("side"));
         m_illuminant->SetToolTip(_L("Reference light used for Lab conversion."));
         m_observer->SetToolTip(_L("CIE standard observer angle, usually 2 or 10."));
-        add_meta_row(meta_grid, _L("Manifest"), m_manifest_path);
-        add_meta_row(meta_grid, _L("Instrument"), m_instrument);
-        add_meta_row(meta_grid, _L("Illuminant"), m_illuminant);
-        add_meta_row(meta_grid, _L("Observer"), m_observer);
-        add_meta_row(meta_grid, _L("Geometry"), m_geometry);
+        add_meta_row(meta_grid, metadata_parent, _L("Manifest"), m_manifest_path);
+        add_meta_row(meta_grid, metadata_parent, _L("Instrument"), m_instrument);
+        add_meta_row(meta_grid, metadata_parent, _L("Illuminant"), m_illuminant);
+        add_meta_row(meta_grid, metadata_parent, _L("Observer"), m_observer);
+        add_meta_row(meta_grid, metadata_parent, _L("Geometry"), m_geometry);
 
         auto *primary_colors_row = new wxBoxSizer(wxHORIZONTAL);
         for (size_t i = 0; i < m_primary_color_pickers.size(); ++i) {
-            primary_colors_row->Add(new wxStaticText(this, wxID_ANY, wxString::Format("%zu", i + 1)),
+            primary_colors_row->Add(new wxStaticText(metadata_parent, wxID_ANY, wxString::Format("%zu", i + 1)),
                                     0,
                                     wxALIGN_CENTER_VERTICAL | wxRIGHT,
                                     FromDIP(4));
-            m_primary_color_pickers[i] = new wxColourPickerCtrl(this,
+            m_primary_color_pickers[i] = new wxColourPickerCtrl(metadata_parent,
                                                                  wxID_ANY,
                                                                  wxColour(128, 128, 128),
                                                                  wxDefaultPosition,
@@ -243,17 +247,17 @@ public:
             m_primary_color_pickers[i]->Enable(false);
             primary_colors_row->Add(m_primary_color_pickers[i], 0, wxRIGHT, FromDIP(10));
         }
-        m_primary_color_status = new wxStaticText(this, wxID_ANY, _L("Load manifest"));
+        m_primary_color_status = new wxStaticText(metadata_parent, wxID_ANY, _L("Load manifest"));
         primary_colors_row->Add(m_primary_color_status, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(2));
-        add_meta_row(meta_grid, _L("Primary colors"), primary_colors_row);
+        add_meta_row(meta_grid, metadata_parent, _L("Primary colors"), primary_colors_row);
 
         auto *primary_td_row = new wxBoxSizer(wxHORIZONTAL);
         for (size_t i = 0; i < m_primary_td_inputs.size(); ++i) {
-            primary_td_row->Add(new wxStaticText(this, wxID_ANY, wxString::Format("%zu", i + 1)),
+            primary_td_row->Add(new wxStaticText(metadata_parent, wxID_ANY, wxString::Format("%zu", i + 1)),
                                 0,
                                 wxALIGN_CENTER_VERTICAL | wxRIGHT,
                                 FromDIP(4));
-            m_primary_td_inputs[i] = new wxTextCtrl(this,
+            m_primary_td_inputs[i] = new wxTextCtrl(metadata_parent,
                                                     wxID_ANY,
                                                     wxEmptyString,
                                                     wxDefaultPosition,
@@ -263,10 +267,10 @@ public:
             m_primary_td_inputs[i]->SetToolTip(_L("Transmission distance for this source filament. Leave empty if unknown."));
             primary_td_row->Add(m_primary_td_inputs[i], 0, wxRIGHT, FromDIP(10));
         }
-        m_primary_td_status = new wxStaticText(this, wxID_ANY, _L("Load manifest"));
+        m_primary_td_status = new wxStaticText(metadata_parent, wxID_ANY, _L("Load manifest"));
         primary_td_row->Add(m_primary_td_status, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(2));
-        add_meta_row(meta_grid, _L("Primary TD"), primary_td_row);
-        root->Add(meta_grid, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
+        add_meta_row(meta_grid, metadata_parent, _L("Primary TD"), primary_td_row);
+        root->Add(metadata_pane, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
 
         auto *measure_box = new wxBoxSizer(wxVERTICAL);
         m_next_sample = new wxStaticText(this, wxID_ANY, _L("Next sample: load a manifest"));
@@ -288,7 +292,7 @@ public:
         m_pass_delta_e->SetDigits(2);
         m_auto_advance = new wxCheckBox(this, wxID_ANY, _L("Auto advance"));
         m_auto_advance->SetValue(true);
-        add_meta_row(capture_grid, _L("Target takes"), m_target_takes);
+        add_meta_row(capture_grid, _L("Samples per swatch"), m_target_takes);
         add_meta_row(capture_grid, _L("Pass dE*ab"), m_pass_delta_e);
         add_meta_row(capture_grid, wxString(), m_auto_advance);
 
@@ -321,24 +325,43 @@ public:
         m_connect_serial = new wxButton(this, wxID_ANY, _L("Connect"));
         m_measure_serial = new wxButton(this, wxID_ANY, _L("Measure"));
         m_measure_serial->Enable(false);
+        m_measure_all_serial = new wxButton(this, wxID_ANY, _L("Measure All"));
+        m_measure_all_serial->Enable(false);
         serial_row->Add(m_port, 0, wxRIGHT, FromDIP(8));
         serial_row->Add(m_baud, 0, wxRIGHT, FromDIP(8));
         serial_row->Add(m_connect_serial, 0, wxRIGHT, FromDIP(8));
         serial_row->Add(m_measure_serial, 0, wxRIGHT, FromDIP(8));
+        serial_row->Add(m_measure_all_serial, 0, wxRIGHT, FromDIP(8));
         m_serial_status = new wxStaticText(this, wxID_ANY, _L("Disconnected"));
         serial_row->Add(m_serial_status, 0, wxALIGN_CENTER_VERTICAL);
         add_meta_row(capture_grid, _L("Spectro"), serial_row);
 
-        m_serial_log = new wxTextCtrl(this,
+        measure_box->Add(capture_grid, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
+
+        auto *protocol_pane = new wxCollapsiblePane(this, wxID_ANY, _L("Protocol log"));
+        wxWindow *protocol_parent = protocol_pane->GetPane();
+        auto *protocol_grid = new wxFlexGridSizer(2, FromDIP(6), FromDIP(10));
+        protocol_grid->AddGrowableCol(1);
+        protocol_parent->SetSizer(protocol_grid);
+        m_serial_log = new wxTextCtrl(protocol_parent,
                                       wxID_ANY,
                                       wxEmptyString,
                                       wxDefaultPosition,
                                       FromDIP(wxSize(-1, 64)),
                                       wxTE_MULTILINE | wxTE_READONLY);
-        add_meta_row(capture_grid, _L("Protocol"), m_serial_log);
+        add_meta_row(protocol_grid, protocol_parent, _L("Protocol"), m_serial_log);
+        measure_box->Add(protocol_pane, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
 
-        measure_box->Add(capture_grid, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
         root->Add(measure_box, 0, wxEXPAND);
+
+        auto relayout_after_collapse = [this](wxCollapsiblePaneEvent &event) {
+            Layout();
+            event.Skip();
+        };
+        metadata_pane->Bind(wxEVT_COLLAPSIBLEPANE_CHANGED, relayout_after_collapse);
+        protocol_pane->Bind(wxEVT_COLLAPSIBLEPANE_CHANGED, relayout_after_collapse);
+        metadata_pane->Collapse(true);
+        protocol_pane->Collapse(true);
 
         m_summary = new wxStaticText(this, wxID_ANY, _L("No manifest loaded"));
         root->Add(m_summary, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
@@ -414,6 +437,7 @@ public:
         clear_sample->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_clear_current_sample, this);
         m_connect_serial->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_toggle_serial, this);
         m_measure_serial->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_measure_serial, this);
+        m_measure_all_serial->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_measure_all_serial, this);
         Bind(wxEVT_TIMER, &ColorSwatchMeasurementPage::on_serial_timer, this, m_serial_timer->GetId());
         for (size_t i = 0; i < m_primary_color_pickers.size(); ++i) {
             if (m_primary_color_pickers[i] == nullptr)
@@ -461,8 +485,10 @@ public:
             event.Skip();
         });
         m_grid->Bind(wxEVT_GRID_SELECT_CELL, [this](wxGridEvent &event) {
-            if (const std::optional<size_t> swatch = swatch_for_grid_row(event.GetRow()))
+            if (const std::optional<size_t> swatch = swatch_for_grid_row(event.GetRow())) {
                 m_current_swatch = static_cast<int>(*swatch);
+                update_grid_row_visibility();
+            }
             update_next_sample();
             event.Skip();
         });
@@ -564,6 +590,12 @@ private:
         size_t take = 0;
     };
 
+    struct FailedTake
+    {
+        size_t index = 0;
+        double delta_e = 0.0;
+    };
+
     enum class PtsProtocolState
     {
         Disconnected,
@@ -580,16 +612,26 @@ private:
         wxString label;
     };
 
+    void add_meta_row(wxFlexGridSizer *grid, wxWindow *label_parent, const wxString &label, wxWindow *control)
+    {
+        grid->Add(new wxStaticText(label_parent, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+        grid->Add(control, 1, wxEXPAND);
+    }
+
+    void add_meta_row(wxFlexGridSizer *grid, wxWindow *label_parent, const wxString &label, wxSizer *sizer)
+    {
+        grid->Add(new wxStaticText(label_parent, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+        grid->Add(sizer, 1, wxEXPAND);
+    }
+
     void add_meta_row(wxFlexGridSizer *grid, const wxString &label, wxWindow *control)
     {
-        grid->Add(new wxStaticText(this, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
-        grid->Add(control, 1, wxEXPAND);
+        add_meta_row(grid, this, label, control);
     }
 
     void add_meta_row(wxFlexGridSizer *grid, const wxString &label, wxSizer *sizer)
     {
-        grid->Add(new wxStaticText(this, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
-        grid->Add(sizer, 1, wxEXPAND);
+        add_meta_row(grid, this, label, sizer);
     }
 
     static wxString format_reading(const LabReading &reading)
@@ -1332,6 +1374,48 @@ private:
         return delta_e_ab(delta) <= pass_delta_e_limit();
     }
 
+    int target_take_count() const
+    {
+        return std::max(m_target_takes != nullptr ? m_target_takes->GetValue() : 3, 1);
+    }
+
+    std::optional<FailedTake> failed_take_for_row(int row) const
+    {
+        if (row < 0 || static_cast<size_t>(row) >= m_rows.size())
+            return std::nullopt;
+
+        const std::vector<MeasurementTake> &takes = m_rows[static_cast<size_t>(row)].takes;
+        if (takes.size() < 3)
+            return std::nullopt;
+
+        FailedTake worst;
+        worst.delta_e = pass_delta_e_limit();
+        bool found = false;
+        for (size_t candidate = 0; candidate < takes.size(); ++candidate) {
+            LabReading avg;
+            for (size_t i = 0; i < takes.size(); ++i) {
+                if (i == candidate)
+                    continue;
+                avg.l += takes[i].lab.l;
+                avg.a += takes[i].lab.a;
+                avg.b += takes[i].lab.b;
+            }
+            const double count = double(takes.size() - 1);
+            avg.l /= count;
+            avg.a /= count;
+            avg.b /= count;
+
+            const double de = delta_e_ab(lab_delta(takes[candidate].lab, avg));
+            if (de > worst.delta_e) {
+                worst.index = candidate;
+                worst.delta_e = de;
+                found = true;
+            }
+        }
+
+        return found ? std::optional<FailedTake>(worst) : std::nullopt;
+    }
+
     void set_simulation_cell(int grid_row, const LabReading &reading)
     {
         const wxColour colour = lab_to_srgb_colour(reading);
@@ -1435,6 +1519,39 @@ private:
         }
     }
 
+    void update_grid_row_visibility()
+    {
+        if (m_grid == nullptr)
+            return;
+
+        const int current = active_row();
+        const wxColour active_bg(225, 241, 255);
+        const wxColour default_bg = m_grid->GetDefaultCellBackgroundColour();
+
+        m_grid->BeginBatch();
+        for (size_t row = 0; row < m_grid_rows.size(); ++row) {
+            const GridRowRef &ref = m_grid_rows[row];
+            const int grid_row = static_cast<int>(row);
+
+            if (ref.kind == GridRowKind::Take) {
+                if (static_cast<int>(ref.swatch) == current)
+                    m_grid->ShowRow(grid_row);
+                else
+                    m_grid->HideRow(grid_row);
+                continue;
+            }
+
+            const bool is_active = static_cast<int>(ref.swatch) == current;
+            for (int col = 0; col < ColCount; ++col) {
+                if (col == ColSim && !m_grid->GetCellValue(grid_row, col).empty())
+                    continue;
+                m_grid->SetCellBackgroundColour(grid_row, col, is_active ? active_bg : default_bg);
+            }
+        }
+        m_grid->EndBatch();
+        m_grid->ForceRefresh();
+    }
+
     void refresh_measurement_grid()
     {
         if (m_grid == nullptr)
@@ -1470,6 +1587,8 @@ private:
         m_refreshing_grid = false;
         if (previous_swatch >= 0 && static_cast<size_t>(previous_swatch) < m_rows.size())
             select_measurement_row(previous_swatch);
+        else
+            update_grid_row_visibility();
         m_grid->ForceRefresh();
     }
 
@@ -1496,7 +1615,7 @@ private:
         if (m_rows.empty())
             return -1;
         const int rows = static_cast<int>(m_rows.size());
-        const int target = std::max(m_target_takes->GetValue(), 1);
+        const int target = target_take_count();
         for (int pass = 0; pass < 2; ++pass) {
             const int begin = pass == 0 ? std::max(start, 0) : 0;
             const int end = pass == 0 ? rows : std::min(start, rows);
@@ -1517,6 +1636,7 @@ private:
             m_grid->SetGridCursor(grid_row, ColReadings);
             m_grid->SelectRow(grid_row);
         }
+        update_grid_row_visibility();
         update_next_sample();
     }
 
@@ -1584,7 +1704,7 @@ private:
                                                    last_take.lab.a,
                                                    last_take.lab.b));
 
-        if (m_auto_advance->GetValue() && int(readings.size()) >= std::max(m_target_takes->GetValue(), 1)) {
+        if (!m_measure_all_active && m_auto_advance->GetValue() && int(readings.size()) >= target_take_count()) {
             const int next = find_next_incomplete_row(row + 1);
             if (next >= 0)
                 select_measurement_row(next);
@@ -1592,6 +1712,9 @@ private:
 
         update_summary();
         update_next_sample();
+
+        if (m_measure_all_active && row == m_measure_all_row)
+            CallAfter([this]() { continue_measure_all(); });
     }
 
     void append_reading_to_row(int row, const LabReading &reading, const wxString &source)
@@ -1816,7 +1939,7 @@ private:
             { "illuminant", wx_to_u8(m_illuminant->GetValue()) },
             { "observer", wx_to_u8(m_observer->GetValue()) },
             { "measurement_geometry", wx_to_u8(m_geometry->GetValue()) },
-            { "target_take_count", std::max(m_target_takes->GetValue(), 1) }
+            { "target_take_count", target_take_count() }
         };
         out["records"] = nlohmann::json::array();
 
@@ -1855,7 +1978,7 @@ private:
                     measured["lab_average"] = measured["lab"];
                 }
                 measured["take_count"] = takes.size();
-                measured["target_take_count"] = std::max(m_target_takes->GetValue(), 1);
+                measured["target_take_count"] = target_take_count();
                 measured["pass_delta_e_ab"] = pass_delta_e_limit();
             }
 
@@ -1968,22 +2091,113 @@ private:
 #endif
     }
 
-    void on_measure_serial(wxCommandEvent &)
+    bool serial_ready_for_measurement()
     {
-#ifdef _WIN32
         if (!serial_connected()) {
             m_serial_status->SetLabel(_L("Disconnected"));
-            return;
+            return false;
         }
         if (m_rows.empty()) {
             MessageDialog(this, _L("Load a swatch manifest before measuring."), _L("Color swatch measurements"), wxOK | wxICON_WARNING).ShowModal();
-            return;
+            return false;
         }
         if (m_pts_state != PtsProtocolState::Ready) {
             m_serial_status->SetLabel(_L("Spectro is not ready"));
+            return false;
+        }
+        return true;
+    }
+
+    void stop_measure_all(const wxString &status)
+    {
+        m_measure_all_active = false;
+        m_measure_all_row = -1;
+        m_measure_all_attempts = 0;
+        m_measure_all_max_attempts = 0;
+        if (m_serial_status != nullptr && !status.empty())
+            m_serial_status->SetLabel(status);
+        update_serial_buttons();
+    }
+
+    void continue_measure_all()
+    {
+#ifdef _WIN32
+        if (!m_measure_all_active)
+            return;
+        if (m_measure_all_row < 0 || static_cast<size_t>(m_measure_all_row) >= m_rows.size()) {
+            stop_measure_all(_L("Measure All stopped"));
             return;
         }
+        if (!serial_connected()) {
+            stop_measure_all(_L("Measure All stopped: disconnected"));
+            return;
+        }
+        if (m_pts_state != PtsProtocolState::Ready)
+            return;
+
+        select_measurement_row(m_measure_all_row);
+        sync_row_takes_from_grid(m_measure_all_row);
+
+        const int target = target_take_count();
+        std::vector<MeasurementTake> &takes = m_rows[static_cast<size_t>(m_measure_all_row)].takes;
+        if (int(takes.size()) >= target) {
+            if (const std::optional<FailedTake> failed = failed_take_for_row(m_measure_all_row)) {
+                const size_t take_number = failed->index + 1;
+                takes.erase(takes.begin() + static_cast<std::ptrdiff_t>(failed->index));
+                refresh_measurement_grid();
+                select_measurement_row(m_measure_all_row);
+                const wxString message = wxString::Format(_L("Removed failed take %zu (dE %.2f); re-measuring"), take_number, failed->delta_e);
+                if (m_serial_status != nullptr)
+                    m_serial_status->SetLabel(message);
+                log_serial(_L("Measure All ") + message);
+            } else {
+                stop_measure_all(wxString::Format(_L("Measure All complete: %d/%d takes"), int(takes.size()), target));
+                return;
+            }
+        }
+
+        if (m_measure_all_attempts >= m_measure_all_max_attempts) {
+            stop_measure_all(wxString::Format(_L("Measure All stopped after %d attempts"), m_measure_all_attempts));
+            return;
+        }
+
+        const int next_take = int(takes.size()) + 1;
+        ++m_measure_all_attempts;
+        if (m_serial_status != nullptr)
+            m_serial_status->SetLabel(wxString::Format(_L("Measure All: take %d/%d"), std::min(next_take, target), target));
+        if (!send_pts_measure())
+            stop_measure_all(_L("Measure All stopped: could not start measurement"));
+#endif
+    }
+
+    void on_measure_serial(wxCommandEvent &)
+    {
+#ifdef _WIN32
+        if (!serial_ready_for_measurement())
+            return;
+        stop_measure_all(wxString());
         send_pts_measure();
+#endif
+    }
+
+    void on_measure_all_serial(wxCommandEvent &)
+    {
+#ifdef _WIN32
+        if (!serial_ready_for_measurement())
+            return;
+
+        const int row = active_row();
+        if (row < 0 || static_cast<size_t>(row) >= m_rows.size())
+            return;
+
+        sync_row_takes_from_grid(row);
+        m_measure_all_active = true;
+        m_measure_all_row = row;
+        m_measure_all_attempts = 0;
+        const int target = target_take_count();
+        m_measure_all_max_attempts = std::max(target * 3, target + 8);
+        select_measurement_row(row);
+        continue_measure_all();
 #endif
     }
 
@@ -2051,7 +2265,7 @@ private:
         write_serial_bytes({ 0x55, 0xAA, 0xA1, 0x00, 0x00, 0x00, 0x02, 0x00, 0x02 }, _L("TX"));
     }
 
-    void send_pts_measure()
+    bool send_pts_measure()
     {
         const std::vector<uint8_t> frame = make_pts_data_frame(m_pts_session, 0x23, { 0x00 });
         if (write_serial_bytes(frame, _L("TX"))) {
@@ -2059,7 +2273,9 @@ private:
             m_pts_measure_buffer.clear();
             m_serial_status->SetLabel(_L("Measuring"));
             update_serial_buttons();
+            return true;
         }
+        return false;
     }
 
     void queue_pts_lab_config()
@@ -2250,9 +2466,11 @@ private:
             if (m_pts_state == PtsProtocolState::Measuring)
                 m_pts_state = PtsProtocolState::Ready;
             m_serial_status->SetLabel(pts_record_is_spectrum(m_pts_measure_buffer) && illuminant != 0 ?
-                                      _L("Spectrum conversion currently supports D65") :
-                                      _L("Could not parse spectro reading"));
+                                          _L("Spectrum conversion currently supports D65") :
+                                          _L("Could not parse spectro reading"));
             update_serial_buttons();
+            if (m_measure_all_active)
+                CallAfter([this]() { continue_measure_all(); });
         }
         m_pts_measure_buffer.clear();
     }
@@ -2724,6 +2942,7 @@ private:
             select_measurement_row(0);
         update_summary();
         update_next_sample();
+        update_serial_buttons();
         return true;
     }
 
@@ -2759,7 +2978,7 @@ private:
     {
         if (row < 0 || static_cast<size_t>(row) >= m_rows.size())
             return false;
-        return int(readings_for_row(row).size()) >= std::max(m_target_takes->GetValue(), 1);
+        return int(readings_for_row(row).size()) >= target_take_count();
     }
 
     void update_summary()
@@ -2780,7 +2999,7 @@ private:
                                                  m_rows.size(),
                                                  measured,
                                                  complete,
-                                                 std::max(m_target_takes->GetValue(), 1)));
+                                                 target_take_count()));
     }
 
     void update_next_sample()
@@ -2793,7 +3012,7 @@ private:
         int row = active_row();
         if (row < 0 || static_cast<size_t>(row) >= m_rows.size())
             row = 0;
-        const int target = std::max(m_target_takes->GetValue(), 1);
+        const int target = target_take_count();
         const size_t takes = readings_for_row(row).size();
         m_next_sample->SetLabel(wxString::Format(_L("Next sample: %s  take %zu/%d"),
                                                  json_string_value(m_rows[static_cast<size_t>(row)].manifest_record, "swatch_id"),
@@ -2812,12 +3031,19 @@ private:
 
     void update_serial_buttons()
     {
+        const bool ready = serial_connected() && m_pts_state == PtsProtocolState::Ready && !m_rows.empty();
         if (m_measure_serial)
-            m_measure_serial->Enable(serial_connected() && m_pts_state == PtsProtocolState::Ready);
+            m_measure_serial->Enable(ready && !m_measure_all_active);
+        if (m_measure_all_serial)
+            m_measure_all_serial->Enable(ready && !m_measure_all_active);
     }
 
     void disconnect_serial()
     {
+        m_measure_all_active = false;
+        m_measure_all_row = -1;
+        m_measure_all_attempts = 0;
+        m_measure_all_max_attempts = 0;
         if (m_serial_timer)
             m_serial_timer->Stop();
 #ifdef _WIN32
@@ -2881,6 +3107,7 @@ private:
     wxTextCtrl *m_baud = nullptr;
     wxButton *m_connect_serial = nullptr;
     wxButton *m_measure_serial = nullptr;
+    wxButton *m_measure_all_serial = nullptr;
     wxStaticText *m_serial_status = nullptr;
     wxTextCtrl *m_serial_log = nullptr;
     wxStaticText *m_summary = nullptr;
@@ -2893,6 +3120,10 @@ private:
     bool m_refreshing_grid = false;
     bool m_updating_primary_colors = false;
     bool m_updating_primary_tds = false;
+    bool m_measure_all_active = false;
+    int m_measure_all_row = -1;
+    int m_measure_all_attempts = 0;
+    int m_measure_all_max_attempts = 0;
     std::string m_serial_buffer;
     PtsProtocolState m_pts_state = PtsProtocolState::Disconnected;
     uint8_t m_pts_session = 0;
