@@ -300,9 +300,13 @@ public:
         auto *previous_sample = new wxButton(this, wxID_ANY, _L("Previous sample"));
         auto *remove_last_take = new wxButton(this, wxID_ANY, _L("Remove last take"));
         auto *clear_sample = new wxButton(this, wxID_ANY, _L("Clear sample"));
+        auto *clear_current_and_measure = new wxButton(this, wxID_ANY, _L("Clear current sample and measure all"));
+        auto *clear_previous_and_measure = new wxButton(this, wxID_ANY, _L("Clear previous sample and measure all"));
         sample_row->Add(previous_sample, 0, wxRIGHT, FromDIP(8));
         sample_row->Add(remove_last_take, 0, wxRIGHT, FromDIP(8));
-        sample_row->Add(clear_sample, 0);
+        sample_row->Add(clear_sample, 0, wxRIGHT, FromDIP(8));
+        sample_row->Add(clear_current_and_measure, 0, wxRIGHT, FromDIP(8));
+        sample_row->Add(clear_previous_and_measure, 0);
         add_meta_row(capture_grid, _L("Sample"), sample_row);
 
         auto *manual_row = new wxBoxSizer(wxHORIZONTAL);
@@ -435,6 +439,8 @@ public:
         previous_sample->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_previous_sample, this);
         remove_last_take->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_remove_last_take, this);
         clear_sample->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_clear_current_sample, this);
+        clear_current_and_measure->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_clear_current_sample_and_measure_all, this);
+        clear_previous_and_measure->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_clear_previous_sample_and_measure_all, this);
         m_connect_serial->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_toggle_serial, this);
         m_measure_serial->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_measure_serial, this);
         m_measure_all_serial->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_measure_all_serial, this);
@@ -1766,11 +1772,44 @@ private:
     void on_clear_current_sample(wxCommandEvent &)
     {
         const int row = active_row();
-        if (row < 0 || row >= m_grid->GetNumberRows())
+        if (row < 0 || static_cast<size_t>(row) >= m_rows.size())
             return;
         set_takes_for_row(row, {});
         if (m_serial_status)
             m_serial_status->SetLabel(_L("Cleared current sample"));
+    }
+
+    void on_clear_current_sample_and_measure_all(wxCommandEvent &)
+    {
+        if (!serial_ready_for_measurement())
+            return;
+
+        const int row = active_row();
+        if (row < 0 || static_cast<size_t>(row) >= m_rows.size())
+            return;
+
+        set_takes_for_row(row, {});
+        if (m_serial_status)
+            m_serial_status->SetLabel(_L("Cleared current sample"));
+        start_measure_all_for_row(row);
+    }
+
+    void on_clear_previous_sample_and_measure_all(wxCommandEvent &)
+    {
+        if (!serial_ready_for_measurement())
+            return;
+
+        const int previous = active_row() - 1;
+        if (previous < 0 || static_cast<size_t>(previous) >= m_rows.size()) {
+            if (m_serial_status)
+                m_serial_status->SetLabel(_L("No previous sample"));
+            return;
+        }
+
+        set_takes_for_row(previous, {});
+        if (m_serial_status)
+            m_serial_status->SetLabel(_L("Cleared previous sample"));
+        start_measure_all_for_row(previous);
     }
 
     void on_add_manual_take(wxCommandEvent &)
@@ -2119,6 +2158,35 @@ private:
         update_serial_buttons();
     }
 
+    int measure_all_start_row()
+    {
+        const int row = active_row();
+        if (row >= 0 && static_cast<size_t>(row) < m_rows.size()) {
+            sync_row_takes_from_grid(row);
+            if (int(m_rows[static_cast<size_t>(row)].takes.size()) < target_take_count() || failed_take_for_row(row))
+                return row;
+            return find_next_incomplete_row(row + 1);
+        }
+        return find_next_incomplete_row(0);
+    }
+
+    void start_measure_all_for_row(int row)
+    {
+#ifdef _WIN32
+        if (row < 0 || static_cast<size_t>(row) >= m_rows.size())
+            return;
+
+        sync_row_takes_from_grid(row);
+        m_measure_all_active = true;
+        m_measure_all_row = row;
+        m_measure_all_attempts = 0;
+        const int target = target_take_count();
+        m_measure_all_max_attempts = std::max(target * 3, target + 8);
+        select_measurement_row(row);
+        continue_measure_all();
+#endif
+    }
+
     void continue_measure_all()
     {
 #ifdef _WIN32
@@ -2186,18 +2254,14 @@ private:
         if (!serial_ready_for_measurement())
             return;
 
-        const int row = active_row();
-        if (row < 0 || static_cast<size_t>(row) >= m_rows.size())
+        const int row = measure_all_start_row();
+        if (row < 0) {
+            if (m_serial_status)
+                m_serial_status->SetLabel(_L("All samples complete"));
             return;
+        }
 
-        sync_row_takes_from_grid(row);
-        m_measure_all_active = true;
-        m_measure_all_row = row;
-        m_measure_all_attempts = 0;
-        const int target = target_take_count();
-        m_measure_all_max_attempts = std::max(target * 3, target + 8);
-        select_measurement_row(row);
-        continue_measure_all();
+        start_measure_all_for_row(row);
 #endif
     }
 

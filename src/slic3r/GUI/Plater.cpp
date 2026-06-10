@@ -16597,51 +16597,64 @@ static TriangleMesh make_spectro_jig_wall(const CCS::SpectroJigOptions &jig)
     if (!jig.wall_enabled || jig.wall_thickness_mm <= 0.0 || jig.wall_height_mm <= 0.0 || jig.wall_arc_degrees <= 0.0)
         return {};
 
-    const double inner_radius = std::max(1.0, jig.diameter_mm * 0.5 + std::max(0.0, jig.ring_clearance_mm));
-    const double outer_radius = inner_radius + std::max(0.1, jig.wall_thickness_mm);
+    const double disk_radius = std::max(1.0, jig.diameter_mm * 0.5);
+    const double guide_inner_radius = disk_radius + std::max(0.0, jig.ring_clearance_mm);
+    const double outer_radius = guide_inner_radius + std::max(0.1, jig.wall_thickness_mm);
+    const double overlap = std::min(std::max(0.4, jig.wall_thickness_mm * 0.25), 1.0);
+    const double flange_inner_radius = std::max(1.0, disk_radius - overlap);
+    const double flange_height = std::max(0.2, jig.thickness_mm);
     const double height = std::max(std::max(0.2, jig.thickness_mm), jig.wall_height_mm);
     const double arc = std::clamp(jig.wall_arc_degrees, 5.0, 360.0) * std::acos(-1.0) / 180.0;
     const double center_angle = std::acos(-1.0) * 0.5;
     const double start_angle = center_angle - arc * 0.5;
     const unsigned int segments = std::max(8u, static_cast<unsigned int>(std::ceil(arc / (std::acos(-1.0) / 48.0))));
 
-    std::vector<Vec3f> vertices;
-    std::vector<Vec3i32> faces;
-    vertices.reserve(size_t(segments + 1) * 4);
-    faces.reserve(size_t(segments) * 8 + 4);
+    const auto make_arc_wall = [&](double inner_radius, double z_min, double z_max) {
+        std::vector<Vec3f> vertices;
+        std::vector<Vec3i32> faces;
+        vertices.reserve(size_t(segments + 1) * 4);
+        faces.reserve(size_t(segments) * 8 + 4);
 
-    for (unsigned int i = 0; i <= segments; ++i) {
-        const double angle = start_angle + arc * double(i) / double(segments);
-        const float c = float(std::cos(angle));
-        const float s = float(std::sin(angle));
-        vertices.emplace_back(Vec3f(float(inner_radius) * c, float(inner_radius) * s, 0.f));
-        vertices.emplace_back(Vec3f(float(outer_radius) * c, float(outer_radius) * s, 0.f));
-        vertices.emplace_back(Vec3f(float(inner_radius) * c, float(inner_radius) * s, float(height)));
-        vertices.emplace_back(Vec3f(float(outer_radius) * c, float(outer_radius) * s, float(height)));
+        for (unsigned int i = 0; i <= segments; ++i) {
+            const double angle = start_angle + arc * double(i) / double(segments);
+            const float c = float(std::cos(angle));
+            const float s = float(std::sin(angle));
+            vertices.emplace_back(Vec3f(float(inner_radius) * c, float(inner_radius) * s, float(z_min)));
+            vertices.emplace_back(Vec3f(float(outer_radius) * c, float(outer_radius) * s, float(z_min)));
+            vertices.emplace_back(Vec3f(float(inner_radius) * c, float(inner_radius) * s, float(z_max)));
+            vertices.emplace_back(Vec3f(float(outer_radius) * c, float(outer_radius) * s, float(z_max)));
+        }
+
+        for (unsigned int i = 0; i < segments; ++i) {
+            const int a = int(i * 4);
+            const int b = int((i + 1) * 4);
+
+            faces.emplace_back(a + 1, b + 1, b + 3);
+            faces.emplace_back(a + 1, b + 3, a + 3);
+            faces.emplace_back(a + 0, b + 2, b + 0);
+            faces.emplace_back(a + 0, a + 2, b + 2);
+            faces.emplace_back(a + 2, a + 3, b + 3);
+            faces.emplace_back(a + 2, b + 3, b + 2);
+            faces.emplace_back(a + 0, b + 0, b + 1);
+            faces.emplace_back(a + 0, b + 1, a + 1);
+        }
+
+        const int first = 0;
+        const int last = int(segments * 4);
+        faces.emplace_back(first + 0, first + 1, first + 3);
+        faces.emplace_back(first + 0, first + 3, first + 2);
+        faces.emplace_back(last + 0, last + 3, last + 1);
+        faces.emplace_back(last + 0, last + 2, last + 3);
+
+        return TriangleMesh(std::move(vertices), std::move(faces));
+    };
+
+    TriangleMesh wall = make_arc_wall(flange_inner_radius, 0.0, flange_height);
+    if (height > flange_height + 0.01) {
+        TriangleMesh guide_wall = make_arc_wall(guide_inner_radius, flange_height - 0.05, height);
+        wall.merge(guide_wall);
     }
-
-    for (unsigned int i = 0; i < segments; ++i) {
-        const int a = int(i * 4);
-        const int b = int((i + 1) * 4);
-
-        faces.emplace_back(a + 1, b + 1, b + 3);
-        faces.emplace_back(a + 1, b + 3, a + 3);
-        faces.emplace_back(a + 0, b + 2, b + 0);
-        faces.emplace_back(a + 0, a + 2, b + 2);
-        faces.emplace_back(a + 2, a + 3, b + 3);
-        faces.emplace_back(a + 2, b + 3, b + 2);
-        faces.emplace_back(a + 0, b + 0, b + 1);
-        faces.emplace_back(a + 0, b + 1, a + 1);
-    }
-
-    const int first = 0;
-    const int last = int(segments * 4);
-    faces.emplace_back(first + 0, first + 1, first + 3);
-    faces.emplace_back(first + 0, first + 3, first + 2);
-    faces.emplace_back(last + 0, last + 3, last + 1);
-    faces.emplace_back(last + 0, last + 2, last + 3);
-
-    return TriangleMesh(std::move(vertices), std::move(faces));
+    return wall;
 }
 
 static TriangleMesh make_spectro_jig_cutout(const CCS::SwatchGeneratorConfig &config)
