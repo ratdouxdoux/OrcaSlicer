@@ -16,6 +16,7 @@ enum class SwatchType {
     PairMix,
     PairOrder,
     TernaryMix,
+    QuaternaryMix,
     LayerLineStrip
 };
 
@@ -94,6 +95,17 @@ struct BackTextFormatOptions
     double rotation_degrees = 0.0;
 };
 
+struct SwatchReferenceOptions
+{
+    bool        enabled         = true;
+    // Use a unique starting letter/reference for each printed run. Additional plates increment from this value.
+    std::string plate_reference = "A";
+    double      text_size_mm    = 4.5;
+    double      text_depth_mm   = 0.35;
+    double      stroke_width_mm = 0.30;
+    double      margin_mm       = 1.0;
+};
+
 struct SwatchSpec
 {
     SwatchType                type = SwatchType::ReflectiveAnchor;
@@ -119,7 +131,9 @@ struct SwatchRecord
     std::string             swatch_id;
     std::string             object_name;
     std::vector<std::string> volume_names;
-    std::string             back_text;
+    std::string             printed_reference;
+    std::string             plate_reference;
+    unsigned int            sample_number = 0;
     PlatePosition           position;
     std::vector<std::string> warnings;
 };
@@ -131,6 +145,7 @@ struct SwatchFamilySelection
     bool pair_mix          = true;
     bool pair_order        = false;
     bool ternary_mix       = false;
+    bool quaternary_mix    = false;
     bool layer_line_strip  = false;
 };
 
@@ -177,7 +192,7 @@ struct SpectroJigOptions
     double       ring_clearance_mm  = 0.5;
     double       wall_thickness_mm  = 3.0;
     double       wall_height_mm     = 10.0;
-    double       wall_arc_degrees   = 180.0;
+    double       wall_arc_degrees   = 360.0;
     unsigned int filament_slot      = 1;
 };
 
@@ -190,10 +205,11 @@ struct SwatchGeneratorConfig
     PlateLabelOptions     plate_label;
     SpectroJigOptions     spectro_jig;
     IdFormatOptions       id_format;
-    BackTextFormatOptions back_text_format;
+    SwatchReferenceOptions swatch_reference;
 
-    double nominal_layer_height_mm = 0.2;
-    bool   local_z_enabled         = false;
+    double nominal_layer_height_mm     = 0.2;
+    bool   local_z_enabled             = false;
+    bool   local_z_direct_multicolor   = false;
 
     double anchor_thickness_mm             = 6.0;
     bool   anchor_use_td_derived_thickness = false;
@@ -224,6 +240,13 @@ struct SwatchGeneratorConfig
     std::vector<std::vector<int>> ternary_ratios;
     std::vector<Backing> ternary_backings;
 
+    double quaternary_thickness_mm = 6.0;
+    double quaternary_layer_height_mm = 0.2;
+    // Empty means generated from all reduced positive 4-part proportions where each component is <= this value.
+    unsigned int quaternary_ratio_layer_limit = 3;
+    std::vector<std::vector<int>> quaternary_ratios;
+    std::vector<Backing> quaternary_backings;
+
     double layer_line_strip_thickness_mm = 6.0;
     double layer_line_strip_layer_height_mm = 0.2;
     std::vector<Backing> layer_line_strip_backings;
@@ -235,9 +258,11 @@ struct SwatchPlan
     std::vector<std::string>  warnings;
     std::vector<FilamentSlot> primary_filaments;
     std::string               title;
-    double                    nominal_layer_height_mm = 0.0;
-    double                    swatch_depth_mm         = 0.0;
-    bool                      local_z_enabled         = false;
+    std::string               swatch_reference_start = "A";
+    double                    nominal_layer_height_mm   = 0.0;
+    double                    swatch_depth_mm           = 0.0;
+    bool                      local_z_enabled           = false;
+    bool                      local_z_direct_multicolor = false;
 };
 
 struct ValidationIssue
@@ -254,9 +279,6 @@ bool        has_backing(const Backing &backing);
 
 std::string format_decimal_token(double value);
 std::string make_swatch_id(const SwatchSpec &spec, const IdFormatOptions &options = {});
-std::string make_back_text(const SwatchSpec &spec,
-                           const BackTextFormatOptions &text_options = {},
-                           const IdFormatOptions       &id_options = {});
 
 SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config);
 

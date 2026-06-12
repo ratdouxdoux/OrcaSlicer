@@ -15237,3 +15237,325 @@ msgstr "\n合并该耗材将导致这些混色耗材配置失效。是否继续�
 
 msgid "Filament %d ratio is too high. Mix may be affected."
 msgstr "耗材%d参与混色的比例过高，可能会影响混色效果。"
+
+#: Calibration swatch generation and measurement UI
+msgid "Calibration swatches"
+msgstr "校准色板"
+
+msgid "Calibration Swatches"
+msgstr "校准色板"
+
+msgid "Swatches"
+msgstr "色板"
+
+msgid "Anchor chips"
+msgstr "锚点色块"
+
+msgid "Pair mixes"
+msgstr "双色混合"
+
+msgid "Ternary mixes"
+msgstr "三色混合"
+
+msgid "Four-color mixes"
+msgstr "四色混合"
+
+msgid "Swatch width"
+msgstr "色板宽度"
+
+msgid "Face height"
+msgstr "测量面高度"
+
+msgid "Column spacing"
+msgstr "列间距"
+
+msgid "Strip spacing"
+msgstr "条带间距"
+
+msgid "Swatch depth"
+msgstr "色板深度"
+
+msgid "Plate buffer"
+msgstr "热床边距"
+
+msgid "Reserve prime tower"
+msgstr "预留擦料塔空间"
+
+msgid "Prime tower width"
+msgstr "擦料塔宽度"
+
+msgid "Prime tower depth"
+msgstr "擦料塔深度"
+
+msgid "Mix proportions"
+msgstr "混合比例"
+
+msgid "Max 1-to-many ratio"
+msgstr "最大 1:N 比例"
+
+msgid "Four-color max lines per filament"
+msgstr "四色混合每种耗材最大线数"
+
+msgid "Swatch reference"
+msgstr "色板编号"
+
+msgid "Plate reference"
+msgstr "板编号"
+
+msgid "Use a unique plate letter for each printed run. Multi-plate jobs increment this letter automatically."
+msgstr "每次打印请使用唯一的板字母。多板任务会自动递增该字母。"
+
+msgid "Printed marks are plate letter plus manifest sample number, for example A37. Use a unique plate letter per printed run."
+msgstr "打印标记由板字母和清单样品编号组成，例如 A37。每次打印请使用唯一的板字母。"
+
+msgid "%zu swatch reference meshes could not be generated."
+msgstr "%zu 个色板编号网格无法生成。"
+
+msgid "This swatch set needs %zu new mixed filament definitions, but only %zu slot(s) are available under the %zu total filament limit. Reduce Max 1-to-many ratio or Four-color max lines per filament, disable some swatch families, or remove existing mixed filaments."
+msgstr "这组色板需要 %zu 个新的混合耗材定义，但只剩 %zu 个槽位可用（总耗材限制为 %zu）。请降低最大 1:N 比例或四色混合每种耗材最大线数，禁用部分色板类型，或删除已有混合耗材。"
+
+msgid "Local Z enabled"
+msgstr "启用 Local Z"
+
+msgid "Use direct multicolor Local-Z solver"
+msgstr "使用直接多色 Local-Z 求解器"
+
+msgid "%zu swatches%s on %zu plate(s). Bed %.0fx%.0f mm, buffer %.1f mm. Layer %.2f mm. Target layer %.1f s. Local Z %s. %zu validation error(s)."
+msgstr "%zu 个色板%s，分布在 %zu 个板上。热床 %.0fx%.0f mm，边距 %.1f mm。层高 %.2f mm。目标层 %.1f 秒。Local Z %s。%zu 个验证错误。"
+
+msgid ""
+"Experimental. For mixed rows with 3 or more physical filaments, allocate Local-Z sublayers directly across all components with carry-over error between layers instead of collapsing them into pair cadence.\n"
+"\n"
+"This can reduce visible banding in multicolor Local-Z blends at the cost of more toolchanges. It is ignored when explicit Local-Z A/B heights are set."
+msgstr ""
+"实验性功能。对于包含 3 种或更多物理耗材的混合行，直接在所有组分之间分配 Local-Z 子层，并在层间保留误差，而不是折叠成双色节奏。\n"
+"\n"
+"这可以减少多色 Local-Z 混合中的可见条带，但会增加换料次数。设置了显式 Local-Z A/B 高度时会忽略此选项。"
+
+msgid "Plate label"
+msgstr "盘面标签"
+
+msgid "Add plate label"
+msgstr "添加盘面标签"
+
+msgid "Reserved height"
+msgstr "预留高度"
+
+msgid "Reserved width"
+msgstr "预留宽度"
+
+msgid "Text stroke width"
+msgstr "文字笔画宽度"
+
+msgid "Side margin"
+msgstr "侧边距"
+
+msgid "Additional stroke thickening for the plate label text. Use 0 for the font's normal stroke."
+msgstr "为盘面标签文字额外加粗笔画。设为 0 则使用字体默认笔画。"
+
+msgid "Spectro jig"
+msgstr "测色仪定位夹具"
+
+msgid "Generate spectro jig"
+msgstr "生成测色仪定位夹具"
+
+msgid "Ring clearance"
+msgstr "定位环间隙"
+
+msgid "Cutout clearance"
+msgstr "开口间隙"
+
+msgid "Locator wall"
+msgstr "定位挡墙"
+
+msgid "Wall thickness"
+msgstr "挡墙厚度"
+
+msgid "Wall height"
+msgstr "挡墙高度"
+
+msgid "Wall arc"
+msgstr "挡墙弧度"
+
+msgid "Back text"
+msgstr "背面文字"
+
+msgid "Max chars per line"
+msgstr "每行最大字符数"
+
+msgid "Wrap lines"
+msgstr "自动换行"
+
+msgid "Type prefix"
+msgstr "类型前缀"
+
+msgid "Top material"
+msgstr "顶部材料"
+
+msgid "Full names"
+msgstr "完整名称"
+
+msgid "Write JSON and CSV"
+msgstr "写入 JSON 和 CSV"
+
+msgid "Select manifest folder"
+msgstr "选择清单文件夹"
+
+msgid "%zu swatches%s on %zu plate(s). Bed %.0fx%.0f mm, buffer %.1f mm. Layer %.2f mm. Local Z %s. %zu validation error(s)."
+msgstr "%zu 个色板%s，分布在 %zu 个盘上。热床 %.0fx%.0f mm，边距 %.1f mm，层高 %.2f mm。Local Z %s。%zu 个验证错误。"
+
+msgid " plus jig"
+msgstr "，含夹具"
+
+msgid "on"
+msgstr "开启"
+
+msgid "off"
+msgstr "关闭"
+
+msgid "No physical filaments are available for swatch generation."
+msgstr "没有可用于生成色板的物理耗材。"
+
+msgid "No calibration swatches were generated."
+msgstr "未生成校准色板。"
+
+msgid "Generated %zu calibration swatches."
+msgstr "已生成 %zu 个校准色板。"
+
+msgid "Manifest files were written."
+msgstr "清单文件已写入。"
+
+msgid "%zu back text meshes could not be generated."
+msgstr "%zu 个背面文字网格无法生成。"
+
+msgid "%zu plate label meshes could not be generated."
+msgstr "%zu 个盘面标签网格无法生成。"
+
+msgid "Generated spectro jig."
+msgstr "已生成测色仪定位夹具。"
+
+msgid "Color Swatches"
+msgstr "颜色色板"
+
+msgid "Load manifest"
+msgstr "加载清单"
+
+msgid "Import measurements"
+msgstr "导入测量值"
+
+msgid "Save measurements"
+msgstr "保存测量值"
+
+msgid "Clear values"
+msgstr "清空数值"
+
+msgid "Manifest and primaries"
+msgstr "清单和原色"
+
+msgid "Instrument"
+msgstr "仪器"
+
+msgid "Illuminant"
+msgstr "光源"
+
+msgid "Observer"
+msgstr "观察者"
+
+msgid "Geometry"
+msgstr "测量几何"
+
+msgid "Reference light used for Lab conversion."
+msgstr "用于 Lab 转换的参考光源。"
+
+msgid "CIE standard observer angle, usually 2 or 10."
+msgstr "CIE 标准观察者角度，通常为 2 或 10。"
+
+msgid "Primary colors"
+msgstr "原色"
+
+msgid "Transmission distance for this source filament. Leave empty if unknown."
+msgstr "该源耗材的透射距离。未知时留空。"
+
+msgid "Primary TD"
+msgstr "原色 TD"
+
+msgid "Next sample: load a manifest"
+msgstr "下一个样品：加载清单"
+
+msgid "Samples per swatch"
+msgstr "每个色板样本数"
+
+msgid "Pass dE*ab"
+msgstr "通过 dE*ab"
+
+msgid "Auto advance"
+msgstr "自动前进"
+
+msgid "Previous sample"
+msgstr "上一个样品"
+
+msgid "Remove last take"
+msgstr "移除最后一次测量"
+
+msgid "Clear sample"
+msgstr "清空样品"
+
+msgid "Clear current sample and measure all"
+msgstr "清空当前样品并测量全部"
+
+msgid "Clear previous sample and measure all"
+msgstr "清空上一个样品并测量全部"
+
+msgid "Add take"
+msgstr "添加测量"
+
+msgid "Manual Lab"
+msgstr "手动 Lab"
+
+msgid "Spectro"
+msgstr "测色仪"
+
+msgid "Measure All"
+msgstr "测量全部"
+
+msgid "Protocol log"
+msgstr "协议日志"
+
+msgid "No manifest loaded"
+msgstr "未加载清单"
+
+msgid "Readings"
+msgstr "读数"
+
+msgid "Takes"
+msgstr "测量次数"
+
+msgid "Avg L*"
+msgstr "平均 L*"
+
+msgid "Avg a*"
+msgstr "平均 a*"
+
+msgid "Avg b*"
+msgstr "平均 b*"
+
+msgid "Color Simulation"
+msgstr "颜色模拟"
+
+msgid "Date Time"
+msgstr "日期时间"
+
+msgid "Ill/Obs"
+msgstr "光源/观察者"
+
+msgid "Color Offset"
+msgstr "颜色偏差"
+
+msgid "Judgement"
+msgstr "判定"
+
+msgid "Pass"
+msgstr "通过"
+
+msgid "Fail"
+msgstr "失败"

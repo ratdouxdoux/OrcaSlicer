@@ -149,17 +149,17 @@ static double current_layer_height_mm()
     return 0.2;
 }
 
-static bool current_local_z_enabled()
+static bool current_bool_option(const char *key)
 {
     const PresetBundle *preset_bundle = wxGetApp().preset_bundle;
     if (preset_bundle == nullptr)
         return false;
 
-    if (const ConfigOptionBool *opt = preset_bundle->project_config.option<ConfigOptionBool>("dithering_local_z_mode"))
+    if (const ConfigOptionBool *opt = preset_bundle->project_config.option<ConfigOptionBool>(key))
         return opt->value;
 
     DynamicPrintConfig full_config = preset_bundle->full_config();
-    if (const ConfigOptionBool *opt = full_config.option<ConfigOptionBool>("dithering_local_z_mode"))
+    if (const ConfigOptionBool *opt = full_config.option<ConfigOptionBool>(key))
         return opt->value;
 
     return false;
@@ -188,12 +188,15 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
     m_family_anchor     = new wxCheckBox(settings_scroll, wxID_ANY, _L("Anchor chips"));
     m_family_pair_mix   = new wxCheckBox(settings_scroll, wxID_ANY, _L("Pair mixes"));
     m_family_ternary    = new wxCheckBox(settings_scroll, wxID_ANY, _L("Ternary mixes"));
+    m_family_quaternary = new wxCheckBox(settings_scroll, wxID_ANY, _L("Four-color mixes"));
     m_family_anchor->SetValue(true);
     m_family_pair_mix->SetValue(true);
     m_family_ternary->SetValue(false);
+    m_family_quaternary->SetValue(false);
     families_grid->Add(m_family_anchor, 0, wxBOTTOM, FromDIP(4));
     families_grid->Add(m_family_pair_mix, 0, wxBOTTOM, FromDIP(4));
     families_grid->Add(m_family_ternary, 0, wxBOTTOM, FromDIP(4));
+    families_grid->Add(m_family_quaternary, 0, wxBOTTOM, FromDIP(4));
     families_box->Add(families_grid, 0, wxALL, FromDIP(8));
     settings_sizer->Add(families_box, 0, wxEXPAND);
 
@@ -224,7 +227,7 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
     layout_box->Add(layout_grid, 0, wxEXPAND | wxALL, FromDIP(8));
     settings_sizer->Add(layout_box, 0, wxEXPAND | wxTOP, FromDIP(12));
 
-    auto *values_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Pair proportions"));
+    auto *values_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Mix proportions"));
     auto *values_grid = new wxFlexGridSizer(2, FromDIP(6), FromDIP(10));
     values_grid->AddGrowableCol(1);
     m_pair_layer_limit = new wxSpinCtrl(settings_scroll,
@@ -236,11 +239,23 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
                                         1,
                                         20,
                                         7);
+    m_quaternary_layer_limit = new wxSpinCtrl(settings_scroll,
+                                             wxID_ANY,
+                                             wxEmptyString,
+                                             wxDefaultPosition,
+                                             FromDIP(wxSize(90, -1)),
+                                             wxSP_ARROW_KEYS,
+                                             1,
+                                             20,
+                                             3);
     m_local_z_enabled = new wxCheckBox(settings_scroll, wxID_ANY, _L("Local Z enabled"));
-    m_local_z_enabled->SetValue(current_local_z_enabled());
+    m_local_z_enabled->SetValue(current_bool_option("dithering_local_z_mode"));
+    m_direct_multicolor_solver = new wxCheckBox(settings_scroll, wxID_ANY, _L("Use direct multicolor Local-Z solver"));
+    m_direct_multicolor_solver->SetValue(current_bool_option("dithering_local_z_direct_multicolor"));
     add_labeled_control(settings_scroll, values_grid, _L("Max 1-to-many ratio"), m_pair_layer_limit);
+    add_labeled_control(settings_scroll, values_grid, _L("Four-color max lines per filament"), m_quaternary_layer_limit);
     values_grid->Add(m_local_z_enabled, 0, wxEXPAND | wxBOTTOM, FromDIP(6));
-    values_grid->AddSpacer(0);
+    values_grid->Add(m_direct_multicolor_solver, 0, wxEXPAND | wxBOTTOM, FromDIP(6));
     values_box->Add(values_grid, 0, wxEXPAND | wxALL, FromDIP(8));
     settings_sizer->Add(values_box, 0, wxEXPAND | wxTOP, FromDIP(12));
 
@@ -302,57 +317,30 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
     jig_box->Add(jig_grid, 0, wxEXPAND | wxALL, FromDIP(8));
     settings_sizer->Add(jig_box, 0, wxEXPAND | wxTOP, FromDIP(12));
 
-    auto *text_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Back text"));
-    auto *text_grid = new wxFlexGridSizer(2, FromDIP(6), FromDIP(10));
-    text_grid->AddGrowableCol(1);
-    const ColorCalibrationSwatches::BackTextFormatOptions default_back_text;
-    m_separator     = new wxTextCtrl(settings_scroll, wxID_ANY, "_", wxDefaultPosition, FromDIP(wxSize(90, -1)));
-    m_max_chars = new wxSpinCtrl(settings_scroll,
-                                 wxID_ANY,
-                                 wxEmptyString,
-                                 wxDefaultPosition,
-                                 FromDIP(wxSize(90, -1)),
-                                 wxSP_ARROW_KEYS,
-                                 3,
-                                 40,
-                                 12);
-    m_text_size     = make_spin(settings_scroll, 1.0, 16.0, default_back_text.text_size_mm, 0.1, 1);
-    m_text_depth    = make_spin(settings_scroll, 0.05, 2.0, default_back_text.text_depth_mm, 0.05, 2);
-    m_text_rotation = make_spin(settings_scroll, -180.0, 180.0, 0.0, 5.0, 1);
-    add_labeled_control(settings_scroll, text_grid, _L("Separator"), m_separator);
-    add_labeled_control(settings_scroll, text_grid, _L("Max chars per line"), m_max_chars);
-    add_labeled_control(settings_scroll, text_grid, _L("Text size"), m_text_size);
-    add_labeled_control(settings_scroll, text_grid, _L("Text depth"), m_text_depth);
-    add_labeled_control(settings_scroll, text_grid, _L("Orientation"), m_text_rotation);
-    text_box->Add(text_grid, 0, wxEXPAND | wxALL, FromDIP(8));
-
-    auto *text_flags = new wxFlexGridSizer(2, FromDIP(6), FromDIP(16));
-    m_wrap_text         = new wxCheckBox(settings_scroll, wxID_ANY, _L("Wrap lines"));
-    m_include_type      = new wxCheckBox(settings_scroll, wxID_ANY, _L("Type prefix"));
-    m_include_top       = new wxCheckBox(settings_scroll, wxID_ANY, _L("Top material"));
-    m_include_backing   = new wxCheckBox(settings_scroll, wxID_ANY, _L("Backing"));
-    m_include_thickness = new wxCheckBox(settings_scroll, wxID_ANY, _L("Thickness"));
-    m_use_full_names    = new wxCheckBox(settings_scroll, wxID_ANY, _L("Full names"));
-    m_mirror_text       = new wxCheckBox(settings_scroll, wxID_ANY, _L("Mirror"));
-    m_emboss_text       = new wxCheckBox(settings_scroll, wxID_ANY, _L("Emboss"));
-    m_wrap_text->SetValue(true);
-    m_include_type->SetValue(false);
-    m_include_top->SetValue(true);
-    m_include_backing->SetValue(true);
-    m_include_thickness->SetValue(false);
-    m_use_full_names->SetValue(false);
-    m_mirror_text->SetValue(true);
-    m_emboss_text->SetValue(false);
-    text_flags->Add(m_wrap_text, 0, wxBOTTOM, FromDIP(4));
-    text_flags->Add(m_include_type, 0, wxBOTTOM, FromDIP(4));
-    text_flags->Add(m_include_top, 0, wxBOTTOM, FromDIP(4));
-    text_flags->Add(m_include_backing, 0, wxBOTTOM, FromDIP(4));
-    text_flags->Add(m_include_thickness, 0, wxBOTTOM, FromDIP(4));
-    text_flags->Add(m_use_full_names, 0, wxBOTTOM, FromDIP(4));
-    text_flags->Add(m_mirror_text, 0, wxBOTTOM, FromDIP(4));
-    text_flags->Add(m_emboss_text, 0, wxBOTTOM, FromDIP(4));
-    text_box->Add(text_flags, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
-    settings_sizer->Add(text_box, 0, wxEXPAND | wxTOP, FromDIP(12));
+    auto *reference_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Swatch reference"));
+    auto *reference_grid = new wxFlexGridSizer(2, FromDIP(6), FromDIP(10));
+    reference_grid->AddGrowableCol(1);
+    const ColorCalibrationSwatches::SwatchReferenceOptions default_reference;
+    m_plate_reference = new wxTextCtrl(settings_scroll,
+                                       wxID_ANY,
+                                       wxString::FromUTF8(default_reference.plate_reference.c_str()),
+                                       wxDefaultPosition,
+                                       FromDIP(wxSize(90, -1)));
+    m_plate_reference->SetToolTip(_L("Use a unique plate letter for each printed run. Multi-plate jobs increment this letter automatically."));
+    m_reference_text_size = make_spin(settings_scroll, 1.0, 16.0, default_reference.text_size_mm, 0.1, 1);
+    m_reference_text_depth = make_spin(settings_scroll, 0.05, 2.0, default_reference.text_depth_mm, 0.05, 2);
+    m_reference_text_stroke_width = make_spin(settings_scroll, 0.0, 2.0, default_reference.stroke_width_mm, 0.05, 2);
+    add_labeled_control(settings_scroll, reference_grid, _L("Plate reference"), m_plate_reference);
+    add_labeled_control(settings_scroll, reference_grid, _L("Text size"), m_reference_text_size);
+    add_labeled_control(settings_scroll, reference_grid, _L("Text depth"), m_reference_text_depth);
+    add_labeled_control(settings_scroll, reference_grid, _L("Text stroke width"), m_reference_text_stroke_width);
+    reference_box->Add(reference_grid, 0, wxEXPAND | wxALL, FromDIP(8));
+    auto *reference_note = new wxStaticText(settings_scroll,
+                                           wxID_ANY,
+                                           _L("Printed marks are plate letter plus manifest sample number, for example A37. Use a unique plate letter per printed run."));
+    reference_note->Wrap(FromDIP(520));
+    reference_box->Add(reference_note, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
+    settings_sizer->Add(reference_box, 0, wxEXPAND | wxTOP, FromDIP(12));
 
     auto *manifest_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Manifest"));
     m_write_manifest = new wxCheckBox(settings_scroll, wxID_ANY, _L("Write JSON and CSV"));
@@ -383,6 +371,7 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
     for (wxWindow *control : { static_cast<wxWindow*>(m_family_anchor),
                                static_cast<wxWindow*>(m_family_pair_mix),
                                static_cast<wxWindow*>(m_family_ternary),
+                               static_cast<wxWindow*>(m_family_quaternary),
                                static_cast<wxWindow*>(m_chip_width),
                                static_cast<wxWindow*>(m_chip_depth),
                                static_cast<wxWindow*>(m_spacing),
@@ -393,7 +382,9 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
                                static_cast<wxWindow*>(m_prime_tower_width),
                                static_cast<wxWindow*>(m_prime_tower_depth),
                                static_cast<wxWindow*>(m_pair_layer_limit),
+                               static_cast<wxWindow*>(m_quaternary_layer_limit),
                                static_cast<wxWindow*>(m_local_z_enabled),
+                               static_cast<wxWindow*>(m_direct_multicolor_solver),
                                static_cast<wxWindow*>(m_plate_label_enabled),
                                static_cast<wxWindow*>(m_plate_label_title),
                                static_cast<wxWindow*>(m_plate_label_size),
@@ -411,19 +402,10 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
                                static_cast<wxWindow*>(m_jig_wall_height),
                                static_cast<wxWindow*>(m_jig_wall_arc),
                                static_cast<wxWindow*>(m_jig_filament),
-                               static_cast<wxWindow*>(m_separator),
-                               static_cast<wxWindow*>(m_max_chars),
-                               static_cast<wxWindow*>(m_text_size),
-                               static_cast<wxWindow*>(m_text_depth),
-                               static_cast<wxWindow*>(m_text_rotation),
-                               static_cast<wxWindow*>(m_wrap_text),
-                               static_cast<wxWindow*>(m_include_type),
-                               static_cast<wxWindow*>(m_include_top),
-                               static_cast<wxWindow*>(m_include_backing),
-                               static_cast<wxWindow*>(m_include_thickness),
-                               static_cast<wxWindow*>(m_use_full_names),
-                               static_cast<wxWindow*>(m_mirror_text),
-                               static_cast<wxWindow*>(m_emboss_text) }) {
+                               static_cast<wxWindow*>(m_plate_reference),
+                               static_cast<wxWindow*>(m_reference_text_size),
+                               static_cast<wxWindow*>(m_reference_text_depth),
+                               static_cast<wxWindow*>(m_reference_text_stroke_width) }) {
         control->Bind(wxEVT_CHECKBOX, bind_preview);
         control->Bind(wxEVT_CHOICE, bind_preview);
         control->Bind(wxEVT_TEXT, bind_preview);
@@ -454,6 +436,7 @@ CalibrationSwatchesDialog::SwatchGeneratorConfig CalibrationSwatchesDialog::buil
     config.families.pair_mix          = m_family_pair_mix->GetValue();
     config.families.pair_order        = false;
     config.families.ternary_mix       = m_family_ternary->GetValue();
+    config.families.quaternary_mix    = m_family_quaternary->GetValue();
     config.families.layer_line_strip  = false;
 
     const Vec2d bed_size = current_bed_size_mm(m_plater);
@@ -475,7 +458,8 @@ CalibrationSwatchesDialog::SwatchGeneratorConfig CalibrationSwatchesDialog::buil
     config.layout.prime_tower_depth_mm = m_prime_tower_depth->GetValue();
     config.layout.multi_plate    = true;
     config.nominal_layer_height_mm = layer_height;
-    config.local_z_enabled = m_local_z_enabled->GetValue();
+    config.local_z_enabled             = m_local_z_enabled->GetValue();
+    config.local_z_direct_multicolor   = config.local_z_enabled && m_direct_multicolor_solver->GetValue();
     config.plate_label.enabled   = m_plate_label_enabled->GetValue();
     config.plate_label.title     = wx_to_u8(m_plate_label_title->GetValue());
     config.plate_label.text_size_mm = m_plate_label_size->GetValue();
@@ -501,42 +485,31 @@ CalibrationSwatchesDialog::SwatchGeneratorConfig CalibrationSwatchesDialog::buil
     config.pair_mix_thickness_mm  = swatch_depth;
     config.pair_order_thickness_mm = swatch_depth;
     config.ternary_thickness_mm   = swatch_depth;
+    config.quaternary_thickness_mm = swatch_depth;
     config.pair_mix_layer_height_mm = layer_height;
     config.pair_order_layer_height_mm = layer_height;
     config.ternary_layer_height_mm = layer_height;
+    config.quaternary_layer_height_mm = layer_height;
     config.layer_line_strip_layer_height_mm = layer_height;
     config.td_ladder_thicknesses = { config.anchor_thickness_mm };
     config.pair_ratio_layer_limit = static_cast<unsigned int>(std::max(m_pair_layer_limit->GetValue(), 1));
+    config.quaternary_ratio_layer_limit = static_cast<unsigned int>(std::max(m_quaternary_layer_limit->GetValue(), 1));
 
-    std::string separator = wx_to_u8(m_separator->GetValue());
-    if (separator.empty())
-        separator = "_";
-
-    config.id_format.separator                    = separator;
-    config.id_format.include_swatch_type_prefix   = m_include_type->GetValue();
-    config.id_format.include_top_material         = m_include_top->GetValue();
-    config.id_format.include_backing              = m_include_backing->GetValue();
-    config.id_format.include_thickness            = m_include_thickness->GetValue();
-
-    config.back_text_format.separator                 = separator;
-    config.back_text_format.enabled                   = true;
-    config.back_text_format.wrap_lines                = m_wrap_text->GetValue();
-    config.back_text_format.max_chars_per_line        = static_cast<size_t>(std::max(m_max_chars->GetValue(), 1));
-    config.back_text_format.include_swatch_type_prefix = m_include_type->GetValue();
-    config.back_text_format.include_top_material      = m_include_top->GetValue();
-    config.back_text_format.include_backing           = m_include_backing->GetValue();
-    config.back_text_format.include_thickness         = m_include_thickness->GetValue();
-    config.back_text_format.use_full_filament_names   = m_use_full_names->GetValue();
-    config.back_text_format.mirror                    = m_mirror_text->GetValue();
-    config.back_text_format.embossed                  = m_emboss_text->GetValue();
-    config.back_text_format.text_size_mm              = m_text_size->GetValue();
-    config.back_text_format.text_depth_mm             = m_text_depth->GetValue();
-    config.back_text_format.rotation_degrees          = m_text_rotation->GetValue();
+    config.swatch_reference.enabled = true;
+    config.swatch_reference.plate_reference = wx_to_u8(m_plate_reference->GetValue());
+    if (config.swatch_reference.plate_reference.empty())
+        config.swatch_reference.plate_reference = "A";
+    config.swatch_reference.text_size_mm = m_reference_text_size->GetValue();
+    config.swatch_reference.text_depth_mm = m_reference_text_depth->GetValue();
+    config.swatch_reference.stroke_width_mm = m_reference_text_stroke_width->GetValue();
     return config;
 }
 
 void CalibrationSwatchesDialog::update_preview()
 {
+    if (m_direct_multicolor_solver != nullptr)
+        m_direct_multicolor_solver->Enable(m_local_z_enabled != nullptr && m_local_z_enabled->GetValue());
+
     const SwatchGeneratorConfig config = build_config();
     const auto plan = ColorCalibrationSwatches::generate_swatch_plan(config);
     const auto issues = ColorCalibrationSwatches::validate_swatch_plan(plan, config);
@@ -549,6 +522,8 @@ void CalibrationSwatchesDialog::update_preview()
     size_t plate_count = 0;
     for (const auto &record : plan.records)
         plate_count = std::max<size_t>(plate_count, record.position.plate_index + 1);
+    if (config.spectro_jig.enabled)
+        ++plate_count;
 
     wxString text;
     text.Printf(_L("%zu swatches%s on %zu plate(s). Bed %.0fx%.0f mm, buffer %.1f mm. Layer %.2f mm. Local Z %s. %zu validation error(s)."),

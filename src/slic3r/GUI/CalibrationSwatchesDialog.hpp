@@ -39,7 +39,9 @@ private:
     wxCheckBox *m_family_anchor     = nullptr;
     wxCheckBox *m_family_pair_mix   = nullptr;
     wxCheckBox *m_family_ternary    = nullptr;
+    wxCheckBox *m_family_quaternary = nullptr;
     wxCheckBox *m_local_z_enabled   = nullptr;
+    wxCheckBox *m_direct_multicolor_solver = nullptr;
 
     wxSpinCtrlDouble *m_chip_width      = nullptr;
     wxSpinCtrlDouble *m_chip_depth      = nullptr;
@@ -49,9 +51,9 @@ private:
     wxSpinCtrlDouble *m_plate_buffer    = nullptr;
     wxSpinCtrlDouble *m_prime_tower_width = nullptr;
     wxSpinCtrlDouble *m_prime_tower_depth = nullptr;
-    wxSpinCtrlDouble *m_text_size       = nullptr;
-    wxSpinCtrlDouble *m_text_depth      = nullptr;
-    wxSpinCtrlDouble *m_text_rotation   = nullptr;
+    wxSpinCtrlDouble *m_reference_text_size = nullptr;
+    wxSpinCtrlDouble *m_reference_text_depth = nullptr;
+    wxSpinCtrlDouble *m_reference_text_stroke_width = nullptr;
     wxSpinCtrlDouble *m_plate_label_size = nullptr;
     wxSpinCtrlDouble *m_plate_label_depth = nullptr;
     wxSpinCtrlDouble *m_plate_label_band = nullptr;
@@ -64,11 +66,11 @@ private:
     wxSpinCtrlDouble *m_jig_wall_thickness = nullptr;
     wxSpinCtrlDouble *m_jig_wall_height = nullptr;
     wxSpinCtrlDouble *m_jig_wall_arc = nullptr;
-    wxSpinCtrl       *m_max_chars       = nullptr;
 
     wxSpinCtrl *m_pair_layer_limit = nullptr;
+    wxSpinCtrl *m_quaternary_layer_limit = nullptr;
 
-    wxTextCtrl *m_separator         = nullptr;
+    wxTextCtrl *m_plate_reference   = nullptr;
     wxTextCtrl *m_plate_label_title = nullptr;
 
     wxChoice   *m_jig_filament = nullptr;
@@ -76,14 +78,6 @@ private:
     wxCheckBox *m_prime_tower_reserve = nullptr;
     wxCheckBox *m_jig_enabled = nullptr;
     wxCheckBox *m_jig_wall_enabled = nullptr;
-    wxCheckBox *m_wrap_text          = nullptr;
-    wxCheckBox *m_include_type       = nullptr;
-    wxCheckBox *m_include_top        = nullptr;
-    wxCheckBox *m_include_backing    = nullptr;
-    wxCheckBox *m_include_thickness  = nullptr;
-    wxCheckBox *m_use_full_names     = nullptr;
-    wxCheckBox *m_mirror_text        = nullptr;
-    wxCheckBox *m_emboss_text        = nullptr;
     wxCheckBox *m_write_manifest     = nullptr;
 
     wxDirPickerCtrl *m_manifest_dir = nullptr;

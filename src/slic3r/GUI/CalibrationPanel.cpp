@@ -110,6 +110,12 @@ static wxString json_string_value(const nlohmann::json &record, const char *key)
     return json_scalar_to_text(record[key]);
 }
 
+static wxString manifest_display_id(const nlohmann::json &record)
+{
+    const wxString printed_reference = json_string_value(record, "printed_reference");
+    return printed_reference.empty() ? json_string_value(record, "swatch_id") : printed_reference;
+}
+
 static std::optional<std::string> normalize_hex_color(std::string value)
 {
     value.erase(std::remove_if(value.begin(), value.end(), [](char ch) {
@@ -3012,7 +3018,7 @@ private:
 
     void fill_manifest_row(int row, const nlohmann::json &record)
     {
-        m_grid->SetCellValue(row, ColId, json_string_value(record, "swatch_id"));
+        m_grid->SetCellValue(row, ColId, manifest_display_id(record));
         m_grid->SetCellValue(row, ColType, json_string_value(record, "swatch_type"));
         m_grid->SetCellValue(row, ColSlots, json_array_to_text(record, "filament_slots"));
         m_grid->SetCellValue(row, ColRatios, json_array_to_text(record, "ratios"));
@@ -3079,7 +3085,7 @@ private:
         const int target = target_take_count();
         const size_t takes = readings_for_row(row).size();
         m_next_sample->SetLabel(wxString::Format(_L("Next sample: %s  take %zu/%d"),
-                                                 json_string_value(m_rows[static_cast<size_t>(row)].manifest_record, "swatch_id"),
+                                                 manifest_display_id(m_rows[static_cast<size_t>(row)].manifest_record),
                                                  std::min<size_t>(takes + 1, size_t(target)),
                                                  target));
     }

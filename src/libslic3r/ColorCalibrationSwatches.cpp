@@ -69,95 +69,22 @@ static std::string join_ints(const std::vector<int> &items, const std::string &s
     return join_strings(tokens, separator);
 }
 
-static std::vector<std::string> split_by_separator(const std::string &line, const std::string &separator)
-{
-    std::vector<std::string> tokens;
-    if (separator.empty()) {
-        tokens.emplace_back(line);
-        return tokens;
-    }
-
-    size_t start = 0;
-    while (start <= line.size()) {
-        const size_t pos = line.find(separator, start);
-        if (pos == std::string::npos) {
-            tokens.emplace_back(line.substr(start));
-            break;
-        }
-        tokens.emplace_back(line.substr(start, pos - start));
-        start = pos + separator.size();
-    }
-    return tokens;
-}
-
-static std::vector<std::string> hard_wrap(const std::string &line, size_t max_chars)
-{
-    if (max_chars == 0 || line.size() <= max_chars)
-        return { line };
-
-    std::vector<std::string> wrapped;
-    for (size_t start = 0; start < line.size(); start += max_chars)
-        wrapped.emplace_back(line.substr(start, max_chars));
-    return wrapped;
-}
-
-static void append_wrapped_line(std::vector<std::string> &out,
-                                const std::string       &line,
-                                const std::string       &separator,
-                                size_t                   max_chars)
-{
-    if (max_chars == 0 || line.size() <= max_chars) {
-        out.emplace_back(line);
-        return;
-    }
-
-    const std::vector<std::string> tokens = split_by_separator(line, separator);
-    if (tokens.size() <= 1) {
-        const std::vector<std::string> pieces = hard_wrap(line, max_chars);
-        out.insert(out.end(), pieces.begin(), pieces.end());
-        return;
-    }
-
-    std::string current;
-    for (const std::string &token : tokens) {
-        const std::string candidate = current.empty() ? token : current + separator + token;
-        if (!current.empty() && candidate.size() > max_chars) {
-            out.emplace_back(current);
-            current = token;
-        } else {
-            current = candidate;
-        }
-
-        if (current.size() > max_chars) {
-            const std::vector<std::string> pieces = hard_wrap(current, max_chars);
-            out.insert(out.end(), pieces.begin(), pieces.end());
-            current.clear();
-        }
-    }
-
-    if (!current.empty())
-        out.emplace_back(current);
-}
-
-static std::string slot_line(const std::vector<FilamentSlot> &filaments,
-                             const BackTextFormatOptions     &options)
-{
-    std::vector<std::string> tokens;
-    tokens.reserve(filaments.size());
-    for (const FilamentSlot &filament : filaments) {
-        if (options.use_full_filament_names && !filament.name.empty())
-            tokens.emplace_back(std::to_string(filament.slot) + " " + filament.name);
-        else if (!filament.short_label.empty() && options.use_full_filament_names)
-            tokens.emplace_back(std::to_string(filament.slot) + " " + filament.short_label);
-        else
-            tokens.emplace_back(std::to_string(filament.slot));
-    }
-    return join_strings(tokens, options.separator);
-}
-
 static std::string top_token(unsigned int slot)
 {
     return std::to_string(slot) + "TOP";
+}
+
+static bool is_ratio_mix(SwatchType type)
+{
+    return type == SwatchType::PairMix ||
+           type == SwatchType::PairOrder ||
+           type == SwatchType::TernaryMix ||
+           type == SwatchType::QuaternaryMix;
+}
+
+static bool is_multicomponent_cycle_mix(SwatchType type)
+{
+    return type == SwatchType::TernaryMix || type == SwatchType::QuaternaryMix;
 }
 
 static int ratio_sum(const std::vector<int> &ratios)
@@ -293,7 +220,7 @@ struct LayerCycleSummary
     std::vector<unsigned int> sequence;
 };
 
-static LayerCycleSummary ternary_layer_cycle_summary(const SwatchSpec &spec)
+static LayerCycleSummary layer_cycle_summary(const SwatchSpec &spec)
 {
     LayerCycleSummary summary;
     if (spec.filaments.empty() || spec.ratios.size() != spec.filaments.size())
@@ -367,8 +294,8 @@ static std::vector<int> effective_layer_counts(const SwatchSpec &spec)
 {
     if (spec.type == SwatchType::PairMix || spec.type == SwatchType::PairOrder)
         return spec.ratios;
-    if (spec.type == SwatchType::TernaryMix)
-        return ternary_layer_cycle_summary(spec).counts;
+    if (is_multicomponent_cycle_mix(spec.type))
+        return layer_cycle_summary(spec).counts;
     return {};
 }
 
@@ -598,25 +525,74 @@ static std::vector<std::vector<int>> generated_pair_layer_ratios(unsigned int la
     return deduplicated_pair_layer_ratios(ratios);
 }
 
-static std::vector<std::vector<int>> generated_ternary_layer_ratios(unsigned int layer_limit)
+static void append_positive_compositions(unsigned int                   remaining,
+                                         size_t                         components_left,
+                                         std::vector<int>              &current,
+                                         std::vector<std::vector<int>> &ratios)
 {
-    const unsigned int safe_limit = std::max(3u, layer_limit);
+    if (components_left == 1) {
+        current.emplace_back(int(remaining));
+        ratios.emplace_back(current);
+        current.pop_back();
+        return;
+    }
+
+    for (unsigned int value = 1; value <= remaining - static_cast<unsigned int>(components_left - 1); ++value) {
+        current.emplace_back(int(value));
+        append_positive_compositions(remaining - value, components_left - 1, current, ratios);
+        current.pop_back();
+    }
+}
+
+static std::vector<std::vector<int>> generated_nary_layer_ratios(size_t components, unsigned int layer_limit)
+{
+    if (components == 0)
+        return {};
+
+    const unsigned int safe_limit = std::max<unsigned int>(static_cast<unsigned int>(components), layer_limit);
     std::vector<std::vector<int>> ratios;
-    ratios.reserve(size_t(safe_limit) * size_t(safe_limit));
-    for (unsigned int total = 3; total <= safe_limit; ++total) {
-        for (unsigned int a = 1; a <= total - 2; ++a) {
-            for (unsigned int b = 1; b <= total - a - 1; ++b) {
-                const unsigned int c = total - a - b;
-                ratios.push_back({ int(a), int(b), int(c) });
-            }
-        }
+    for (unsigned int total = static_cast<unsigned int>(components); total <= safe_limit; ++total) {
+        std::vector<int> current;
+        current.reserve(components);
+        append_positive_compositions(total, components, current, ratios);
     }
     return deduplicated_layer_ratios(ratios);
 }
 
+static void append_component_bounded_ratios(size_t                         components_left,
+                                            unsigned int                   component_limit,
+                                            std::vector<int>              &current,
+                                            std::vector<std::vector<int>> &ratios)
+{
+    if (components_left == 0) {
+        ratios.emplace_back(current);
+        return;
+    }
+
+    for (unsigned int value = 1; value <= component_limit; ++value) {
+        current.emplace_back(int(value));
+        append_component_bounded_ratios(components_left - 1, component_limit, current, ratios);
+        current.pop_back();
+    }
+}
+
+static std::vector<std::vector<int>> generated_ternary_layer_ratios(unsigned int layer_limit)
+{
+    return generated_nary_layer_ratios(3, layer_limit);
+}
+
+static std::vector<std::vector<int>> generated_quaternary_layer_ratios(unsigned int component_limit)
+{
+    const unsigned int safe_limit = std::max(1u, component_limit);
+    std::vector<std::vector<int>> ratios;
+    std::vector<int> current;
+    current.reserve(4);
+    append_component_bounded_ratios(4, safe_limit, current, ratios);
+    return deduplicated_layer_ratios(ratios);
+}
+
 static SwatchRecord make_record(SwatchSpec spec,
-                                const IdFormatOptions       &id_options,
-                                const BackTextFormatOptions &text_options)
+                                const IdFormatOptions &id_options)
 {
     SwatchRecord record;
     record.spec       = std::move(spec);
@@ -626,10 +602,6 @@ static SwatchRecord make_record(SwatchSpec spec,
     record.volume_names.emplace_back("chip_" + record.swatch_id);
     if (has_backing(record.spec.backing))
         record.volume_names.emplace_back("backing_" + record.swatch_id);
-    if (text_options.enabled)
-        record.volume_names.emplace_back("back_text_" + record.swatch_id);
-
-    record.back_text = make_back_text(record.spec, text_options, id_options);
     return record;
 }
 
@@ -655,7 +627,7 @@ static void append_record(SwatchPlan                 &plan,
                           SwatchSpec                  spec,
                           const SwatchGeneratorConfig &config)
 {
-    SwatchRecord record = make_record(std::move(spec), config.id_format, config.back_text_format);
+    SwatchRecord record = make_record(std::move(spec), config.id_format);
     warn_if_anchor_may_not_be_opaque(record, config);
     plan.records.emplace_back(std::move(record));
 }
@@ -711,14 +683,6 @@ static double layout_bed_footprint_depth(const SwatchPlan &plan, const SwatchGen
     return depth > 0.0 ? depth : std::max(0.2, config.layout.chip_depth_mm);
 }
 
-static double spectro_jig_footprint_radius(const SwatchGeneratorConfig &config)
-{
-    double radius = std::max(1.0, config.spectro_jig.diameter_mm * 0.5);
-    if (config.spectro_jig.wall_enabled)
-        radius += std::max(0.0, config.spectro_jig.ring_clearance_mm) + std::max(0.0, config.spectro_jig.wall_thickness_mm);
-    return radius;
-}
-
 static bool prime_tower_reserved_rect(const SwatchGeneratorConfig &config, LayoutRect &rect)
 {
     const SwatchLayoutOptions &layout = config.layout;
@@ -766,73 +730,10 @@ static std::vector<LayoutRect> base_layout_blockers_for_plate(const SwatchGenera
     return blockers;
 }
 
-static PlatePosition spectro_jig_position_for_layout(const SwatchGeneratorConfig &config)
-{
-    PlatePosition position;
-    position.plate_index = 0;
-
-    const SwatchLayoutOptions &layout = config.layout;
-    const double radius = spectro_jig_footprint_radius(config);
-    const double min_x = layout.margin_x_mm + radius;
-    const double max_x = layout.plate_width_mm - layout.margin_x_mm - radius;
-    const double min_y = layout.margin_y_mm + radius;
-    const double max_y = layout.plate_depth_mm - layout.margin_y_mm - radius;
-
-    const std::vector<Vec2d> candidates {
-        Vec2d(max_x, max_y),
-        Vec2d(min_x, min_y),
-        Vec2d(max_x, min_y)
-    };
-    const std::vector<LayoutRect> blockers = base_layout_blockers_for_plate(config);
-
-    for (const Vec2d &candidate : candidates) {
-        const LayoutRect rect {
-            candidate.x() - radius,
-            candidate.y() - radius,
-            candidate.x() + radius,
-            candidate.y() + radius
-        };
-        if (!rect_fits_plate(rect, layout))
-            continue;
-        const bool blocked = std::any_of(blockers.begin(), blockers.end(), [&rect](const LayoutRect &blocker) {
-            return rects_overlap(rect, blocker);
-        });
-        if (blocked)
-            continue;
-
-        position.x_mm = candidate.x();
-        position.y_mm = candidate.y();
-        return position;
-    }
-
-    position.x_mm = std::clamp(max_x, radius, std::max(radius, layout.plate_width_mm - radius));
-    position.y_mm = std::clamp(max_y, radius, std::max(radius, layout.plate_depth_mm - radius));
-    return position;
-}
-
-static bool spectro_jig_reserved_rect(const SwatchGeneratorConfig &config, LayoutRect &rect)
-{
-    if (!config.spectro_jig.enabled)
-        return false;
-
-    const double radius = spectro_jig_footprint_radius(config);
-    if (config.layout.plate_width_mm <= 0.0 || config.layout.plate_depth_mm <= 0.0)
-        return false;
-
-    const PlatePosition position = spectro_jig_position_for_layout(config);
-    rect = { position.x_mm - radius, position.y_mm - radius, position.x_mm + radius, position.y_mm + radius };
-    return true;
-}
-
 static std::vector<LayoutRect> layout_blockers_for_plate(const SwatchGeneratorConfig &config, unsigned int plate_index)
 {
-    std::vector<LayoutRect> blockers = base_layout_blockers_for_plate(config);
-
-    LayoutRect rect;
-    if (plate_index == 0 && spectro_jig_reserved_rect(config, rect))
-        blockers.emplace_back(rect);
-
-    return blockers;
+    (void)plate_index;
+    return base_layout_blockers_for_plate(config);
 }
 
 static void assign_layout(SwatchPlan &plan, const SwatchGeneratorConfig &config)
@@ -938,6 +839,7 @@ std::string swatch_type_key(SwatchType type)
     case SwatchType::PairMix:          return "pair_mix";
     case SwatchType::PairOrder:        return "pair_order";
     case SwatchType::TernaryMix:       return "ternary_mix";
+    case SwatchType::QuaternaryMix:    return "four_color_mix";
     case SwatchType::LayerLineStrip:   return "layer_line_strip";
     }
     return "unknown";
@@ -951,6 +853,7 @@ std::string swatch_type_prefix(SwatchType type)
     case SwatchType::PairMix:          return "P";
     case SwatchType::PairOrder:        return "O";
     case SwatchType::TernaryMix:       return "T";
+    case SwatchType::QuaternaryMix:    return "F";
     case SwatchType::LayerLineStrip:   return "L";
     }
     return "X";
@@ -1022,7 +925,8 @@ std::string make_swatch_id(const SwatchSpec &spec, const IdFormatOptions &option
         for (int ratio : spec.ratios)
             tokens.emplace_back(std::to_string(ratio));
         break;
-    case SwatchType::TernaryMix: {
+    case SwatchType::TernaryMix:
+    case SwatchType::QuaternaryMix: {
         const std::vector<int> percentages = integer_percentages(spec.ratios);
         if (!percentages.empty()) {
             for (int percentage : percentages)
@@ -1050,69 +954,48 @@ std::string make_swatch_id(const SwatchSpec &spec, const IdFormatOptions &option
     return join_strings(tokens, options.separator);
 }
 
-std::string make_back_text(const SwatchSpec             &spec,
-                           const BackTextFormatOptions &text_options,
-                           const IdFormatOptions       &id_options)
+static std::string spreadsheet_reference(unsigned int index)
 {
-    if (!text_options.enabled)
-        return {};
+    std::string out;
+    do {
+        const unsigned int digit = index % 26;
+        out.push_back(char('A' + digit));
+        index = index / 26;
+        if (index == 0)
+            break;
+        --index;
+    } while (true);
 
-    if (!text_options.wrap_lines)
-        return make_swatch_id(spec, id_options);
+    std::reverse(out.begin(), out.end());
+    return out;
+}
 
-    std::vector<std::string> lines;
-    if (text_options.include_swatch_id)
-        lines.emplace_back(make_swatch_id(spec, id_options));
-    if (text_options.include_swatch_type_prefix)
-        lines.emplace_back(swatch_type_prefix(spec.type));
-
-    lines.emplace_back(slot_line(spec.filaments, text_options));
-
-    if ((spec.type == SwatchType::PairMix || spec.type == SwatchType::PairOrder || spec.type == SwatchType::TernaryMix) &&
-        !spec.ratios.empty())
-        lines.emplace_back(join_ints(spec.ratios, text_options.separator));
-
-    if ((spec.type == SwatchType::PairMix || spec.type == SwatchType::PairOrder || spec.type == SwatchType::TernaryMix) &&
-        text_options.include_percentages && !spec.ratios.empty()) {
-        const std::string percentages = ratio_percentages_token(spec.ratios, text_options.separator);
-        if (!percentages.empty())
-            lines.emplace_back(percentages);
+static std::string plate_reference_for_index(const std::string &base_reference, unsigned int plate_index)
+{
+    char base = 'A';
+    for (char ch : base_reference) {
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (std::isalpha(uch)) {
+            base = char(std::toupper(uch));
+            break;
+        }
     }
 
-    if (spec.type == SwatchType::TernaryMix && text_options.include_layer_cycle) {
-        const LayerCycleSummary cycle = ternary_layer_cycle_summary(spec);
-        const std::vector<int> reduced_counts = normalized_layer_counts(spec.ratios);
-        if (!cycle.counts.empty() && cycle.counts != reduced_counts)
-            lines.emplace_back(join_ints(cycle.counts, text_options.separator));
-        const std::string sequence = compact_sequence_token(cycle.sequence, text_options.separator);
-        if (!sequence.empty())
-            lines.emplace_back(sequence);
+    return spreadsheet_reference(unsigned(base - 'A') + plate_index);
+}
+
+static void assign_printed_references(SwatchPlan &plan, const SwatchGeneratorConfig &config)
+{
+    if (!config.swatch_reference.enabled)
+        return;
+
+    for (size_t i = 0; i < plan.records.size(); ++i) {
+        SwatchRecord &record = plan.records[i];
+        record.sample_number = static_cast<unsigned int>(i + 1);
+        record.plate_reference = plate_reference_for_index(config.swatch_reference.plate_reference, record.position.plate_index);
+        record.printed_reference = record.plate_reference + std::to_string(record.sample_number);
+        record.volume_names.emplace_back("reference_" + record.printed_reference);
     }
-
-    if (spec.type == SwatchType::TDLadder)
-        lines.emplace_back("TD " + format_decimal_token(spec.total_thickness_mm));
-
-    if ((spec.type == SwatchType::PairOrder || spec.type == SwatchType::LayerLineStrip) &&
-        text_options.include_top_material && spec.top_material_slot != 0)
-        lines.emplace_back(top_token(spec.top_material_slot));
-
-    if (text_options.include_backing && has_backing(spec.backing))
-        lines.emplace_back(backing_label(spec.backing));
-
-    if (text_options.include_thickness && spec.type != SwatchType::TDLadder && spec.total_thickness_mm > 0.0)
-        lines.emplace_back("TH " + format_decimal_token(spec.total_thickness_mm));
-
-    if (text_options.include_filament_td_values) {
-        for (const FilamentSlot &filament : spec.filaments)
-            if (filament.td)
-                lines.emplace_back(std::to_string(filament.slot) + " TD " + format_decimal_token(*filament.td));
-    }
-
-    std::vector<std::string> wrapped;
-    for (const std::string &line : lines)
-        append_wrapped_line(wrapped, line, text_options.separator, text_options.max_chars_per_line);
-
-    return join_strings(wrapped, "\n");
 }
 
 SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
@@ -1120,9 +1003,11 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
     SwatchPlan plan;
     plan.primary_filaments       = config.filaments;
     plan.title                   = config.plate_label.title;
+    plan.swatch_reference_start  = plate_reference_for_index(config.swatch_reference.plate_reference, 0);
     plan.nominal_layer_height_mm = config.nominal_layer_height_mm;
     plan.swatch_depth_mm         = config.anchor_thickness_mm;
     plan.local_z_enabled         = config.local_z_enabled;
+    plan.local_z_direct_multicolor = config.local_z_direct_multicolor;
 
     if (config.families.reflective_anchor) {
         for (const FilamentSlot &filament : config.filaments) {
@@ -1238,6 +1123,37 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
         }
     }
 
+    if (config.families.quaternary_mix) {
+        const std::vector<std::vector<int>> quaternary_ratios =
+            config.quaternary_ratios.empty() ?
+                generated_quaternary_layer_ratios(config.quaternary_ratio_layer_limit) :
+                deduplicated_layer_ratios(config.quaternary_ratios);
+        for (size_t i = 0; i < config.filaments.size(); ++i) {
+            for (size_t j = i + 1; j < config.filaments.size(); ++j) {
+                for (size_t k = j + 1; k < config.filaments.size(); ++k) {
+                    for (size_t l = k + 1; l < config.filaments.size(); ++l) {
+                        for (const std::vector<int> &ratio : quaternary_ratios) {
+                            for (const Backing &backing : backings_or_none(config.quaternary_backings)) {
+                                SwatchSpec spec;
+                                spec.type               = SwatchType::QuaternaryMix;
+                                spec.filaments          = { config.filaments[i], config.filaments[j], config.filaments[k], config.filaments[l] };
+                                spec.ratios             = ratio;
+                                spec.backing            = backing;
+                                spec.total_thickness_mm = config.quaternary_thickness_mm;
+                                spec.layer_height_mm    = config.quaternary_layer_height_mm;
+                                spec.stack_order        = { config.filaments[i].slot,
+                                                            config.filaments[j].slot,
+                                                            config.filaments[k].slot,
+                                                            config.filaments[l].slot };
+                                append_record(plan, std::move(spec), config);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if (config.families.layer_line_strip) {
         for (size_t i = 0; i < config.filaments.size(); ++i) {
             for (size_t j = i + 1; j < config.filaments.size(); ++j) {
@@ -1261,6 +1177,7 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
     }
 
     assign_layout(plan, config);
+    assign_printed_references(plan, config);
     return plan;
 }
 
@@ -1276,8 +1193,8 @@ std::vector<ValidationIssue> validate_swatch_plan(const SwatchPlan &plan, const 
             issues.push_back({ ValidationSeverity::Error, record.swatch_id, "duplicate swatch id" });
         }
 
-        if (record.back_text.empty())
-            issues.push_back({ ValidationSeverity::Error, record.swatch_id, "back text is empty" });
+        if (config.swatch_reference.enabled && record.printed_reference.empty())
+            issues.push_back({ ValidationSeverity::Error, record.swatch_id, "printed reference is empty" });
 
         for (const FilamentSlot &filament : record.spec.filaments) {
             if (!config.filaments.empty() && !slot_exists(filament.slot, config.filaments))
@@ -1294,6 +1211,11 @@ std::vector<ValidationIssue> validate_swatch_plan(const SwatchPlan &plan, const 
                 issues.push_back({ ValidationSeverity::Error, record.swatch_id, "ternary swatch requires three ratios" });
             else if (std::any_of(record.spec.ratios.begin(), record.spec.ratios.end(), [](int ratio) { return ratio <= 0; }))
                 issues.push_back({ ValidationSeverity::Error, record.swatch_id, "ternary swatch ratios must be positive" });
+        } else if (record.spec.type == SwatchType::QuaternaryMix) {
+            if (record.spec.ratios.size() != 4)
+                issues.push_back({ ValidationSeverity::Error, record.swatch_id, "four-color swatch requires four ratios" });
+            else if (std::any_of(record.spec.ratios.begin(), record.spec.ratios.end(), [](int ratio) { return ratio <= 0; }))
+                issues.push_back({ ValidationSeverity::Error, record.swatch_id, "four-color swatch ratios must be positive" });
         }
 
         const double footprint_depth = record_bed_footprint_depth(record, config);
@@ -1312,10 +1234,10 @@ std::vector<ValidationIssue> validate_swatch_plan(const SwatchPlan &plan, const 
 nlohmann::json swatch_record_to_json(const SwatchRecord &record)
 {
     const SwatchSpec &spec = record.spec;
-    const LayerCycleSummary ternary_cycle = spec.type == SwatchType::TernaryMix ? ternary_layer_cycle_summary(spec) : LayerCycleSummary {};
-    const std::vector<int> layer_counts = spec.type == SwatchType::TernaryMix ? ternary_cycle.counts : effective_layer_counts(spec);
+    const LayerCycleSummary multi_cycle = is_multicomponent_cycle_mix(spec.type) ? layer_cycle_summary(spec) : LayerCycleSummary {};
+    const std::vector<int> layer_counts = is_multicomponent_cycle_mix(spec.type) ? multi_cycle.counts : effective_layer_counts(spec);
     const std::vector<unsigned int> layer_sequence =
-        spec.type == SwatchType::TernaryMix ? ternary_cycle.sequence : repeated_layer_sequence(spec, layer_counts);
+        is_multicomponent_cycle_mix(spec.type) ? multi_cycle.sequence : repeated_layer_sequence(spec, layer_counts);
 
     nlohmann::json filaments_json = nlohmann::json::array();
     for (const FilamentSlot &filament : spec.filaments)
@@ -1323,6 +1245,9 @@ nlohmann::json swatch_record_to_json(const SwatchRecord &record)
 
     nlohmann::json j = {
         { "swatch_id", record.swatch_id },
+        { "printed_reference", record.printed_reference },
+        { "plate_reference", record.plate_reference },
+        { "sample_number", record.sample_number },
         { "swatch_type", swatch_type_key(spec.type) },
         { "plate_index", record.position.plate_index },
         { "row", record.position.row },
@@ -1348,7 +1273,6 @@ nlohmann::json swatch_record_to_json(const SwatchRecord &record)
         { "stack_order", spec.stack_order },
         { "top_material_slot", spec.top_material_slot },
         { "top_layer_count", spec.top_layer_count },
-        { "back_text", record.back_text },
         { "measurement_side", spec.measurement_side },
         { "warnings", record.warnings }
     };
@@ -1369,6 +1293,7 @@ nlohmann::json manifest_json(const SwatchPlan &plan,
         { "manifest_name", manifest_name },
         { "csv_name", csv_name },
         { "title", plan.title },
+        { "swatch_reference_start", plan.swatch_reference_start },
         { "count", plan.records.size() },
         { "primary_filaments", primary_filaments_to_json(plan.primary_filaments) },
         { "primary_colors", primary_colors_to_json(plan.primary_filaments) },
@@ -1376,6 +1301,9 @@ nlohmann::json manifest_json(const SwatchPlan &plan,
         { "layer_height_mm", plan.nominal_layer_height_mm },
         { "swatch_depth_mm", plan.swatch_depth_mm },
         { "local_z_enabled", plan.local_z_enabled },
+        { "local_z_direct_multicolor", plan.local_z_direct_multicolor },
+        { "actual_layer_time_s", nullptr },
+        { "actual_layer_time_by_plate", nlohmann::json::array() },
         { "records", records },
         { "warnings", plan.warnings }
     };
@@ -1391,24 +1319,30 @@ std::string manifest_json_string(const SwatchPlan &plan,
 std::string manifest_csv_string(const SwatchPlan &plan)
 {
     const std::vector<std::string> headers {
-        "swatch_id", "swatch_type", "plate_index", "row", "column", "x_mm", "y_mm",
+        "swatch_id", "printed_reference", "plate_reference", "sample_number", "swatch_type", "plate_index", "row", "column", "x_mm", "y_mm",
         "object_name", "volume_names", "filament_slots", "filament_names", "short_labels",
         "colors", "td_values", "ratios", "percentages", "effective_layer_counts",
         "effective_layer_sequence", "effective_layer_cycle", "backing", "total_thickness_mm",
-        "layer_height_mm", "stack_order", "top_material_slot", "back_text", "measurement_side", "warnings"
+        "layer_height_mm", "actual_layer_time_avg_s", "actual_layer_time_min_s",
+        "actual_layer_time_max_s", "actual_layer_time_layer_count", "actual_layer_time_skipped_initial_layers",
+        "stack_order", "top_material_slot",
+        "measurement_side", "warnings"
     };
 
     std::ostringstream ss;
     ss << join_strings(headers, ",") << '\n';
     for (const SwatchRecord &record : plan.records) {
         const SwatchSpec &spec = record.spec;
-        const LayerCycleSummary ternary_cycle =
-            spec.type == SwatchType::TernaryMix ? ternary_layer_cycle_summary(spec) : LayerCycleSummary {};
-        const std::vector<int> layer_counts = spec.type == SwatchType::TernaryMix ? ternary_cycle.counts : effective_layer_counts(spec);
+        const LayerCycleSummary multi_cycle =
+            is_multicomponent_cycle_mix(spec.type) ? layer_cycle_summary(spec) : LayerCycleSummary {};
+        const std::vector<int> layer_counts = is_multicomponent_cycle_mix(spec.type) ? multi_cycle.counts : effective_layer_counts(spec);
         const std::vector<unsigned int> layer_sequence =
-            spec.type == SwatchType::TernaryMix ? ternary_cycle.sequence : repeated_layer_sequence(spec, layer_counts);
+            is_multicomponent_cycle_mix(spec.type) ? multi_cycle.sequence : repeated_layer_sequence(spec, layer_counts);
         std::vector<std::string> row {
             record.swatch_id,
+            record.printed_reference,
+            record.plate_reference,
+            record.sample_number == 0 ? std::string() : std::to_string(record.sample_number),
             swatch_type_key(spec.type),
             std::to_string(record.position.plate_index),
             std::to_string(record.position.row),
@@ -1430,9 +1364,13 @@ std::string manifest_csv_string(const SwatchPlan &plan)
             backing_label(spec.backing),
             format_decimal_token(spec.total_thickness_mm),
             format_decimal_token(spec.layer_height_mm),
+            {},
+            {},
+            {},
+            {},
+            {},
             join_uints_for_csv(spec.stack_order),
             spec.top_material_slot == 0 ? std::string() : std::to_string(spec.top_material_slot),
-            record.back_text,
             spec.measurement_side,
             join_strings(record.warnings, "|")
         };

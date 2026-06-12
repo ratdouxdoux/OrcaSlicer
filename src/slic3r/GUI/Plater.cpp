@@ -42,6 +42,8 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/button.h>
@@ -8517,6 +8519,8 @@ struct Plater::priv
     bool m_is_dark = false;
     size_t m_last_auto_gradient_prompt_physical_count = 0;
     bool   m_last_auto_gradient_prompt_accepted = false;
+    std::string m_calibration_swatch_manifest_json_path;
+    std::string m_calibration_swatch_manifest_csv_path;
 
     priv(Plater *q, MainFrame *main_frame);
     ~priv();
@@ -13345,6 +13349,14 @@ bool Plater::priv::warnings_dialog()
 
 }
 
+namespace {
+static bool update_calibration_manifest_actual_layer_times(const std::string          &json_path,
+                                                           const std::string          &csv_path,
+                                                           unsigned int                plate_index,
+                                                           const GCodeProcessorResult *result,
+                                                           std::string                &error);
+}
+
 //BBS: add project slice logic
 void Plater::priv::on_process_completed(SlicingProcessCompletedEvent &evt)
 {
@@ -13455,8 +13467,23 @@ void Plater::priv::on_process_completed(SlicingProcessCompletedEvent &evt)
     }
 
     //BBS: set the current plater's slice result to valid
-    if (!this->background_process.empty())
-        this->background_process.get_current_plate()->update_slice_result_valid_state(evt.success());
+    if (!this->background_process.empty()) {
+        PartPlate *sliced_plate = this->background_process.get_current_plate();
+        if (sliced_plate != nullptr)
+            sliced_plate->update_slice_result_valid_state(evt.success());
+
+        if (evt.success() && sliced_plate != nullptr && !m_calibration_swatch_manifest_json_path.empty()) {
+            std::string layer_time_error;
+            if (!update_calibration_manifest_actual_layer_times(m_calibration_swatch_manifest_json_path,
+                                                                m_calibration_swatch_manifest_csv_path,
+                                                                static_cast<unsigned int>(std::max(0, sliced_plate->get_index())),
+                                                                sliced_plate->get_slice_result(),
+                                                                layer_time_error)) {
+                BOOST_LOG_TRIVIAL(warning) << "Failed to update calibration swatch manifest layer times: " << layer_time_error;
+                notification_manager->push_notification(_u8L("Failed to update calibration manifest with actual layer times."));
+            }
+        }
+    }
 
     //BBS: update the action button according to the current plate's status
     bool ready_to_slice = !this->partplate_list.get_curr_plate()->is_slice_result_valid();
@@ -16076,20 +16103,18 @@ static TriangleMesh make_side_coupon_block(double width, double depth, double he
     return mesh;
 }
 
-static void place_text_on_rear_side(TriangleMesh &mesh,
-                                    const CCS::BackTextFormatOptions &text_options,
-                                    double back_y,
-                                    double face_height_mm)
+static CCS::BackTextFormatOptions swatch_reference_text_options(const CCS::SwatchReferenceOptions &reference_options)
 {
-    const float right_angle = float(std::acos(-1.0) * 0.5);
-    mesh.rotate_x(right_angle);
-    if (text_options.embossed)
-        mesh.mirror_y();
-
-    const BoundingBoxf3 bbox = mesh.bounding_box();
-    const Vec3f         center = bbox.center().cast<float>();
-    const float y_shift = text_options.embossed ? float(back_y - bbox.min.y()) : float(back_y - bbox.max.y());
-    mesh.translate(Vec3f(-center.x(), y_shift, float(face_height_mm * 0.5 - center.z())));
+    CCS::BackTextFormatOptions text_options;
+    text_options.enabled          = reference_options.enabled;
+    text_options.wrap_lines       = false;
+    text_options.text_size_mm     = reference_options.text_size_mm;
+    text_options.text_depth_mm    = reference_options.text_depth_mm;
+    text_options.line_spacing_mm  = 0.0;
+    text_options.margin_mm        = reference_options.margin_mm;
+    text_options.mirror           = true;
+    text_options.rotation_degrees = 0.0;
+    return text_options;
 }
 
 static std::vector<std::string> split_text_lines(const std::string &text)
@@ -16172,11 +16197,11 @@ static bool load_text_line_mesh(const std::string &line,
     return false;
 }
 
-static TriangleMesh make_back_text_mesh(const std::string &text,
-                                        const CCS::BackTextFormatOptions &text_options,
-                                        double chip_width_mm,
-                                        double chip_depth_mm,
-                                        double stroke_width_mm = 0.0)
+static TriangleMesh make_text_mesh(const std::string &text,
+                                   const CCS::BackTextFormatOptions &text_options,
+                                   double chip_width_mm,
+                                   double chip_depth_mm,
+                                   double stroke_width_mm = 0.0)
 {
     TriangleMesh merged;
     if (text.empty() || text_options.text_size_mm <= 0.0 || text_options.text_depth_mm <= 0.0)
@@ -16224,6 +16249,22 @@ static TriangleMesh make_back_text_mesh(const std::string &text,
     const Vec3f center = bbox.center().cast<float>();
     merged.translate(Vec3f(-center.x(), -center.y(), -bbox.min.z()));
     return merged;
+}
+
+static void place_text_on_rear_side_lower(TriangleMesh &mesh,
+                                          double        rear_y_mm,
+                                          double        face_height_mm,
+                                          double        side_opening_clearance_mm,
+                                          double        bottom_margin_mm)
+{
+    const float right_angle = float(std::acos(-1.0) * 0.5);
+    mesh.rotate_x(right_angle);
+
+    BoundingBoxf3 bbox = mesh.bounding_box();
+    const double bottom_margin = std::min(std::max(0.2, bottom_margin_mm), std::max(0.2, face_height_mm * 0.35));
+    mesh.translate(Vec3f(0.f,
+                         float(rear_y_mm + side_opening_clearance_mm - bbox.max.y()),
+                         float(bottom_margin - bbox.min.z())));
 }
 
 static void set_volume_source(ModelVolume *volume, size_t object_idx, size_t volume_idx)
@@ -16388,7 +16429,7 @@ static bool validate_swatch_mixed_capacity(PresetBundle                 *preset_
 
     message = wxString::Format(
         _L("This swatch set needs %zu new mixed filament definitions, but only %zu slot(s) are available "
-           "under the %zu total filament limit. Reduce Max 1-to-many ratio, disable some swatch families, "
+           "under the %zu total filament limit. Reduce Max 1-to-many ratio or Four-color max lines per filament, disable some swatch families, "
            "or remove existing mixed filaments."),
         needed,
         available,
@@ -16514,9 +16555,11 @@ static void persist_mixed_filament_definitions(PresetBundle *preset_bundle)
 
 struct PlateLabelSummary
 {
-    size_t swatches = 0;
-    size_t pair     = 0;
-    size_t ternary  = 0;
+    std::string plate_reference;
+    size_t      swatches = 0;
+    size_t      pair     = 0;
+    size_t      ternary  = 0;
+    size_t quaternary = 0;
 };
 
 static std::string label_decimal(double value)
@@ -16539,11 +16582,15 @@ static std::map<unsigned int, PlateLabelSummary> plate_label_summaries(const CCS
     std::map<unsigned int, PlateLabelSummary> summaries;
     for (const CCS::SwatchRecord &record : plan.records) {
         PlateLabelSummary &summary = summaries[record.position.plate_index];
+        if (summary.plate_reference.empty() && !record.plate_reference.empty())
+            summary.plate_reference = record.plate_reference;
         ++summary.swatches;
         if (record.spec.type == CCS::SwatchType::PairMix || record.spec.type == CCS::SwatchType::PairOrder)
             ++summary.pair;
         else if (record.spec.type == CCS::SwatchType::TernaryMix)
             ++summary.ternary;
+        else if (record.spec.type == CCS::SwatchType::QuaternaryMix)
+            ++summary.quaternary;
     }
     return summaries;
 }
@@ -16556,12 +16603,17 @@ static std::string make_plate_label_text(const CCS::SwatchGeneratorConfig &confi
     std::ostringstream ss;
     if (!config.plate_label.title.empty())
         ss << config.plate_label.title << '\n';
-    ss << "Plate " << (plate_index + 1) << "/" << std::max<size_t>(plate_count, 1) << '\n';
+    ss << "Plate ";
+    if (!summary.plate_reference.empty())
+        ss << summary.plate_reference << ' ';
+    ss << (plate_index + 1) << "/" << std::max<size_t>(plate_count, 1) << '\n';
     ss << "Swatches " << summary.swatches << '\n';
     ss << "Width " << label_decimal(config.layout.chip_width_mm) << "mm"
        << "  Depth " << label_decimal(config.anchor_thickness_mm) << "mm" << '\n';
     ss << "Layer " << label_decimal(config.nominal_layer_height_mm) << "mm" << '\n';
     ss << "Pair " << summary.pair << "  Ternary " << summary.ternary;
+    if (summary.quaternary > 0)
+        ss << '\n' << "Four-color " << summary.quaternary;
     return ss.str();
 }
 
@@ -16579,7 +16631,7 @@ static TriangleMesh make_plate_label_mesh(const std::string &text,
 
     const double label_width = std::max(1.0, std::min(label.reserved_width_mm, layout.plate_width_mm - 2.0 * label.margin_x_mm));
     const double label_depth = std::max(1.0, label.reserved_height_mm - 2.0);
-    return make_back_text_mesh(text, text_options, label_width, label_depth, label.stroke_width_mm);
+    return make_text_mesh(text, text_options, label_width, label_depth, label.stroke_width_mm);
 }
 
 static int plate_label_extruder(const CCS::SwatchGeneratorConfig &config)
@@ -16603,8 +16655,9 @@ static TriangleMesh make_spectro_jig_wall(const CCS::SpectroJigOptions &jig)
     const double overlap = std::min(std::max(0.4, jig.wall_thickness_mm * 0.25), 1.0);
     const double flange_inner_radius = std::max(1.0, disk_radius - overlap);
     const double flange_height = std::max(0.2, jig.thickness_mm);
-    const double height = std::max(std::max(0.2, jig.thickness_mm), jig.wall_height_mm);
+    const double height = flange_height + std::max(0.2, jig.wall_height_mm);
     const double arc = std::clamp(jig.wall_arc_degrees, 5.0, 360.0) * std::acos(-1.0) / 180.0;
+    const bool closed_arc = arc >= 2.0 * std::acos(-1.0) - 1e-6;
     const double center_angle = std::acos(-1.0) * 0.5;
     const double start_angle = center_angle - arc * 0.5;
     const unsigned int segments = std::max(8u, static_cast<unsigned int>(std::ceil(arc / (std::acos(-1.0) / 48.0))));
@@ -16612,10 +16665,11 @@ static TriangleMesh make_spectro_jig_wall(const CCS::SpectroJigOptions &jig)
     const auto make_arc_wall = [&](double inner_radius, double z_min, double z_max) {
         std::vector<Vec3f> vertices;
         std::vector<Vec3i32> faces;
-        vertices.reserve(size_t(segments + 1) * 4);
-        faces.reserve(size_t(segments) * 8 + 4);
+        const unsigned int vertex_steps = closed_arc ? segments : segments + 1;
+        vertices.reserve(size_t(vertex_steps) * 4);
+        faces.reserve(size_t(segments) * 8 + (closed_arc ? 0 : 4));
 
-        for (unsigned int i = 0; i <= segments; ++i) {
+        for (unsigned int i = 0; i < vertex_steps; ++i) {
             const double angle = start_angle + arc * double(i) / double(segments);
             const float c = float(std::cos(angle));
             const float s = float(std::sin(angle));
@@ -16627,7 +16681,7 @@ static TriangleMesh make_spectro_jig_wall(const CCS::SpectroJigOptions &jig)
 
         for (unsigned int i = 0; i < segments; ++i) {
             const int a = int(i * 4);
-            const int b = int((i + 1) * 4);
+            const int b = int(((i + 1) % vertex_steps) * 4);
 
             faces.emplace_back(a + 1, b + 1, b + 3);
             faces.emplace_back(a + 1, b + 3, a + 3);
@@ -16639,12 +16693,14 @@ static TriangleMesh make_spectro_jig_wall(const CCS::SpectroJigOptions &jig)
             faces.emplace_back(a + 0, b + 1, a + 1);
         }
 
-        const int first = 0;
-        const int last = int(segments * 4);
-        faces.emplace_back(first + 0, first + 1, first + 3);
-        faces.emplace_back(first + 0, first + 3, first + 2);
-        faces.emplace_back(last + 0, last + 3, last + 1);
-        faces.emplace_back(last + 0, last + 2, last + 3);
+        if (!closed_arc) {
+            const int first = 0;
+            const int last = int(segments * 4);
+            faces.emplace_back(first + 0, first + 1, first + 3);
+            faces.emplace_back(first + 0, first + 3, first + 2);
+            faces.emplace_back(last + 0, last + 3, last + 1);
+            faces.emplace_back(last + 0, last + 2, last + 3);
+        }
 
         return TriangleMesh(std::move(vertices), std::move(faces));
     };
@@ -16677,78 +16733,10 @@ static double spectro_jig_footprint_radius(const CCS::SwatchGeneratorConfig &con
     return radius;
 }
 
-struct SwatchLayoutRect
-{
-    double min_x = 0.0;
-    double min_y = 0.0;
-    double max_x = 0.0;
-    double max_y = 0.0;
-};
-
-static bool swatch_rects_overlap(const SwatchLayoutRect &a, const SwatchLayoutRect &b)
-{
-    return a.min_x < b.max_x && a.max_x > b.min_x && a.min_y < b.max_y && a.max_y > b.min_y;
-}
-
-static bool swatch_rect_fits_plate(const SwatchLayoutRect &rect, const CCS::SwatchLayoutOptions &layout)
-{
-    return rect.min_x >= layout.margin_x_mm - 1e-6 &&
-           rect.min_y >= layout.margin_y_mm - 1e-6 &&
-           rect.max_x <= layout.plate_width_mm - layout.margin_x_mm + 1e-6 &&
-           rect.max_y <= layout.plate_depth_mm - layout.margin_y_mm + 1e-6;
-}
-
-static bool prime_tower_reserved_rect(const CCS::SwatchGeneratorConfig &config, SwatchLayoutRect &rect)
-{
-    const CCS::SwatchLayoutOptions &layout = config.layout;
-    if (!layout.reserve_prime_tower || layout.prime_tower_width_mm <= 0.0 || layout.prime_tower_depth_mm <= 0.0)
-        return false;
-
-    const double min_x = layout.margin_x_mm;
-    const double max_x = std::min(layout.plate_width_mm - layout.margin_x_mm, min_x + layout.prime_tower_width_mm);
-    const double max_y = layout.plate_depth_mm - layout.margin_y_mm;
-    const double min_y = std::max(layout.margin_y_mm, max_y - layout.prime_tower_depth_mm);
-    if (min_x >= max_x || min_y >= max_y)
-        return false;
-
-    rect = { min_x, min_y, max_x, max_y };
-    return true;
-}
-
-static bool plate_label_reserved_rect(const CCS::SwatchGeneratorConfig &config, SwatchLayoutRect &rect)
-{
-    if (!config.plate_label.enabled || config.plate_label.reserved_height_mm <= 0.0 || config.plate_label.reserved_width_mm <= 0.0)
-        return false;
-
-    const double max_x = std::max(config.layout.margin_x_mm, config.layout.plate_width_mm - config.plate_label.margin_x_mm);
-    const double min_x = std::max(config.layout.margin_x_mm, max_x - config.plate_label.reserved_width_mm);
-    const double min_y = config.layout.margin_y_mm;
-    const double max_y = std::min(config.layout.plate_depth_mm - config.layout.margin_y_mm,
-                                  min_y + config.plate_label.reserved_height_mm);
-    if (min_x >= max_x || min_y >= max_y)
-        return false;
-
-    rect = { min_x, min_y, max_x, max_y };
-    return true;
-}
-
-static std::vector<SwatchLayoutRect> base_swatch_layout_blockers(const CCS::SwatchGeneratorConfig &config)
-{
-    std::vector<SwatchLayoutRect> blockers;
-
-    SwatchLayoutRect rect;
-    if (plate_label_reserved_rect(config, rect))
-        blockers.emplace_back(rect);
-    if (prime_tower_reserved_rect(config, rect))
-        blockers.emplace_back(rect);
-
-    return blockers;
-}
-
-static CCS::PlatePosition spectro_jig_position(const CCS::SwatchGeneratorConfig &config)
+static CCS::PlatePosition spectro_jig_position(const CCS::SwatchGeneratorConfig &config, unsigned int plate_index)
 {
     CCS::PlatePosition position;
-    position.plate_index = 0;
+    position.plate_index = plate_index;
 
     const CCS::SwatchLayoutOptions &layout = config.layout;
     const double radius = spectro_jig_footprint_radius(config);
@@ -16757,35 +16745,8 @@ static CCS::PlatePosition spectro_jig_position(const CCS::SwatchGeneratorConfig 
     const double min_y = layout.margin_y_mm + radius;
     const double max_y = layout.plate_depth_mm - layout.margin_y_mm - radius;
 
-    const std::vector<Vec2d> candidates {
-        Vec2d(max_x, max_y),
-        Vec2d(min_x, min_y),
-        Vec2d(max_x, min_y)
-    };
-    const std::vector<SwatchLayoutRect> blockers = base_swatch_layout_blockers(config);
-
-    for (const Vec2d &candidate : candidates) {
-        const SwatchLayoutRect rect {
-            candidate.x() - radius,
-            candidate.y() - radius,
-            candidate.x() + radius,
-            candidate.y() + radius
-        };
-        if (!swatch_rect_fits_plate(rect, layout))
-            continue;
-        const bool blocked = std::any_of(blockers.begin(), blockers.end(), [&rect](const SwatchLayoutRect &blocker) {
-            return swatch_rects_overlap(rect, blocker);
-        });
-        if (blocked)
-            continue;
-
-        position.x_mm = candidate.x();
-        position.y_mm = candidate.y();
-        return position;
-    }
-
-    position.x_mm = std::clamp(max_x, radius, std::max(radius, layout.plate_width_mm - radius));
-    position.y_mm = std::clamp(max_y, radius, std::max(radius, layout.plate_depth_mm - radius));
+    position.x_mm = std::clamp(layout.plate_width_mm * 0.5, std::min(min_x, max_x), std::max(min_x, max_x));
+    position.y_mm = std::clamp(layout.plate_depth_mm * 0.5, std::min(min_y, max_y), std::max(min_y, max_y));
     return position;
 }
 
@@ -16799,10 +16760,382 @@ static Vec3d plate_label_position(const CCS::SwatchGeneratorConfig &config)
     return Vec3d(x, y, 0.0);
 }
 
+struct ActualLayerTimeStats
+{
+    bool         valid = false;
+    unsigned int layer_count = 0;
+    unsigned int skipped_initial_layers = 0;
+    double       total_s = 0.0;
+    double       average_s = 0.0;
+    double       min_s = 0.0;
+    double       max_s = 0.0;
+};
+
+static constexpr unsigned int CALIBRATION_ACTUAL_LAYER_TIME_SKIP_INITIAL_LAYERS = 3;
+
+static std::string format_layer_time_decimal(double value)
+{
+    if (!std::isfinite(value))
+        return {};
+    if (std::abs(value) < 0.0005)
+        value = 0.0;
+
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(3) << value;
+    std::string out = ss.str();
+    while (!out.empty() && out.back() == '0')
+        out.pop_back();
+    if (!out.empty() && out.back() == '.')
+        out.pop_back();
+    return out == "-0" ? std::string("0") : out;
+}
+
+static ActualLayerTimeStats actual_layer_time_stats_from_gcode_result(const GCodeProcessorResult *result)
+{
+    ActualLayerTimeStats stats;
+    if (result == nullptr)
+        return stats;
+
+    const auto &mode = result->print_statistics.modes[static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Normal)];
+    stats.skipped_initial_layers = static_cast<unsigned int>(
+        std::min<size_t>(CALIBRATION_ACTUAL_LAYER_TIME_SKIP_INITIAL_LAYERS, mode.layers_times.size()));
+    for (size_t layer_idx = 0; layer_idx < mode.layers_times.size(); ++layer_idx) {
+        if (layer_idx < CALIBRATION_ACTUAL_LAYER_TIME_SKIP_INITIAL_LAYERS)
+            continue;
+
+        const float layer_time = mode.layers_times[layer_idx];
+        if (!std::isfinite(layer_time) || layer_time <= 0.0f)
+            continue;
+
+        const double value = static_cast<double>(layer_time);
+        if (!stats.valid) {
+            stats.min_s = value;
+            stats.max_s = value;
+            stats.valid = true;
+        } else {
+            stats.min_s = std::min(stats.min_s, value);
+            stats.max_s = std::max(stats.max_s, value);
+        }
+        stats.total_s += value;
+        ++stats.layer_count;
+    }
+
+    if (stats.layer_count > 0)
+        stats.average_s = stats.total_s / double(stats.layer_count);
+    else
+        stats.valid = false;
+
+    return stats;
+}
+
+static nlohmann::json actual_layer_time_stats_to_json(const ActualLayerTimeStats &stats)
+{
+    if (!stats.valid)
+        return nullptr;
+
+    return {
+        { "average_s", stats.average_s },
+        { "min_s", stats.min_s },
+        { "max_s", stats.max_s },
+        { "layer_count", stats.layer_count },
+        { "skipped_initial_layers", stats.skipped_initial_layers },
+        { "total_s", stats.total_s },
+        { "source", "GCodeProcessor Normal layers_times, first 3 layers skipped" }
+    };
+}
+
+static ActualLayerTimeStats actual_layer_time_stats_from_json(const nlohmann::json &value)
+{
+    ActualLayerTimeStats stats;
+    if (!value.is_object())
+        return stats;
+
+    const auto number_or_zero = [&value](const char *key) {
+        return value.contains(key) && value[key].is_number() ? value[key].get<double>() : 0.0;
+    };
+
+    stats.layer_count = value.contains("layer_count") && value["layer_count"].is_number_unsigned() ?
+        value["layer_count"].get<unsigned int>() :
+        (value.contains("layer_count") && value["layer_count"].is_number_integer() ?
+             static_cast<unsigned int>(std::max(0, value["layer_count"].get<int>())) :
+             0u);
+    stats.skipped_initial_layers = value.contains("skipped_initial_layers") && value["skipped_initial_layers"].is_number_unsigned() ?
+        value["skipped_initial_layers"].get<unsigned int>() :
+        (value.contains("skipped_initial_layers") && value["skipped_initial_layers"].is_number_integer() ?
+             static_cast<unsigned int>(std::max(0, value["skipped_initial_layers"].get<int>())) :
+             0u);
+    stats.average_s = number_or_zero("average_s");
+    stats.min_s     = number_or_zero("min_s");
+    stats.max_s     = number_or_zero("max_s");
+    stats.total_s   = number_or_zero("total_s");
+    stats.valid     = stats.layer_count > 0;
+    return stats;
+}
+
+static std::string calibration_csv_escape(std::string value)
+{
+    size_t pos = 0;
+    while ((pos = value.find('\n', pos)) != std::string::npos) {
+        value.replace(pos, 1, "\\n");
+        pos += 2;
+    }
+
+    const bool needs_quotes = value.find_first_of(",\"\r") != std::string::npos;
+    if (!needs_quotes)
+        return value;
+
+    std::string escaped = "\"";
+    for (char ch : value)
+        escaped += ch == '"' ? std::string("\"\"") : std::string(1, ch);
+    escaped += '"';
+    return escaped;
+}
+
+static std::string calibration_json_scalar_to_text(const nlohmann::json &value)
+{
+    if (value.is_null())
+        return {};
+    if (value.is_string())
+        return value.get<std::string>();
+    if (value.is_boolean())
+        return value.get<bool>() ? "true" : "false";
+    if (value.is_number_float())
+        return CCS::format_decimal_token(value.get<double>());
+    if (value.is_number_integer())
+        return std::to_string(value.get<long long>());
+    if (value.is_number_unsigned())
+        return std::to_string(value.get<unsigned long long>());
+    return {};
+}
+
+static std::string calibration_json_array_to_text(const nlohmann::json &record, const char *key, const std::string &separator)
+{
+    if (!record.contains(key) || !record[key].is_array())
+        return {};
+
+    std::vector<std::string> tokens;
+    for (const nlohmann::json &value : record[key])
+        tokens.emplace_back(calibration_json_scalar_to_text(value));
+    return boost::algorithm::join(tokens, separator);
+}
+
+static std::string calibration_json_string_value(const nlohmann::json &record, const char *key)
+{
+    return record.contains(key) ? calibration_json_scalar_to_text(record[key]) : std::string();
+}
+
+static std::string calibration_actual_layer_time_value(const nlohmann::json &record, const char *key)
+{
+    if (!record.contains("actual_layer_time_s") || !record["actual_layer_time_s"].is_object())
+        return {};
+    const nlohmann::json &stats = record["actual_layer_time_s"];
+    if (!stats.contains(key))
+        return {};
+    if (stats[key].is_number_float())
+        return format_layer_time_decimal(stats[key].get<double>());
+    if (stats[key].is_number_integer())
+        return std::to_string(stats[key].get<long long>());
+    if (stats[key].is_number_unsigned())
+        return std::to_string(stats[key].get<unsigned long long>());
+    return {};
+}
+
+static std::string calibration_manifest_csv_from_json(const nlohmann::json &manifest)
+{
+    const std::vector<std::string> headers {
+        "swatch_id", "printed_reference", "plate_reference", "sample_number", "swatch_type", "plate_index", "row", "column", "x_mm", "y_mm",
+        "object_name", "volume_names", "filament_slots", "filament_names", "short_labels",
+        "colors", "td_values", "ratios", "percentages", "effective_layer_counts",
+        "effective_layer_sequence", "effective_layer_cycle", "backing", "total_thickness_mm",
+        "layer_height_mm", "actual_layer_time_avg_s", "actual_layer_time_min_s",
+        "actual_layer_time_max_s", "actual_layer_time_layer_count", "actual_layer_time_skipped_initial_layers",
+        "stack_order", "top_material_slot",
+        "measurement_side", "warnings"
+    };
+
+    std::ostringstream ss;
+    ss << boost::algorithm::join(headers, ",") << '\n';
+
+    if (!manifest.contains("records") || !manifest["records"].is_array())
+        return ss.str();
+
+    for (const nlohmann::json &record : manifest["records"]) {
+        std::string backing;
+        if (record.contains("backing") && record["backing"].is_object())
+            backing = calibration_json_string_value(record["backing"], "type");
+
+        std::vector<std::string> row {
+            calibration_json_string_value(record, "swatch_id"),
+            calibration_json_string_value(record, "printed_reference"),
+            calibration_json_string_value(record, "plate_reference"),
+            calibration_json_string_value(record, "sample_number"),
+            calibration_json_string_value(record, "swatch_type"),
+            calibration_json_string_value(record, "plate_index"),
+            calibration_json_string_value(record, "row"),
+            calibration_json_string_value(record, "column"),
+            calibration_json_string_value(record, "x_mm"),
+            calibration_json_string_value(record, "y_mm"),
+            calibration_json_string_value(record, "object_name"),
+            calibration_json_array_to_text(record, "volume_names", "|"),
+            calibration_json_array_to_text(record, "filament_slots", "|"),
+            calibration_json_array_to_text(record, "filament_names", "|"),
+            calibration_json_array_to_text(record, "short_labels", "|"),
+            calibration_json_array_to_text(record, "colors", "|"),
+            calibration_json_array_to_text(record, "td_values", "|"),
+            calibration_json_array_to_text(record, "ratios", "_"),
+            calibration_json_array_to_text(record, "percentages", "|"),
+            calibration_json_array_to_text(record, "effective_layer_counts", "_"),
+            calibration_json_array_to_text(record, "effective_layer_sequence", "|"),
+            calibration_json_string_value(record, "effective_layer_cycle"),
+            backing,
+            calibration_json_string_value(record, "total_thickness_mm"),
+            calibration_json_string_value(record, "layer_height_mm"),
+            calibration_actual_layer_time_value(record, "average_s"),
+            calibration_actual_layer_time_value(record, "min_s"),
+            calibration_actual_layer_time_value(record, "max_s"),
+            calibration_actual_layer_time_value(record, "layer_count"),
+            calibration_actual_layer_time_value(record, "skipped_initial_layers"),
+            calibration_json_array_to_text(record, "stack_order", "|"),
+            calibration_json_string_value(record, "top_material_slot"),
+            calibration_json_string_value(record, "measurement_side"),
+            calibration_json_array_to_text(record, "warnings", "|")
+        };
+
+        for (size_t i = 0; i < row.size(); ++i) {
+            if (i != 0)
+                ss << ',';
+            ss << calibration_csv_escape(row[i]);
+        }
+        ss << '\n';
+    }
+
+    return ss.str();
+}
+
+static bool update_calibration_manifest_actual_layer_times(const std::string          &json_path,
+                                                           const std::string          &csv_path,
+                                                           unsigned int                plate_index,
+                                                           const GCodeProcessorResult *result,
+                                                           std::string                &error)
+{
+    error.clear();
+    if (json_path.empty())
+        return true;
+
+    const ActualLayerTimeStats stats = actual_layer_time_stats_from_gcode_result(result);
+    if (!stats.valid)
+        return true;
+
+    nlohmann::json manifest;
+    try {
+        boost::nowide::ifstream in(json_path);
+        if (!in) {
+            error = "Failed to open " + json_path;
+            return false;
+        }
+        in >> manifest;
+    } catch (const std::exception &ex) {
+        error = ex.what();
+        return false;
+    }
+
+    if (!manifest.contains("records") || !manifest["records"].is_array())
+        return true;
+
+    bool has_records_on_plate = false;
+    for (nlohmann::json &record : manifest["records"]) {
+        if (record.contains("plate_index") && record["plate_index"].is_number_integer() &&
+            record["plate_index"].get<int>() == static_cast<int>(plate_index)) {
+            record["actual_layer_time_s"] = actual_layer_time_stats_to_json(stats);
+            has_records_on_plate = true;
+        }
+    }
+
+    if (!has_records_on_plate)
+        return true;
+
+    nlohmann::json by_plate = manifest.contains("actual_layer_time_by_plate") && manifest["actual_layer_time_by_plate"].is_array() ?
+        manifest["actual_layer_time_by_plate"] :
+        nlohmann::json::array();
+
+    nlohmann::json plate_stats = actual_layer_time_stats_to_json(stats);
+    plate_stats["plate_index"] = plate_index;
+
+    bool replaced = false;
+    for (nlohmann::json &entry : by_plate) {
+        if (entry.contains("plate_index") && entry["plate_index"].is_number_integer() &&
+            entry["plate_index"].get<int>() == static_cast<int>(plate_index)) {
+            entry = plate_stats;
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced)
+        by_plate.push_back(plate_stats);
+
+    std::sort(by_plate.begin(), by_plate.end(), [](const nlohmann::json &a, const nlohmann::json &b) {
+        const int a_plate = a.contains("plate_index") && a["plate_index"].is_number_integer() ? a["plate_index"].get<int>() : 0;
+        const int b_plate = b.contains("plate_index") && b["plate_index"].is_number_integer() ? b["plate_index"].get<int>() : 0;
+        return a_plate < b_plate;
+    });
+
+    ActualLayerTimeStats aggregate;
+    for (const nlohmann::json &entry : by_plate) {
+        const ActualLayerTimeStats plate = actual_layer_time_stats_from_json(entry);
+        if (!plate.valid)
+            continue;
+        if (!aggregate.valid) {
+            aggregate.valid = true;
+            aggregate.min_s = plate.min_s;
+            aggregate.max_s = plate.max_s;
+        } else {
+            aggregate.min_s = std::min(aggregate.min_s, plate.min_s);
+            aggregate.max_s = std::max(aggregate.max_s, plate.max_s);
+        }
+        aggregate.layer_count += plate.layer_count;
+        aggregate.skipped_initial_layers = std::max(aggregate.skipped_initial_layers, plate.skipped_initial_layers);
+        aggregate.total_s += plate.total_s;
+    }
+    if (aggregate.layer_count > 0)
+        aggregate.average_s = aggregate.total_s / double(aggregate.layer_count);
+    else
+        aggregate.valid = false;
+
+    manifest["actual_layer_time_by_plate"] = std::move(by_plate);
+    manifest["actual_layer_time_s"] = actual_layer_time_stats_to_json(aggregate);
+
+    try {
+        {
+            boost::nowide::ofstream out(json_path);
+            if (!out) {
+                error = "Failed to write " + json_path;
+                return false;
+            }
+            out << manifest.dump(2);
+        }
+
+        if (!csv_path.empty()) {
+            boost::nowide::ofstream out(csv_path);
+            if (!out) {
+                error = "Failed to write " + csv_path;
+                return false;
+            }
+            out << calibration_manifest_csv_from_json(manifest);
+        }
+    } catch (const std::exception &ex) {
+        error = ex.what();
+        return false;
+    }
+
+    return true;
+}
+
 static bool write_swatch_manifest_files(const CCS::SwatchPlan             &plan,
                                         const CCS::SwatchGeneratorConfig  &config,
                                         const std::string                 &manifest_dir,
-                                        std::string                       &error)
+                                        std::string                       &error,
+                                        std::string                       *json_path_out = nullptr,
+                                        std::string                       *csv_path_out = nullptr)
 {
     if (manifest_dir.empty())
         return true;
@@ -16902,6 +17235,11 @@ static bool write_swatch_manifest_files(const CCS::SwatchPlan             &plan,
             }
             out << CCS::manifest_csv_string(plan);
         }
+
+        if (json_path_out != nullptr)
+            *json_path_out = json_path.string();
+        if (csv_path_out != nullptr)
+            *csv_path_out = csv_path.string();
     } catch (const std::exception &ex) {
         error = ex.what();
         return false;
@@ -16942,6 +17280,9 @@ namespace CCS = ColorCalibrationSwatches;
 
 void Plater::generate_calibration_swatches(const CCS::SwatchGeneratorConfig &config, const std::string &manifest_dir)
 {
+    p->m_calibration_swatch_manifest_json_path.clear();
+    p->m_calibration_swatch_manifest_csv_path.clear();
+
     CCS::SwatchPlan plan = CCS::generate_swatch_plan(config);
     const std::vector<CCS::ValidationIssue> issues = CCS::validate_swatch_plan(plan, config);
     for (const CCS::ValidationIssue &issue : issues) {
@@ -16972,6 +17313,13 @@ void Plater::generate_calibration_swatches(const CCS::SwatchGeneratorConfig &con
     if (new_project(false, false, _L("Calibration Swatches")) == wxID_CANCEL)
         return;
 
+    preset_bundle = wxGetApp().preset_bundle;
+    if (preset_bundle != nullptr) {
+        preset_bundle->project_config.set_key_value("dithering_local_z_mode", new ConfigOptionBool(config.local_z_enabled));
+        preset_bundle->project_config.set_key_value("dithering_local_z_direct_multicolor",
+                                                    new ConfigOptionBool(config.local_z_enabled && config.local_z_direct_multicolor));
+    }
+
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
 
     if (preset_bundle != nullptr && physical_colors.size() >= 2)
@@ -16986,7 +17334,7 @@ void Plater::generate_calibration_swatches(const CCS::SwatchGeneratorConfig &con
                         (config.spectro_jig.enabled ? 1 : 0));
 
     bool created_mixed_filament = false;
-    size_t skipped_text_count = 0;
+    size_t skipped_reference_count = 0;
     size_t skipped_plate_label_count = 0;
 
     for (CCS::SwatchRecord &record : plan.records) {
@@ -17055,40 +17403,45 @@ void Plater::generate_calibration_swatches(const CCS::SwatchGeneratorConfig &con
                              0.0);
         }
 
-        if (config.back_text_format.enabled && !record.back_text.empty()) {
-            const std::string text_volume_name = "back_text_" + record.swatch_id;
-            CCS::BackTextFormatOptions text_options = config.back_text_format;
-            if (!text_options.embossed)
-                text_options.text_depth_mm = std::min(text_options.text_depth_mm, std::max(0.03, total_depth * 0.45));
+        if (config.swatch_reference.enabled && !record.printed_reference.empty()) {
+            const std::string text_volume_name = "reference_" + record.printed_reference;
+            CCS::BackTextFormatOptions text_options = swatch_reference_text_options(config.swatch_reference);
+            text_options.text_depth_mm = std::min(text_options.text_depth_mm, std::max(0.03, face_height * 0.25));
+            const double side_opening_clearance = std::min(0.035, std::max(0.015, text_options.text_depth_mm * 0.08));
+            CCS::BackTextFormatOptions mesh_text_options = text_options;
+            mesh_text_options.text_depth_mm += side_opening_clearance;
 
-            const std::string text_cache_key = record.back_text + "\n@depth=" + CCS::format_decimal_token(text_options.text_depth_mm);
+            const std::string text_cache_key = record.printed_reference + "\n@depth=" + CCS::format_decimal_token(mesh_text_options.text_depth_mm) +
+                                               "\n@rear=" + CCS::format_decimal_token(side_opening_clearance) +
+                                               "\n@stroke=" + CCS::format_decimal_token(config.swatch_reference.stroke_width_mm);
             auto cache_it = text_mesh_cache.find(text_cache_key);
             if (cache_it == text_mesh_cache.end()) {
-                TriangleMesh text_mesh = make_back_text_mesh(record.back_text,
-                                                             text_options,
-                                                             config.layout.chip_width_mm,
-                                                             config.layout.chip_depth_mm);
+                TriangleMesh text_mesh = make_text_mesh(record.printed_reference,
+                                                        mesh_text_options,
+                                                        face_width,
+                                                        face_height,
+                                                        config.swatch_reference.stroke_width_mm);
                 cache_it = text_mesh_cache.emplace(text_cache_key, std::move(text_mesh)).first;
             }
 
             if (!cache_it->second.empty()) {
                 TriangleMesh text_mesh = cache_it->second;
-                ModelVolumeType text_type = text_options.embossed ? ModelVolumeType::MODEL_PART : ModelVolumeType::NEGATIVE_VOLUME;
-                place_text_on_rear_side(text_mesh, text_options, rear_y, face_height);
+                place_text_on_rear_side_lower(text_mesh, rear_y, face_height, side_opening_clearance, config.swatch_reference.margin_mm);
                 add_named_volume(object,
                                  object_idx,
                                  std::move(text_mesh),
-                                 text_type,
+                                 ModelVolumeType::NEGATIVE_VOLUME,
                                  text_volume_name,
                                  main_extruder,
                                  true,
-                                 record.back_text,
-                                 text_options.text_size_mm);
+                                 record.printed_reference,
+                                 text_options.text_size_mm,
+                                 config.swatch_reference.stroke_width_mm);
             } else {
                 record.volume_names.erase(std::remove(record.volume_names.begin(), record.volume_names.end(), text_volume_name),
                                           record.volume_names.end());
-                ++skipped_text_count;
-                record.warnings.emplace_back("back text mesh could not be generated");
+                ++skipped_reference_count;
+                record.warnings.emplace_back("printed reference mesh could not be generated");
             }
         }
 
@@ -17149,7 +17502,7 @@ void Plater::generate_calibration_swatches(const CCS::SwatchGeneratorConfig &con
         }
         object->add_instance();
 
-        const CCS::PlatePosition jig_position = spectro_jig_position(config);
+        const CCS::PlatePosition jig_position = spectro_jig_position(config, static_cast<unsigned int>(plate_count));
         auto cur_plate = get_partplate_list().get_plate(jig_position.plate_index);
         while (cur_plate == nullptr) {
             get_partplate_list().create_plate();
@@ -17216,19 +17569,23 @@ void Plater::generate_calibration_swatches(const CCS::SwatchGeneratorConfig &con
     changed_objects(object_idxs);
 
     std::string manifest_error;
-    if (!write_swatch_manifest_files(plan, config, manifest_dir, manifest_error)) {
+    std::string manifest_json_path;
+    std::string manifest_csv_path;
+    if (!write_swatch_manifest_files(plan, config, manifest_dir, manifest_error, &manifest_json_path, &manifest_csv_path)) {
         MessageDialog(this, wxString::FromUTF8(manifest_error.c_str()), _L("Calibration swatches"), wxOK | wxICON_WARNING).ShowModal();
     }
+    p->m_calibration_swatch_manifest_json_path = std::move(manifest_json_path);
+    p->m_calibration_swatch_manifest_csv_path  = std::move(manifest_csv_path);
 
     wxString message = wxString::Format(_L("Generated %zu calibration swatches."), plan.records.size());
     if (!manifest_dir.empty())
         message += "\n" + _L("Manifest files were written.");
-    if (skipped_text_count > 0)
-        message += "\n" + wxString::Format(_L("%zu back text meshes could not be generated."), skipped_text_count);
+    if (skipped_reference_count > 0)
+        message += "\n" + wxString::Format(_L("%zu swatch reference meshes could not be generated."), skipped_reference_count);
     if (skipped_plate_label_count > 0)
         message += "\n" + wxString::Format(_L("%zu plate label meshes could not be generated."), skipped_plate_label_count);
     if (config.spectro_jig.enabled)
-        message += "\n" + _L("Generated spectro jig.");
+        message += "\n" + _L("Generated spectro jig on a separate plate.");
     get_notification_manager()->push_notification(message.ToUTF8().data());
 }
 
