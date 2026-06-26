@@ -24,7 +24,8 @@ Every swatch should be printed as a dense optical coupon.
 - Avoid sparse infill, internal voids, or air pockets.
 - Verify preview/G-code shows a dense solid body before printing a test plate.
 - Keep nozzle, temperatures, speed, cooling, extrusion calibration, and filament drying state consistent.
-- Use the spectrophotometer jig and measure the same side/position every time.
+- Use the spectrophotometer jig when possible and measure the same side/position every time.
+- If the jig cannot be used, keep the measurement geometry as repeatable as possible and shield the sample from stray light, especially for thin samples.
 - Take multiple readings per swatch, normally 3 or more, and store raw spectrum data when available.
 
 Internal voids are expected to change scattering and therefore color. A swatch with voids is probably not representative of the actual material mix.
@@ -94,37 +95,40 @@ opaque_depth = max(max_td + 1.0 mm, max_td * 1.2)
 
 Round `opaque_depth` to a practical printable value.
 
-Each filament set should be characterized at:
+Each source filament TD should be entered in the calibration swatch generator before creating the plate. Anchor depths are generated per filament, not from the set-wide maximum TD:
 
 - `1.0 mm`
-- `opaque_depth / 2`
-- `opaque_depth`
+- `source_td / 2 + 1.0 mm`
+- `source_td + 1.0 mm`
 
 The full mix grid should first be printed at `opaque_depth`. The thinner depths should initially be used on a smaller representative subset so the matrix does not explode.
 
-## Print Modes And Layer Heights
+## Layer Height Test Steps
 
-### Normal Mode
+### Step 1: First Required Layer Heights
 
-Print pair, ternary, and four-color mixes at:
+Start with normal mode only:
 
 - `0.08 mm`
+- `0.24 mm`
+
+For normal mode, pair, ternary, and four-color mixes should be generated and measured at these two layer heights first.
+
+### Step 2: Later Expansion
+
+After Step 1 data has been reviewed, expand normal mode to:
+
 - `0.12 mm`
 - `0.16 mm`
 - `0.20 mm`
-- `0.24 mm`
 
-### Local Z
-
-Print pair, ternary, and four-color mixes at:
+Then add Local Z at:
 
 - `0.20 mm`
 - `0.24 mm`
 - `0.28 mm`
 
-### Local Z Plus Direct Multicolor Solver
-
-Print pair, ternary, and four-color mixes at:
+Then add Local Z plus direct multicolor solver at:
 
 - `0.20 mm`
 - `0.24 mm`
@@ -132,29 +136,28 @@ Print pair, ternary, and four-color mixes at:
 
 ## Phase 1: Source Filament Characterization
 
-For each source filament set, print anchor swatches for each physical filament at:
+For each source filament set, enter the TD for every physical filament and print solid physical filament anchor swatches for each physical filament at:
 
 - `1.0 mm`
-- `opaque_depth / 2`
-- `opaque_depth`
+- `source_td / 2 + 1.0 mm`
+- `source_td + 1.0 mm`
 
 Measure each anchor with:
 
-- Normal jig condition
 - White backing
 - Black backing
 
 Goal:
 
-- Confirm whether `opaque_depth` is actually optically stable.
+- Confirm whether `source_td + 1.0 mm` is actually optically stable.
 - Estimate how strongly backing affects thin and thick samples.
 - Capture baseline Lab and spectrum for every source filament.
 
-If white/black backing changes an `opaque_depth` anchor significantly, the swatch is not optically opaque enough for that filament or material family.
+If white/black backing changes a `source_td + 1.0 mm` anchor significantly, the swatch is not optically opaque enough for that filament or material family.
 
 ## Phase 2: Main Opaque Mix Grid
 
-For each filament set, print the full generated mix grid at `opaque_depth`.
+For each filament set, print the generated mix grid at `opaque_depth`.
 
 Include:
 
@@ -162,17 +165,24 @@ Include:
 - Ternary mixes
 - Four-color mixes
 
-Run the grid for every layer height and mode listed above.
+Run Step 1 first. Step 2 layer heights and modes should be printed later, after the Step 1 data has been checked.
 
 Goal:
 
 - Learn the color response at a depth that should be mostly independent of backing.
+- Measure non-anchor mix swatches on black backing only.
 - Compare normal layer stacking, Local Z, and direct multicolor Local Z.
 - Determine how much layer height changes the same nominal ratio.
 
 ## Phase 3: Depth Model Subset
 
-Do not print the full grid at every depth at first. Instead, print a representative subset at:
+Do not print the full mix grid at every depth at first. Anchors already get the per-filament TD depth sweep:
+
+- `1.0 mm`
+- `source_td / 2 + 1.0 mm`
+- `source_td + 1.0 mm`
+
+If mix-depth modeling is needed after the anchor data, print a representative non-anchor subset at:
 
 - `1.0 mm`
 - `opaque_depth / 2`
@@ -202,18 +212,17 @@ Use:
 
 - White backing
 - Black backing
-- Normal jig/no special backing
 
 Start with:
 
 - Anchors
-- Thin depth subset
-- Representative pair/ternary/four-color mixes
+- Thin and TD-derived anchor depths
 
 Backlit measurement should be a separate experiment:
 
 - It may be important for lithophanes, lamps, and transmissive parts.
 - It should not be mixed into the reflective side-measurement model without a separate field identifying the measurement geometry.
+- It requires a transmission-capable instrument or a calibrated spectral irradiance setup, not the current NH9 reflective measurement workflow.
 
 ## Candidate Filament Sets
 
@@ -255,10 +264,13 @@ These sets help answer whether the model generalizes by measured source color an
 
 ## Plate Preparation And Printing
 
-The build plate should be washed before printing. Use the normal cleaning method for the plate surface, such as dish soap and water for PEI, then dry it fully. The point is to reduce adhesion failures, partial lifts, and inconsistent bottom contact.
+The printer should have XY head calibration completed before printing calibration swatches.
+
+The build plate should be washed before printing, or otherwise confirmed clean and free of oil, dust, and old adhesive residue. Use the normal cleaning method for the plate surface, such as dish soap and water for PEI, then dry it fully. The point is to reduce adhesion failures, partial lifts, and inconsistent bottom contact.
 
 Before starting a run:
 
+- Confirm XY head calibration has been completed.
 - Confirm the plate is clean and dry.
 - Confirm all filaments are dry enough for reliable extrusion.
 - Confirm all spool IDs match the manifest and slicer slots.
@@ -297,15 +309,20 @@ Before measuring:
 - Put the plate on a stable table.
 - Fix the plate to the table with blue tack or an equivalent removable system.
 - Make sure the plate cannot slide, tip, or fall while swatches are being removed.
-- Fix the spectrophotometer jig to the table with double-sided tape or another repeatable removable mount.
+- Use the spectrophotometer jig when possible.
+- If using the jig, fix it to the table with double-sided tape or another repeatable removable mount.
 - Confirm the jig cannot rotate or drift during the measurement session.
+- If measuring without the jig, keep the NH9 position and sample orientation repeatable and block avoidable stray light from the sample face.
+- For thin samples, take extra care to avoid light pollution around the sample and backing.
+- Open the slicer calibration tab and use the NH9 measurement workflow directly in the slicer.
+- Verify the NH9 is in `I+E` mode before starting measurements: `Settings -> Sample mode`.
 - Keep the plate photo and manifest visible.
 
 Measure one swatch at a time:
 
 1. Identify the next swatch from the manifest.
 2. Remove only that swatch from the plate.
-3. Place it in the jig with the intended measurement side facing the instrument.
+3. Place it in the jig when possible, with the intended measurement side facing the instrument. If the jig cannot be used, keep the same side, orientation, backing, and NH9 position as repeatable as possible.
 4. Take the configured number of readings.
 5. Store the measured swatch in a labeled completed-sample area.
 6. Move to the next swatch.
@@ -329,17 +346,23 @@ For each plate:
    - Swatch depth
    - Plate number
 3. Verify actual slicer settings for Local Z and direct multicolor mode.
-4. Wash and dry the build plate.
-5. Print with dense wall settings.
-6. Keep the bed hot until the plate is safely removed.
-7. Photograph the full plate before removing swatches.
-8. Store and move the plate flat.
-9. Fix the plate and jig to the table before measuring.
-10. Measure swatches in manifest order, one swatch at a time.
-11. Take the configured number of readings per swatch.
-12. Remove outlier readings only after the full sample stack is collected.
-13. Save Lab values and raw spectrum data.
-14. Record backing, lighting condition, printer, nozzle, material family, and any print defects.
+4. Confirm XY head calibration has been completed.
+5. Wash and dry the build plate, or confirm the print surface is clean.
+6. Print with dense wall settings.
+7. Keep the bed hot until the plate is safely removed.
+8. Photograph the full plate before removing swatches.
+9. Store and move the plate flat.
+10. Open the slicer calibration tab and connect the NH9.
+11. Verify the NH9 is in `I+E` mode using `Settings -> Sample mode`.
+12. Fix the plate and jig to the table before measuring when the jig can be used.
+13. Measure the session references: white backing and black backing.
+14. Measure solid physical filament anchors on white backing and black backing.
+15. Measure mixed-filament swatches on black backing only.
+16. Measure swatches in manifest order, one swatch at a time.
+17. Take the configured number of readings per swatch.
+18. Remove outlier readings only after the full sample stack is collected.
+19. Save Lab values and raw spectrum data.
+20. Record backing, lighting condition, printer, nozzle, material family, and any print defects.
 
 ## Data Fields To Preserve
 
@@ -361,8 +384,14 @@ Each measurement row should preserve:
 - Direct multicolor solver enabled/disabled
 - Swatch depth
 - Backing condition
-- Measurement geometry
-- Illuminant and observer
+- Session reference measurements: white backing and black backing
+- Measurement condition for each measurement row, normally white backing or black backing
+- Anchor swatches expanded into separate measurement rows for white backing and black backing
+- Non-anchor swatches measured on black backing
+- Measurement geometry, such as side d/8 for NH9 reflective measurements
+- NH9 sample mode, expected to be `I+E`
+- Specular/sample mode components captured by the NH9
+- Illuminant and CIE observer
 - Lab readings
 - Averaged Lab
 - Raw spectrum
@@ -402,9 +431,11 @@ First run:
 
 For each set:
 
-- Print anchors at all three depths.
-- Print the full opaque-depth mix grid for all planned modes/layer heights.
-- Print the depth-model subset.
-- Measure normal, white backing, and black backing only for anchors and the depth subset.
+- Print anchors at the three per-filament TD-derived depths.
+- Print the full opaque-depth mix grid for Step 1 only: normal mode at `0.08 mm` and `0.24 mm`.
+- Defer Step 2 layer heights and modes until after the Step 1 data has been reviewed.
+- Print the depth-model subset only if the first anchor and mix results show that additional depth modeling is needed.
+- Measure white backing and black backing for anchors.
+- Measure all non-anchor swatches on black backing.
 
 Use this data to decide whether the full matrix should expand to more material families or whether the swatch generator/protocol needs adjustment first.
