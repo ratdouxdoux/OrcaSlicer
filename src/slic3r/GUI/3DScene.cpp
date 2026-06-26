@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <optional>
 
 #include <boost/log/trivial.hpp>
 
@@ -1256,6 +1257,26 @@ void GLVolumeCollection::update_colors_by_extruder(const DynamicPrintConfig* con
                 volume->color.a(old_a);
             } else {
                 volume->color = color.second;
+            }
+        }
+
+        if (GUI::Plater *plater = GUI::wxGetApp().plater();
+            plater != nullptr && plater->calibration_swatch_oracle_preview_enabled() &&
+            volume->object_idx() >= 0 && volume->object_idx() < int(GUI::wxGetApp().model().objects.size())) {
+            const ModelObject *model_object = GUI::wxGetApp().model().objects[volume->object_idx()];
+            if (model_object != nullptr && volume->volume_idx() >= 0 && volume->volume_idx() < int(model_object->volumes.size())) {
+                const ModelVolume *model_volume = model_object->volumes[volume->volume_idx()];
+                if (model_volume != nullptr) {
+                    const std::optional<std::string> oracle_hex = plater->calibration_swatch_oracle_hex_for_volume(*model_object, *model_volume);
+                    if (oracle_hex) {
+                        ColorRGBA oracle_rgba;
+                        if (decode_color(*oracle_hex, oracle_rgba)) {
+                            const float old_a = volume->color.a();
+                            volume->color = oracle_rgba;
+                            volume->color.a(old_a);
+                        }
+                    }
+                }
             }
         }
     }

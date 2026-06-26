@@ -1,6 +1,7 @@
 #include <catch2/catch.hpp>
 
 #include "libslic3r/ExtrusionEntity.hpp"
+#include "libslic3r/FullSpectrumKSPairResidual.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/GCode/ToolOrdering.hpp"
@@ -8,6 +9,7 @@
 #include "libslic3r/TriangleSelector.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <sstream>
 #include <vector>
 
@@ -797,8 +799,42 @@ TEST_CASE("Mixed filament physical_filament_from_token maps tokens correctly", "
 // [MixedFilament][Color]
 // ============================================================================
 
+struct ScopedMixedFilamentColorEngine
+{
+    explicit ScopedMixedFilamentColorEngine(MixedFilamentColorEngine next)
+        : previous(MixedFilamentManager::color_engine())
+    {
+        MixedFilamentManager::set_color_engine(next);
+    }
+
+    ~ScopedMixedFilamentColorEngine()
+    {
+        MixedFilamentManager::set_color_engine(previous);
+    }
+
+    MixedFilamentColorEngine previous;
+};
+
+struct ScopedMixedFilamentUseTdPrediction
+{
+    explicit ScopedMixedFilamentUseTdPrediction(bool next)
+        : previous(MixedFilamentManager::use_td_for_color_prediction())
+    {
+        MixedFilamentManager::set_use_td_for_color_prediction(next);
+    }
+
+    ~ScopedMixedFilamentUseTdPrediction()
+    {
+        MixedFilamentManager::set_use_td_for_color_prediction(previous);
+    }
+
+    bool previous;
+};
+
 TEST_CASE("Mixed filament blend_color_multi blends N colors", "[MixedFilament][Color]")
 {
+    ScopedMixedFilamentColorEngine engine_guard(MixedFilamentColorEngine::FilamentMixer);
+
     const std::vector<std::pair<std::string, int>> empty;
     CHECK(MixedFilamentManager::blend_color_multi(empty) == "#000000");
 
@@ -816,6 +852,8 @@ TEST_CASE("Mixed filament blend_color_multi blends N colors", "[MixedFilament][C
 
 TEST_CASE("Mixed filament blend_color handles ratio edge cases", "[MixedFilament][Color]")
 {
+    ScopedMixedFilamentColorEngine engine_guard(MixedFilamentColorEngine::FilamentMixer);
+
     const std::string blended = MixedFilamentManager::blend_color("#FF0000", "#00FF00", 1, 1);
     CHECK(!blended.empty());
     CHECK(blended[0] == '#');
@@ -829,6 +867,111 @@ TEST_CASE("Mixed filament blend_color handles ratio edge cases", "[MixedFilament
 
     const std::string pure_a = MixedFilamentManager::blend_color("#FF0000", "#00FF00", 1, 0);
     CHECK(pure_a == "#FF0000");
+}
+
+TEST_CASE("Mixed filament uses calibrated full-spectrum profile for matching Panchroma colors", "[MixedFilament][Color]")
+{
+    ScopedMixedFilamentColorEngine engine_guard(MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    ScopedMixedFilamentUseTdPrediction td_guard(true);
+
+    CHECK(std::string(full_spectrum_ks_profile_specular_mode()) == "SCE");
+    CHECK(std::string(full_spectrum_ks_profile_backing_condition()) == "black_backing");
+    CHECK(MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1) == "#605584");
+    CHECK(MixedFilamentManager::blend_color("#008BB3", "#AD4A76", 1, 1) == "#605584");
+    CHECK(MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1, 6.4, 5.0) == "#655381");
+    CHECK(MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1, 3.2, 5.0) != "#605584");
+    CHECK(MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1, 0.1, 5.0) == "#0085AE");
+    CHECK(MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1, 100.0, 5.0) == "#984C76");
+    const std::optional<double> td1 = full_spectrum_ks_profile_td_mm_for_color("#0091B3");
+    const std::optional<double> td2 = full_spectrum_ks_profile_td_mm_for_color("#AE537F");
+    const std::optional<double> td3 = full_spectrum_ks_profile_td_mm_for_color("#C8AA0F");
+    const std::optional<double> td4 = full_spectrum_ks_profile_td_mm_for_color("#868787");
+    REQUIRE(td1);
+    REQUIRE(td2);
+    REQUIRE(td3);
+    REQUIRE(td4);
+    CHECK(*td1 == Approx(6.4));
+    CHECK(*td2 == Approx(5.0));
+    CHECK(*td3 == Approx(9.7));
+    CHECK(*td4 == Approx(6.8));
+    CHECK(!full_spectrum_ks_profile_td_mm_for_color("#00FF00").has_value());
+
+    const std::vector<std::pair<std::string, int>> four_color = {
+        {"#0091B3", 22},
+        {"#AE537F", 22},
+        {"#C8AA0F", 22},
+        {"#868787", 34}
+    };
+    CHECK(MixedFilamentManager::blend_color_multi(four_color) == "#6C6455");
+}
+
+TEST_CASE("Mixed filament TD prediction toggle controls calibrated TD weighting", "[MixedFilament][Color]")
+{
+    ScopedMixedFilamentColorEngine engine_guard(MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    ScopedMixedFilamentUseTdPrediction td_guard(true);
+
+    CHECK(MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1, 6.4, 5.0) == "#655381");
+    MixedFilamentManager::set_use_td_for_color_prediction(false);
+    CHECK(MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1, 6.4, 5.0) == "#605584");
+    MixedFilamentManager::set_use_td_for_color_prediction(true);
+    CHECK(MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1, 6.4, 5.0) == "#655381");
+}
+
+TEST_CASE("Mixed filament full-spectrum profile estimates spectra for unknown colors", "[MixedFilament][Color]")
+{
+    ScopedMixedFilamentColorEngine engine_guard(MixedFilamentColorEngine::FilamentMixer);
+    const std::string filament_mixer = MixedFilamentManager::blend_color("#0091B3", "#00FF00", 1, 1);
+
+    MixedFilamentManager::set_color_engine(MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    CHECK(MixedFilamentManager::blend_color("#0091B3", "#00FF00", 1, 0) == "#0091B3");
+
+    const std::string km_estimated = MixedFilamentManager::blend_color_multi({{"#0091B3", 50}, {"#00FF00", 50}});
+    CHECK(!km_estimated.empty());
+    CHECK(km_estimated[0] == '#');
+    CHECK(km_estimated != filament_mixer);
+
+    const std::string changed_cyan = MixedFilamentManager::blend_color("#00A4C8", "#AE537F", 1, 1);
+    CHECK(!changed_cyan.empty());
+    CHECK(changed_cyan[0] == '#');
+    CHECK(changed_cyan != MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1));
+}
+
+TEST_CASE("Mixed filament full-spectrum profile recognizes SnapSpeed CMYW calibration", "[MixedFilament][Color]")
+{
+    ScopedMixedFilamentColorEngine engine_guard(MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    ScopedMixedFilamentUseTdPrediction td_guard(true);
+
+    REQUIRE(full_spectrum_ks_profile_matches_color("#00A0CC"));
+    REQUIRE(full_spectrum_ks_profile_matches_color("#C34C7E"));
+    REQUIRE(full_spectrum_ks_profile_matches_color("#FFB717"));
+    REQUIRE(full_spectrum_ks_profile_matches_color("#E4E5E1"));
+
+    REQUIRE(full_spectrum_ks_profile_td_mm_for_color("#00A0CC"));
+    REQUIRE(full_spectrum_ks_profile_td_mm_for_color("#E4E5E1"));
+    CHECK(*full_spectrum_ks_profile_td_mm_for_color("#00A0CC") == Approx(5.8));
+    CHECK(*full_spectrum_ks_profile_td_mm_for_color("#E4E5E1") == Approx(6.1));
+
+    const std::string snapspeed_pair = MixedFilamentManager::blend_color("#00A0CC", "#C34C7E", 1, 1, 5.8, 5.2);
+    CHECK(!snapspeed_pair.empty());
+    CHECK(snapspeed_pair[0] == '#');
+    CHECK(snapspeed_pair != MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1, 6.4, 5.0));
+}
+
+TEST_CASE("Mixed filament color engine selector switches calibrated profile on and off", "[MixedFilament][Color]")
+{
+    ScopedMixedFilamentColorEngine engine_guard(MixedFilamentColorEngine::FilamentMixer);
+
+    MixedFilamentManager::set_color_engine(MixedFilamentColorEngine::FilamentMixer);
+    const std::string filament_mixer = MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1);
+
+    MixedFilamentManager::set_color_engine(MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    const std::string calibrated = MixedFilamentManager::blend_color("#0091B3", "#AE537F", 1, 1);
+
+    CHECK(calibrated == "#605584");
+    CHECK(filament_mixer != calibrated);
+    CHECK(MixedFilamentManager::color_engine_from_string("ks_pair_residual") == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    CHECK(MixedFilamentManager::color_engine_from_string("filament_mixer") == MixedFilamentColorEngine::FilamentMixer);
+    CHECK(std::string(MixedFilamentManager::color_engine_to_string(MixedFilamentColorEngine::FullSpectrumKSPairResidual)) == "ks_pair_residual");
 }
 
 // ============================================================================

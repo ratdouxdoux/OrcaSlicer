@@ -7,6 +7,7 @@
 #include "MixedFilamentBadge.hpp"
 #include "libslic3r/MixedFilament.hpp"
 #include "PresetBundle.hpp"
+#include "Plater.hpp"
 #include "wxExtensions.hpp"
 #include "Widgets/Label.hpp"
 #include "Widgets/RadioGroup.hpp"
@@ -23,7 +24,9 @@
 #include <wx/wrapsizer.h>
 
 #include <algorithm>
+#include <cmath>
 #include <numeric>
+#include <optional>
 #include <utility>
 #include <set>
 #include <sstream>
@@ -133,11 +136,13 @@ private:
 // ---------------------------------------------------------------------------
 
 MixedFilamentDialog::MixedFilamentDialog(wxWindow* parent,
-                                     const std::vector<std::string>& filament_colours)
+                                     const std::vector<std::string>& filament_colours,
+                                     const std::vector<double>& filament_tds)
     : DPIDialog(parent, wxID_ANY, _L("Add Mix"),
                 wxDefaultPosition, wxDefaultSize,
                 wxDEFAULT_DIALOG_STYLE)
     , m_filament_colours(filament_colours)
+    , m_filament_tds(filament_tds)
 {
     m_result.component_a   = 1;
     m_result.component_b   = 2;
@@ -148,10 +153,19 @@ MixedFilamentDialog::MixedFilamentDialog(wxWindow* parent,
 MixedFilamentDialog::MixedFilamentDialog(wxWindow* parent,
                                      const std::vector<std::string>& filament_colours,
                                      const Slic3r::MixedFilament& existing)
+    : MixedFilamentDialog(parent, filament_colours, {}, existing)
+{
+}
+
+MixedFilamentDialog::MixedFilamentDialog(wxWindow* parent,
+                                     const std::vector<std::string>& filament_colours,
+                                     const std::vector<double>& filament_tds,
+                                     const Slic3r::MixedFilament& existing)
     : DPIDialog(parent, wxID_ANY, _L("Edit Mix"),
                 wxDefaultPosition, wxDefaultSize,
                 wxDEFAULT_DIALOG_STYLE)
     , m_filament_colours(filament_colours)
+    , m_filament_tds(filament_tds)
     , m_result(existing)
 {
     // Use saved UI mode when available (new format with cm token).
@@ -317,6 +331,56 @@ void MixedFilamentDialog::build_ui()
 
         top_sizer->Add(mode_outer, 0, wxEXPAND);
         top_sizer->Add(mode_divider, 0, wxEXPAND);
+    }
+
+    // ---- Color engine selector ----
+    {
+        auto* engine_outer = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE);
+        engine_outer->SetBackgroundColour(StateColor::darkModeColorFor(wxColour("#FFFFFF")));
+        auto* engine_sizer = new wxBoxSizer(wxHORIZONTAL);
+
+        auto* engine_label = new wxStaticText(engine_outer, wxID_ANY, _L("Color Engine"));
+        engine_label->SetFont(Label::Body_12);
+        engine_label->SetForegroundColour(StateColor::darkModeColorFor(wxColour("#4A4A4A")));
+        engine_label->SetBackgroundColour(StateColor::darkModeColorFor(wxColour("#FFFFFF")));
+        engine_sizer->Add(engine_label, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+        m_color_engine_choice = new wxChoice(engine_outer, wxID_ANY);
+        m_color_engine_choice->Append(_L("FilamentMixer"));
+        m_color_engine_choice->Append(_L("KM/K-S learned pair"));
+        m_color_engine_choice->SetSelection(
+            MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual ? 1 : 0);
+        m_color_engine_choice->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { on_color_engine_changed(); });
+        engine_sizer->Add(m_color_engine_choice, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(12));
+
+        m_use_td_prediction_checkbox = new wxCheckBox(engine_outer, wxID_ANY, _L("Use TD"));
+        m_use_td_prediction_checkbox->SetValue(MixedFilamentManager::use_td_for_color_prediction());
+        m_use_td_prediction_checkbox->Enable(MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+        m_use_td_prediction_checkbox->SetToolTip(_L("Weight KM/K-S color prediction by inverse filament TD."));
+        m_use_td_prediction_checkbox->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+            const bool enabled = m_use_td_prediction_checkbox && m_use_td_prediction_checkbox->GetValue();
+            MixedFilamentManager::set_use_td_for_color_prediction(enabled);
+            if (wxGetApp().app_config != nullptr) {
+                wxGetApp().app_config->set_bool("mixed_filament_use_td_prediction", enabled);
+                wxGetApp().app_config->save();
+            }
+            if (wxGetApp().preset_bundle != nullptr)
+                wxGetApp().preset_bundle->mixed_filaments.set_display_context(build_mixed_filament_display_context(m_filament_colours));
+            if (wxGetApp().plater() != nullptr) {
+                wxGetApp().sidebar().update_mixed_filament_panel(false);
+                wxGetApp().sidebar().update_color_mix_panel();
+            }
+            update_preview();
+            build_swatch_grid();
+        });
+        engine_sizer->Add(m_use_td_prediction_checkbox, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(12));
+        engine_outer->SetSizer(engine_sizer);
+
+        auto* engine_divider = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 1));
+        engine_divider->SetBackgroundColour(StateColor::darkModeColorFor(wxColour("#F0F0F0")));
+
+        top_sizer->Add(engine_outer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(8));
+        top_sizer->Add(engine_divider, 0, wxEXPAND);
     }
 
     // Add/remove & swap buttons are created inside Card A (see filament card block below)
@@ -907,15 +971,19 @@ void MixedFilamentDialog::build_ui()
                 int ib = std::max(0, std::min(get_filament_index(1), (int)m_filament_colours.size()-1));
                 wxColour ca = parse_mixed_color(m_filament_colours[ia]);
                 wxColour cb = parse_mixed_color(m_filament_colours[ib]);
-                if (m_gradient_direction != 0)
+                std::optional<double> td_a = filament_td_for_index(ia);
+                std::optional<double> td_b = filament_td_for_index(ib);
+                if (m_gradient_direction != 0) {
                     std::swap(ca, cb);
+                    std::swap(td_a, td_b);
+                }
                 wxImage img(sz.GetWidth(), sz.GetHeight());
                 unsigned char* data = img.GetData();
                 // Vertical gradient: top = cb-last, bottom = ca-first
                 // (t=1.0 at top→pure cb, t=0 at bottom→pure ca, matching gradient_start/end direction 0)
                 for (int y = 0; y < sz.GetHeight(); ++y) {
                     float t = (sz.GetHeight() > 1) ? 1.0f - float(y) / float(sz.GetHeight() - 1) : 0.5f;
-                    wxColour c = blend_pair_filament_mixer(ca, cb, t);
+                    wxColour c = blend_pair_filament_mixer(ca, cb, t, td_a, td_b);
                     for (int x = 0; x < sz.GetWidth(); ++x) {
                         int idx = (y * sz.GetWidth() + x) * 3;
                         data[idx]   = c.Red();
@@ -1252,7 +1320,9 @@ void MixedFilamentDialog::build_ui()
                 int ib = std::max(0, std::min(m_match_tri_indices[1], (int)m_filament_colours.size() - 1));
                 m_match_gradient_selector->set_colors(
                     parse_mixed_color(m_filament_colours[ia]),
-                    parse_mixed_color(m_filament_colours[ib]));
+                    parse_mixed_color(m_filament_colours[ib]),
+                    filament_td_for_index(ia),
+                    filament_td_for_index(ib));
             }
 
             rebuild_match_legend();
@@ -2351,16 +2421,17 @@ std::string MixedFilamentDialog::compute_preview_color()
             int val = m_match_gradient_selector->value();
             int ia = std::clamp(m_match_tri_indices[0], 0, (int)m_filament_colours.size() - 1);
             int ib = std::clamp(m_match_tri_indices[1], 0, (int)m_filament_colours.size() - 1);
-            return MixedFilamentManager::blend_color(m_filament_colours[ia], m_filament_colours[ib], 100 - val, val);
+            return MixedFilamentManager::blend_color(
+                m_filament_colours[ia], m_filament_colours[ib], 100 - val, val,
+                filament_td_for_index(ia), filament_td_for_index(ib));
         }
         if (nf >= 3) {
-            wxColour c0 = parse_mixed_color(m_filament_colours[std::clamp(m_match_tri_indices[0], 0, (int)m_filament_colours.size() - 1)]);
-            wxColour c1 = parse_mixed_color(m_filament_colours[std::clamp(m_match_tri_indices[1], 0, (int)m_filament_colours.size() - 1)]);
-            wxColour c2 = parse_mixed_color(m_filament_colours[std::clamp(m_match_tri_indices[2], 0, (int)m_filament_colours.size() - 1)]);
-            int r = (int)(c0.Red()*m_match_tri_wx + c1.Red()*m_match_tri_wy + c2.Red()*m_match_tri_wz + 0.5);
-            int g = (int)(c0.Green()*m_match_tri_wx + c1.Green()*m_match_tri_wy + c2.Green()*m_match_tri_wz + 0.5);
-            int b = (int)(c0.Blue()*m_match_tri_wx + c1.Blue()*m_match_tri_wy + c2.Blue()*m_match_tri_wz + 0.5);
-            return wxString::Format("#%02X%02X%02X", std::clamp(r,0,255), std::clamp(g,0,255), std::clamp(b,0,255)).ToStdString();
+            std::vector<MixedFilamentColorInput> color_percents = {
+                color_input_for_index(m_match_tri_indices[0], int(std::lround(m_match_tri_wx * 1000.0))),
+                color_input_for_index(m_match_tri_indices[1], int(std::lround(m_match_tri_wy * 1000.0))),
+                color_input_for_index(m_match_tri_indices[2], int(std::lround(m_match_tri_wz * 1000.0)))
+            };
+            return MixedFilamentManager::blend_color_multi(color_percents);
         }
     }
 
@@ -2397,12 +2468,19 @@ std::string MixedFilamentDialog::compute_preview_color()
             }
 
             if (!sequence.empty()) {
-                std::vector<wxColour> palette;
-                palette.reserve(m_filament_colours.size());
-                for (const auto& s : m_filament_colours)
-                    palette.push_back(parse_mixed_color(s));
-                wxColour result = blend_sequence_filament_mixer(palette, sequence);
-                return wxString::Format("#%02X%02X%02X", result.Red(), result.Green(), result.Blue()).ToStdString();
+                std::vector<size_t> counts(m_filament_colours.size() + 1, size_t(0));
+                for (const unsigned int id : sequence)
+                    if (id >= 1 && id <= m_filament_colours.size())
+                        ++counts[id];
+
+                std::vector<MixedFilamentColorInput> color_percents;
+                color_percents.reserve(m_filament_colours.size());
+                for (size_t id = 1; id <= m_filament_colours.size(); ++id)
+                    if (counts[id] > 0)
+                        color_percents.push_back(color_input_for_index(int(id - 1), int(counts[id])));
+
+                if (!color_percents.empty())
+                    return MixedFilamentManager::blend_color_multi(color_percents);
             }
         }
     }
@@ -2412,28 +2490,26 @@ std::string MixedFilamentDialog::compute_preview_color()
         int ib = safe_idx(get_filament_index(1));
         int w = (m_current_mode == MODE_RATIO) ? val : 50;
         return MixedFilamentManager::blend_color(
-            m_filament_colours[ia], m_filament_colours[ib], 100 - w, w);
+            m_filament_colours[ia], m_filament_colours[ib], 100 - w, w,
+            filament_td_for_index(ia), filament_td_for_index(ib));
     }
 
-    // 3-filament ratio mode: linear weighted average matching tri picker rendering
+    // 3-filament ratio mode: use the selected mixed-filament color engine.
     if (n == 3 && m_current_mode == MODE_RATIO) {
-        auto get_col = [&](int row) {
-            return parse_mixed_color(m_filament_colours[safe_idx(get_filament_index(row))]);
+        std::vector<MixedFilamentColorInput> color_percents = {
+            color_input_for_index(safe_idx(get_filament_index(0)), int(std::lround(m_tri_wx * 1000.0))),
+            color_input_for_index(safe_idx(get_filament_index(1)), int(std::lround(m_tri_wy * 1000.0))),
+            color_input_for_index(safe_idx(get_filament_index(2)), int(std::lround(m_tri_wz * 1000.0)))
         };
-        wxColour c0 = get_col(0), c1 = get_col(1), c2 = get_col(2);
-        int r = (int)(c0.Red()   * m_tri_wx + c1.Red()   * m_tri_wy + c2.Red()   * m_tri_wz + 0.5);
-        int g = (int)(c0.Green() * m_tri_wx + c1.Green() * m_tri_wy + c2.Green() * m_tri_wz + 0.5);
-        int b = (int)(c0.Blue()  * m_tri_wx + c1.Blue()  * m_tri_wy + c2.Blue()  * m_tri_wz + 0.5);
-        return wxString::Format("#%02X%02X%02X",
-            std::clamp(r, 0, 255), std::clamp(g, 0, 255), std::clamp(b, 0, 255)).ToStdString();
+        return MixedFilamentManager::blend_color_multi(color_percents);
     }
 
     int per = 100 / n;
     int rem = 100 - per * n;
-    std::vector<std::pair<std::string, int>> cp;
+    std::vector<MixedFilamentColorInput> cp;
     for (int i = 0; i < n; ++i) {
         int idx = safe_idx(get_filament_index(i));
-        cp.push_back(std::make_pair(m_filament_colours[idx], per + (i == 0 ? rem : 0)));
+        cp.push_back(color_input_for_index(idx, per + (i == 0 ? rem : 0)));
     }
     return MixedFilamentManager::blend_color_multi(cp);
 }
@@ -2595,6 +2671,16 @@ void MixedFilamentDialog::draw_strip(wxDC& dc, wxPanel* panel)
 
 void MixedFilamentDialog::build_swatch_grid()
 {
+    if (m_swatch_grid_panel == nullptr)
+        return;
+
+    if (wxSizer *old_sizer = m_swatch_grid_panel->GetSizer()) {
+        old_sizer->Clear(false);
+        m_swatch_grid_panel->SetSizer(nullptr, false);
+        delete old_sizer;
+    }
+    m_swatch_grid_panel->DestroyChildren();
+
     int n = (int)m_filament_colours.size();
     if (n < 2) return;
 
@@ -2611,6 +2697,7 @@ void MixedFilamentDialog::build_swatch_grid()
     // For ratio mode with 2 rows: pair candidates at 25/50/75.
     // For ratio mode with 3 rows: pair + triple candidates.
     // For other modes: pairs at 50 only.
+    const MixedFilamentDisplayContext swatch_context = display_context();
     struct Candidate {
         wxColour color;
         wxString tooltip;
@@ -2640,7 +2727,7 @@ void MixedFilamentDialog::build_swatch_grid()
                 if (!recipe.valid) return {};
 
                 Candidate c;
-                c.color  = recipe.preview_color;
+                c.color  = compute_color_match_recipe_display_color(recipe, swatch_context);
                 c.n_rows = 3;
                 // Use original input order for rows (i, j, k correspond to rows 0, 1, 2)
                 c.rows[0] = i;
@@ -2680,7 +2767,7 @@ void MixedFilamentDialog::build_swatch_grid()
                     auto recipe = build_pair_color_match_candidate(palette, i + 1, j + 1, 50);
                     if (!recipe.valid) continue;
                     Candidate c;
-                    c.color   = recipe.preview_color;
+                    c.color   = compute_color_match_recipe_display_color(recipe, swatch_context);
                     c.tooltip = wxString::Format("F%d(50%%) + F%d(50%%)", i+1, j+1);
                     c.rows[0] = i; c.rows[1] = j;
                     c.n_rows  = 2;
@@ -2694,7 +2781,7 @@ void MixedFilamentDialog::build_swatch_grid()
         for (const auto& preset : presets) {
             if (!preset.valid) continue;
             Candidate c;
-            c.color   = preset.preview_color;
+            c.color   = compute_color_match_recipe_display_color(preset, swatch_context);
             c.tooltip = from_u8(summarize_color_match_recipe(preset));
             auto decoded = MixedFilamentManager::decode_gradient_component_ids(preset.gradient_component_ids);
             if (decoded.size() >= 2) {
@@ -2717,7 +2804,9 @@ void MixedFilamentDialog::build_swatch_grid()
             for (int j = i + 1; j < n; ++j) {
                 // 50:50 blend is symmetric — compute once, reuse for both directions.
                 const wxColour blended = parse_mixed_color(
-                    MixedFilamentManager::blend_color(m_filament_colours[i], m_filament_colours[j], 50, 50));
+                    MixedFilamentManager::blend_color(
+                        m_filament_colours[i], m_filament_colours[j], 50, 50,
+                        filament_td_for_index(i), filament_td_for_index(j)));
 
                 // Direction A→B: Fi → Fj
                 Candidate c_ab;
@@ -2742,7 +2831,8 @@ void MixedFilamentDialog::build_swatch_grid()
         for (int i = 0; i < n; ++i) {
             for (int j = i + 1; j < n; ++j) {
                 std::string blended = MixedFilamentManager::blend_color(
-                    m_filament_colours[i], m_filament_colours[j], 50, 50);
+                    m_filament_colours[i], m_filament_colours[j], 50, 50,
+                    filament_td_for_index(i), filament_td_for_index(j));
                 Candidate c;
                 c.color   = parse_mixed_color(blended);
                 c.tooltip = wxString::Format("F%d + F%d", i+1, j+1);
@@ -2758,9 +2848,7 @@ void MixedFilamentDialog::build_swatch_grid()
     auto* grid = new wxGridSizer(10, FromDIP(6), FromDIP(6));
 
     // Build display context for MixedFilamentBadge
-    MixedFilamentDisplayContext ctx;
-    ctx.num_physical = m_filament_colours.size();
-    ctx.physical_colors = m_filament_colours;
+    MixedFilamentDisplayContext ctx = swatch_context;
 
     int badge_idx = 0;
     for (const auto& cand : candidates) {
@@ -2801,7 +2889,9 @@ void MixedFilamentDialog::build_swatch_grid()
                         int ib = std::clamp(cand.rows[1], 0, (int)m_filament_colours.size() - 1);
                         m_match_gradient_selector->set_colors(
                             parse_mixed_color(m_filament_colours[ia]),
-                            parse_mixed_color(m_filament_colours[ib]));
+                            parse_mixed_color(m_filament_colours[ib]),
+                            filament_td_for_index(ia),
+                            filament_td_for_index(ib));
                     }
                 }
                 if (m_match_gradient_selector && cand.n_rows >= 3 && m_match_tri_indices.size() >= 2) {
@@ -2809,7 +2899,9 @@ void MixedFilamentDialog::build_swatch_grid()
                     int ib = std::clamp(m_match_tri_indices[1], 0, (int)m_filament_colours.size() - 1);
                     m_match_gradient_selector->set_colors(
                         parse_mixed_color(m_filament_colours[ia]),
-                        parse_mixed_color(m_filament_colours[ib]));
+                        parse_mixed_color(m_filament_colours[ib]),
+                        filament_td_for_index(ia),
+                        filament_td_for_index(ib));
                 }
                 rebuild_match_legend();
                 update_ratio_or_tri_visibility();  // switch gradient/tri based on actual filament count
@@ -2926,7 +3018,9 @@ void MixedFilamentDialog::on_mode_changed(int mode_index)
             int ib = std::clamp(m_match_tri_indices[1], 0, num_physical - 1);
             m_match_gradient_selector->set_colors(
                 parse_mixed_color(m_filament_colours[ia]),
-                parse_mixed_color(m_filament_colours[ib]));
+                parse_mixed_color(m_filament_colours[ib]),
+                filament_td_for_index(ia),
+                filament_td_for_index(ib));
             if (m_match_tri_indices.size() == 2)
                 m_match_gradient_selector->set_value((int)(m_match_tri_weights[1] * 100 + 0.5));
         }
@@ -2976,7 +3070,7 @@ void MixedFilamentDialog::update_gradient_selector_colors()
     ib = std::max(0, std::min(ib, (int)m_filament_colours.size()-1));
     wxColour ca = parse_mixed_color(m_filament_colours[ia]);
     wxColour cb = parse_mixed_color(m_filament_colours[ib]);
-    m_gradient_selector->set_colors(ca, cb);
+    m_gradient_selector->set_colors(ca, cb, filament_td_for_index(ia), filament_td_for_index(ib));
 
     update_legend_text();
 }
@@ -3177,6 +3271,62 @@ void MixedFilamentDialog::update_preview()
     if (m_match_blend_panel)   m_match_blend_panel->Refresh();
 }
 
+std::optional<double> MixedFilamentDialog::filament_td_for_index(int index) const
+{
+    if (index < 0 || index >= int(m_filament_tds.size()))
+        return std::nullopt;
+
+    const double td = m_filament_tds[size_t(index)];
+    if (!std::isfinite(td) || td <= 0.0)
+        return std::nullopt;
+
+    return td;
+}
+
+MixedFilamentColorInput MixedFilamentDialog::color_input_for_index(int index, int percent) const
+{
+    if (m_filament_colours.empty())
+        return {"#26A69A", percent, std::nullopt};
+
+    const int safe = std::clamp(index, 0, int(m_filament_colours.size()) - 1);
+    return {m_filament_colours[size_t(safe)], percent, filament_td_for_index(safe)};
+}
+
+MixedFilamentDisplayContext MixedFilamentDialog::display_context() const
+{
+    MixedFilamentDisplayContext context;
+    context.num_physical = m_filament_colours.size();
+    context.physical_colors = m_filament_colours;
+    context.physical_tds = m_filament_tds;
+    return context;
+}
+
+void MixedFilamentDialog::on_color_engine_changed()
+{
+    const int selection = m_color_engine_choice ? m_color_engine_choice->GetSelection() : 0;
+    const MixedFilamentColorEngine engine =
+        selection == 1 ? MixedFilamentColorEngine::FullSpectrumKSPairResidual : MixedFilamentColorEngine::FilamentMixer;
+
+    MixedFilamentManager::set_color_engine(engine);
+    if (wxGetApp().app_config != nullptr) {
+        wxGetApp().app_config->set("mixed_filament_color_engine", MixedFilamentManager::color_engine_to_string(engine));
+        wxGetApp().app_config->save();
+    }
+    if (wxGetApp().preset_bundle != nullptr)
+        wxGetApp().preset_bundle->mixed_filaments.set_display_context(build_mixed_filament_display_context(m_filament_colours));
+    if (wxGetApp().plater() != nullptr) {
+        wxGetApp().sidebar().update_mixed_filament_panel(false);
+        wxGetApp().sidebar().update_color_mix_panel();
+    }
+    if (m_use_td_prediction_checkbox) {
+        m_use_td_prediction_checkbox->SetValue(MixedFilamentManager::use_td_for_color_prediction());
+        m_use_td_prediction_checkbox->Enable(engine == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    }
+
+    update_preview();
+    build_swatch_grid();
+}
+
 void MixedFilamentDialog::collect_result()
 {
     sync_rows_to_result();
@@ -3294,15 +3444,16 @@ void MixedFilamentDialog::collect_result()
                 int ia = std::clamp(m_match_tri_indices[0], 0, (int)m_filament_colours.size() - 1);
                 int ib = std::clamp(m_match_tri_indices[1], 0, (int)m_filament_colours.size() - 1);
                 int val = m_match_gradient_selector->value();
-                m_result.display_color = MixedFilamentManager::blend_color(m_filament_colours[ia], m_filament_colours[ib], 100 - val, val);
+                m_result.display_color = MixedFilamentManager::blend_color(
+                    m_filament_colours[ia], m_filament_colours[ib], 100 - val, val,
+                    filament_td_for_index(ia), filament_td_for_index(ib));
             } else if (nf >= 3) {
-                wxColour c0 = parse_mixed_color(m_filament_colours[std::clamp(m_match_tri_indices[0], 0, (int)m_filament_colours.size() - 1)]);
-                wxColour c1 = parse_mixed_color(m_filament_colours[std::clamp(m_match_tri_indices[1], 0, (int)m_filament_colours.size() - 1)]);
-                wxColour c2 = parse_mixed_color(m_filament_colours[std::clamp(m_match_tri_indices[2], 0, (int)m_filament_colours.size() - 1)]);
-                int r = (int)(c0.Red()*m_match_tri_wx + c1.Red()*m_match_tri_wy + c2.Red()*m_match_tri_wz + 0.5);
-                int g = (int)(c0.Green()*m_match_tri_wx + c1.Green()*m_match_tri_wy + c2.Green()*m_match_tri_wz + 0.5);
-                int b = (int)(c0.Blue()*m_match_tri_wx + c1.Blue()*m_match_tri_wy + c2.Blue()*m_match_tri_wz + 0.5);
-                m_result.display_color = wxString::Format("#%02X%02X%02X", std::clamp(r,0,255), std::clamp(g,0,255), std::clamp(b,0,255)).ToStdString();
+                std::vector<MixedFilamentColorInput> color_percents = {
+                    color_input_for_index(m_match_tri_indices[0], int(std::lround(m_match_tri_wx * 1000.0))),
+                    color_input_for_index(m_match_tri_indices[1], int(std::lround(m_match_tri_wy * 1000.0))),
+                    color_input_for_index(m_match_tri_indices[2], int(std::lround(m_match_tri_wz * 1000.0)))
+                };
+                m_result.display_color = MixedFilamentManager::blend_color_multi(color_percents);
             }
         }
         break;

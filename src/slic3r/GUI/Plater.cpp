@@ -13,6 +13,7 @@
 #include <array>
 #include <ctime>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <algorithm>
 #include <cmath>
@@ -20,10 +21,12 @@
 #include <numeric>
 #include <memory>
 #include <limits>
+#include <optional>
 #include <thread>
 #include <vector>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <regex>
 #include <future>
@@ -745,6 +748,10 @@ struct Sidebar::priv
     wxBoxSizer*         m_sizer_mixed_filaments_content = nullptr; // Content sizer
     ScalableButton*     m_mixed_filaments_icon = nullptr;          // Icon
     wxStaticText*       m_staticText_mixed_filaments = nullptr;    // Title text
+    wxChoice*           m_choice_mixed_color_engine = nullptr;     // FilamentMixer / calibrated predictor
+    wxCheckBox*         m_check_mixed_use_td = nullptr;            // Toggle TD-adjusted KM/K-S preview
+    wxCheckBox*         m_check_mixed_oracle = nullptr;            // Toggle measured oracle preview for generated swatch plates
+    wxButton*           m_btn_load_mixed_oracle = nullptr;         // Load measured swatch JSON for oracle preview
     Button*             m_btn_add_gradient = nullptr;              // Add gradient button
     Button*             m_btn_add_pattern = nullptr;               // Add pattern button
     Button*             m_btn_add_color = nullptr;                 // Add color-match button
@@ -2877,6 +2884,9 @@ void Sidebar::update_presets(Preset::Type preset_type)
             p->combos_filament[i]->update();
 
         update_dynamic_filament_list();
+        preset_bundle.update_multi_material_filament_presets();
+        update_mixed_filament_panel(false);
+        update_color_mix_panel();
         break;
     }
 
@@ -3354,6 +3364,7 @@ public:
                              size_t num_physical,
                              const std::vector<std::string> &physical_colors,
                              const std::vector<double> &nozzle_diameters,
+                             const std::vector<double> &physical_tds,
                              const std::vector<wxColour> &palette,
                              const MixedFilamentPreviewSettings &preview_settings,
                              bool bias_mode_enabled,
@@ -3370,12 +3381,14 @@ private:
     void update_preview();
     void update_local_z_breakdown();
     void update_component_picker_visuals();
+    std::optional<double> td_for(unsigned int id) const;
 
     size_t                          m_mixed_id;
     MixedFilament                   m_mf;
     size_t                          m_num_physical;
     std::vector<std::string>        m_physical_colors;
     std::vector<double>             m_nozzle_diameters;
+    std::vector<double>             m_physical_tds;
     std::vector<wxColour>           m_palette;
     MixedFilamentPreviewSettings    m_preview_settings;
     bool                            m_bias_mode_enabled = false;
@@ -3432,7 +3445,10 @@ private:
     static std::string summarize_local_z_breakdown(const MixedFilament &mf,
                                                    const std::vector<int> &weights,
                                                    const MixedFilamentPreviewSettings &preview_settings);
-    static std::string blend_from_sequence(const std::vector<std::string> &colors, const std::vector<unsigned int> &seq, const std::string &fallback);
+    static std::string blend_from_sequence(const std::vector<std::string> &colors,
+                                           const std::vector<double>      &tds,
+                                           const std::vector<unsigned int> &seq,
+                                           const std::string              &fallback);
     static std::vector<double> build_local_z_preview_pass_heights(double nominal_layer_height,
                                                                   double lower_bound,
                                                                   double upper_bound,
@@ -4639,7 +4655,10 @@ std::string MixedFilamentConfigPanel::summarize_local_z_breakdown(const MixedFil
     return "Local-Z breakdown: unavailable.";
 }
 
-std::string MixedFilamentConfigPanel::blend_from_sequence(const std::vector<std::string> &colors, const std::vector<unsigned int> &seq, const std::string &fallback)
+std::string MixedFilamentConfigPanel::blend_from_sequence(const std::vector<std::string> &colors,
+                                                          const std::vector<double>      &tds,
+                                                          const std::vector<unsigned int> &seq,
+                                                          const std::string              &fallback)
 {
     if (colors.empty() || seq.empty())
         return fallback;
@@ -4655,26 +4674,30 @@ std::string MixedFilamentConfigPanel::blend_from_sequence(const std::vector<std:
     if (total == 0)
         return fallback;
 
-    unsigned int first_id = 0;
+    std::vector<MixedFilamentColorInput> color_percents;
+    color_percents.reserve(colors.size());
     for (size_t id = 1; id <= colors.size(); ++id) {
-        if (counts[id] > 0) {
-            first_id = unsigned(id);
-            break;
-        }
-    }
-    if (first_id == 0 || first_id > colors.size())
-        return fallback;
-
-    std::string blended = colors[first_id - 1];
-    int acc = int(counts[first_id]);
-    for (size_t id = size_t(first_id + 1); id <= colors.size(); ++id) {
         if (counts[id] == 0)
             continue;
-        blended = MixedFilamentManager::blend_color(blended, colors[id - 1], acc, int(counts[id]));
-        acc += int(counts[id]);
+        const std::optional<double> td = id <= tds.size() && std::isfinite(tds[id - 1]) && tds[id - 1] > 0.0 ?
+            std::optional<double>(tds[id - 1]) :
+            std::nullopt;
+        color_percents.push_back({colors[id - 1], int(counts[id]), td});
     }
 
-    return blended;
+    return color_percents.empty() ? fallback : MixedFilamentManager::blend_color_multi(color_percents);
+}
+
+std::optional<double> MixedFilamentConfigPanel::td_for(unsigned int id) const
+{
+    if (id == 0 || id > m_physical_tds.size())
+        return std::nullopt;
+
+    const double td = m_physical_tds[id - 1];
+    if (!std::isfinite(td) || td <= 0.0)
+        return std::nullopt;
+
+    return td;
 }
 
 MixedFilamentConfigPanel::MixedFilamentConfigPanel(wxWindow *parent,
@@ -4683,6 +4706,7 @@ MixedFilamentConfigPanel::MixedFilamentConfigPanel(wxWindow *parent,
                                                    size_t num_physical,
                                                    const std::vector<std::string> &physical_colors,
                                                    const std::vector<double> &nozzle_diameters,
+                                                   const std::vector<double> &physical_tds,
                                                    const std::vector<wxColour> &palette,
                                                    const MixedFilamentPreviewSettings &preview_settings,
                                                    bool bias_mode_enabled,
@@ -4693,6 +4717,7 @@ MixedFilamentConfigPanel::MixedFilamentConfigPanel(wxWindow *parent,
     , m_num_physical(num_physical)
     , m_physical_colors(physical_colors)
     , m_nozzle_diameters(nozzle_diameters)
+    , m_physical_tds(physical_tds)
     , m_palette(palette)
     , m_preview_settings(preview_settings)
     , m_bias_mode_enabled(bias_mode_enabled)
@@ -5094,9 +5119,9 @@ void MixedFilamentConfigPanel::build_ui()
                     if (corner_colors.size() >= 3)
                         m_blend_selector->set_multi_preview(corner_colors, *m_selected_weight_state);
                     else
-                        m_blend_selector->set_colors(color_a, color_b);
+                        m_blend_selector->set_colors(color_a, color_b, td_for(unsigned(a)), td_for(unsigned(b)));
                 } else {
-                    m_blend_selector->set_colors(color_a, color_b);
+                    m_blend_selector->set_colors(color_a, color_b, td_for(unsigned(a)), td_for(unsigned(b)));
                 }
             }
 
@@ -5148,9 +5173,11 @@ void MixedFilamentConfigPanel::build_ui()
                 m_physical_colors[size_t(m_mf.component_a - 1)],
                 m_physical_colors[size_t(m_mf.component_b - 1)],
                 apparent_pct_a,
-                apparent_pct_b);
+                apparent_pct_b,
+                td_for(m_mf.component_a),
+                td_for(m_mf.component_b));
         } else if (selected_gradient_ids.size() >= 3 || !preview_sequence.empty()) {
-            m_mf.display_color = blend_from_sequence(m_physical_colors, preview_sequence, "#26A69A");
+            m_mf.display_color = blend_from_sequence(m_physical_colors, m_physical_tds, preview_sequence, "#26A69A");
             if (m_blend_label) {
                 if (selected_gradient_ids.size() >= 3) {
                     m_blend_label->SetLabel(wxString::Format(_L("%d-color layer cycle"), int(selected_gradient_ids.size())));
@@ -5162,7 +5189,8 @@ void MixedFilamentConfigPanel::build_ui()
         } else {
             m_mf.display_color = MixedFilamentManager::blend_color(
                 m_physical_colors[size_t(a - 1)], m_physical_colors[size_t(b - 1)],
-                100 - preview_mix_b_percent, preview_mix_b_percent);
+                100 - preview_mix_b_percent, preview_mix_b_percent,
+                td_for(a), td_for(b));
             if (m_blend_label)
                 m_blend_label->SetLabel(wxString::Format(simple_mode ? _L("Simple %d%%/%d%%") : _L("%d%%/%d%%"),
                                                         100 - preview_mix_b_percent, preview_mix_b_percent));
@@ -5454,7 +5482,9 @@ void MixedFilamentConfigPanel::update_preview()
                 m_physical_colors[size_t(m_mf.component_a - 1)],
                 m_physical_colors[size_t(m_mf.component_b - 1)],
                 apparent_pct_a,
-                apparent_pct_b);
+                apparent_pct_b,
+                td_for(m_mf.component_a),
+                td_for(m_mf.component_b));
         }
 
         const std::string bias_summary =
@@ -5564,6 +5594,172 @@ static std::vector<size_t> build_mixed_filament_ui_indices(const std::vector<Mix
     return ordered_indices;
 }
 
+static std::vector<double> project_filament_transmission_distances(PresetBundle *preset_bundle, size_t count)
+{
+    std::vector<double> tds(count, 0.0);
+    if (preset_bundle == nullptr)
+        return tds;
+
+    const Preset *edited_filament_preset = &preset_bundle->filaments.get_edited_preset();
+    const std::string edited_filament_name = edited_filament_preset != nullptr ?
+        Preset::remove_suffix_modified(edited_filament_preset->name) :
+        std::string();
+
+    for (size_t i = 0; i < count && i < preset_bundle->filament_presets.size(); ++i) {
+        const std::string selected_filament_name = Preset::remove_suffix_modified(preset_bundle->filament_presets[i]);
+        const Preset *filament_preset =
+            (!edited_filament_name.empty() && selected_filament_name == edited_filament_name) ?
+            edited_filament_preset :
+            preset_bundle->filaments.find_preset(selected_filament_name, true);
+
+        const ConfigOptionFloats *td_opt = filament_preset != nullptr ?
+            filament_preset->config.option<ConfigOptionFloats>("filament_transmission_distance") :
+            nullptr;
+        if (td_opt != nullptr && !td_opt->values.empty()) {
+            const double td = td_opt->get_at(0);
+            if (std::isfinite(td) && td > 0.0)
+                tds[i] = td;
+        }
+    }
+
+    const ConfigOptionFloats *opt = preset_bundle->project_config.option<ConfigOptionFloats>("filament_transmission_distance");
+    if (opt == nullptr || opt->values.empty())
+        return tds;
+
+    const size_t opt_count = opt->values.size();
+    for (size_t i = 0; i < count; ++i) {
+        if (tds[i] > 0.0)
+            continue;
+        const double td = opt->get_at(unsigned(std::min(i, opt_count - 1)));
+        tds[i] = (std::isfinite(td) && td > 0.0) ? td : 0.0;
+    }
+    return tds;
+}
+
+static void refresh_model_canvas_colors()
+{
+    Plater *plater = wxGetApp().plater();
+    if (plater == nullptr)
+        return;
+
+    auto refresh_canvas = [](GLCanvas3D *canvas) {
+        if (canvas == nullptr || !canvas->is_initialized())
+            return;
+        canvas->update_volumes_colors_by_extruder();
+        canvas->render();
+    };
+
+    refresh_canvas(plater->get_view3D_canvas3D());
+    refresh_canvas(plater->get_assmeble_canvas3D());
+}
+
+static std::string calibration_oracle_record_key(const std::string &swatch_id, const std::string &condition)
+{
+    return swatch_id + "\n" + condition;
+}
+
+static std::string calibration_oracle_canonical_condition(std::string condition)
+{
+    boost::algorithm::trim(condition);
+    boost::algorithm::to_lower(condition);
+    if (condition.empty())
+        return "normal";
+    if (condition == "black" || condition == "black backing")
+        return "black_backing";
+    if (condition == "white" || condition == "white backing")
+        return "white_backing";
+    return condition;
+}
+
+static bool calibration_oracle_hex_is_valid(const std::string &hex)
+{
+    if (hex.size() != 7 || hex.front() != '#')
+        return false;
+    for (size_t i = 1; i < hex.size(); ++i)
+        if (!std::isxdigit(static_cast<unsigned char>(hex[i])))
+            return false;
+    return true;
+}
+
+struct CalibrationOracleLab
+{
+    double l = 0.0;
+    double a = 0.0;
+    double b = 0.0;
+};
+
+static std::optional<CalibrationOracleLab> calibration_oracle_lab_from_json(const nlohmann::json &object)
+{
+    if (!object.is_object() || !object.contains("L") || !object.contains("a") || !object.contains("b") ||
+        !object["L"].is_number() || !object["a"].is_number() || !object["b"].is_number())
+        return std::nullopt;
+    return CalibrationOracleLab { object["L"].get<double>(), object["a"].get<double>(), object["b"].get<double>() };
+}
+
+static double calibration_oracle_srgb_channel_from_linear(double value)
+{
+    value = std::clamp(value, 0.0, 1.0);
+    if (value <= 0.0031308)
+        return 12.92 * value;
+    return 1.055 * std::pow(value, 1.0 / 2.4) - 0.055;
+}
+
+static double calibration_oracle_lab_inverse_f(double value)
+{
+    const double value3 = value * value * value;
+    return value3 > 0.008856 ? value3 : (value - 16.0 / 116.0) / 7.787;
+}
+
+static std::string calibration_oracle_lab_to_hex(const CalibrationOracleLab &lab)
+{
+    const double y = (lab.l + 16.0) / 116.0;
+    const double x = lab.a / 500.0 + y;
+    const double z = y - lab.b / 200.0;
+
+    const double X = 95.047 * calibration_oracle_lab_inverse_f(x) / 100.0;
+    const double Y = 100.000 * calibration_oracle_lab_inverse_f(y) / 100.0;
+    const double Z = 108.883 * calibration_oracle_lab_inverse_f(z) / 100.0;
+
+    const double r =  3.2406 * X - 1.5372 * Y - 0.4986 * Z;
+    const double g = -0.9689 * X + 1.8758 * Y + 0.0415 * Z;
+    const double b =  0.0557 * X - 0.2040 * Y + 1.0570 * Z;
+
+    const int ri = std::clamp(int(std::lround(calibration_oracle_srgb_channel_from_linear(r) * 255.0)), 0, 255);
+    const int gi = std::clamp(int(std::lround(calibration_oracle_srgb_channel_from_linear(g) * 255.0)), 0, 255);
+    const int bi = std::clamp(int(std::lround(calibration_oracle_srgb_channel_from_linear(b) * 255.0)), 0, 255);
+
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", ri, gi, bi);
+    return std::string(buf);
+}
+
+static std::string calibration_oracle_string_value(const nlohmann::json &object, const char *key)
+{
+    return object.is_object() && object.contains(key) && object[key].is_string() ? object[key].get<std::string>() : std::string();
+}
+
+static std::string calibration_oracle_swatch_id_from_object_name(const std::string &object_name)
+{
+    static constexpr const char prefix[] = "CS_";
+    if (object_name.rfind(prefix, 0) == 0)
+        return object_name.substr(sizeof(prefix) - 1);
+    return {};
+}
+
+static std::string calibration_oracle_swatch_id_from_volume_name(const std::string &volume_name)
+{
+    static constexpr const char chip_prefix[] = "chip_";
+    static constexpr const char top_prefix[] = "top_";
+    if (volume_name.rfind(chip_prefix, 0) == 0)
+        return volume_name.substr(sizeof(chip_prefix) - 1);
+    if (volume_name.rfind(top_prefix, 0) == 0) {
+        const size_t second_separator = volume_name.find('_', sizeof(top_prefix) - 1);
+        if (second_separator != std::string::npos && second_separator + 1 < volume_name.size())
+            return volume_name.substr(second_separator + 1);
+    }
+    return {};
+}
+
 void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
 {
     // Title bar
@@ -5580,6 +5776,114 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
     p->m_btn_del_color_mix = new ScalableButton(p->m_panel_color_mix_title, wxID_ANY, "delete_filament");
     p->m_btn_add_color_mix = new ScalableButton(p->m_panel_color_mix_title, wxID_ANY, "add_filament");
 
+    p->m_choice_mixed_color_engine = new wxChoice(p->m_panel_color_mix_title, wxID_ANY);
+    p->m_choice_mixed_color_engine->Append(_L("FilamentMixer"));
+    p->m_choice_mixed_color_engine->Append(_L("KM/K-S learned pair"));
+    p->m_choice_mixed_color_engine->SetSelection(
+        MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual ? 1 : 0);
+    p->m_choice_mixed_color_engine->SetMinSize(wxSize(FromDIP(154), -1));
+    p->m_choice_mixed_color_engine->SetToolTip(_L("Color prediction engine used for mixed filament preview colors."));
+    p->m_choice_mixed_color_engine->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
+        const int selection = p->m_choice_mixed_color_engine ? p->m_choice_mixed_color_engine->GetSelection() : 0;
+        const MixedFilamentColorEngine engine =
+            selection == 1 ? MixedFilamentColorEngine::FullSpectrumKSPairResidual : MixedFilamentColorEngine::FilamentMixer;
+
+        MixedFilamentManager::set_color_engine(engine);
+        if (wxGetApp().app_config != nullptr) {
+            wxGetApp().app_config->set("mixed_filament_color_engine", MixedFilamentManager::color_engine_to_string(engine));
+            wxGetApp().app_config->save();
+        }
+        if (wxGetApp().preset_bundle != nullptr)
+            wxGetApp().preset_bundle->update_multi_material_filament_presets();
+        if (p->m_check_mixed_use_td) {
+            p->m_check_mixed_use_td->SetValue(MixedFilamentManager::use_td_for_color_prediction());
+            p->m_check_mixed_use_td->Enable(engine == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+        }
+        update_mixed_filament_panel(false);
+        update_color_mix_panel();
+        m_scrolled_sizer->Layout();
+    });
+
+    p->m_check_mixed_use_td = new wxCheckBox(p->m_panel_color_mix_title, wxID_ANY, _L("Use TD"));
+    p->m_check_mixed_use_td->SetValue(MixedFilamentManager::use_td_for_color_prediction());
+    p->m_check_mixed_use_td->Enable(MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    p->m_check_mixed_use_td->SetToolTip(_L("Weight KM/K-S color prediction by inverse filament TD."));
+    p->m_check_mixed_use_td->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+        const bool enabled = p->m_check_mixed_use_td && p->m_check_mixed_use_td->GetValue();
+        MixedFilamentManager::set_use_td_for_color_prediction(enabled);
+        if (wxGetApp().app_config != nullptr) {
+            wxGetApp().app_config->set_bool("mixed_filament_use_td_prediction", enabled);
+            wxGetApp().app_config->save();
+        }
+        if (wxGetApp().preset_bundle != nullptr)
+            wxGetApp().preset_bundle->update_multi_material_filament_presets();
+        update_mixed_filament_panel(false);
+        update_color_mix_panel();
+        m_scrolled_sizer->Layout();
+    });
+
+    p->m_check_mixed_oracle = new wxCheckBox(p->m_panel_color_mix_title, wxID_ANY, _L("Oracle"));
+    p->m_check_mixed_oracle->SetValue(wxGetApp().plater() != nullptr && wxGetApp().plater()->calibration_swatch_oracle_preview_enabled());
+    p->m_check_mixed_oracle->SetToolTip(_L("Display generated calibration swatches using measured Lab/RGB values from an imported measurement JSON."));
+    p->m_check_mixed_oracle->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
+        Plater *plater = wxGetApp().plater();
+        if (plater == nullptr || p->m_check_mixed_oracle == nullptr)
+            return;
+
+        if (p->m_check_mixed_oracle->GetValue() && plater->calibration_swatch_oracle_measurement_count() == 0) {
+            wxFileDialog dlg(this,
+                             _L("Load measured oracle swatch JSON"),
+                             wxEmptyString,
+                             wxEmptyString,
+                             _L("JSON files (*.json)|*.json|All files (*.*)|*.*"),
+                             wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+            if (dlg.ShowModal() != wxID_OK) {
+                p->m_check_mixed_oracle->SetValue(false);
+                return;
+            }
+
+            wxString error;
+            if (!plater->load_calibration_swatch_oracle_measurements(dlg.GetPath(), &error)) {
+                p->m_check_mixed_oracle->SetValue(false);
+                MessageDialog(this, error, _L("Measured oracle preview"), wxOK | wxICON_WARNING).ShowModal();
+                return;
+            }
+        } else {
+            plater->set_calibration_swatch_oracle_preview_enabled(p->m_check_mixed_oracle->GetValue());
+        }
+
+        update_color_mix_panel();
+        m_scrolled_sizer->Layout();
+    });
+
+    p->m_btn_load_mixed_oracle = new wxButton(p->m_panel_color_mix_title, wxID_ANY, _L("Load Oracle"));
+    p->m_btn_load_mixed_oracle->SetToolTip(_L("Load measured swatch JSON for Measured Oracle Preview."));
+    p->m_btn_load_mixed_oracle->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        Plater *plater = wxGetApp().plater();
+        if (plater == nullptr)
+            return;
+
+        wxFileDialog dlg(this,
+                         _L("Load measured oracle swatch JSON"),
+                         wxEmptyString,
+                         wxEmptyString,
+                         _L("JSON files (*.json)|*.json|All files (*.*)|*.*"),
+                         wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+        if (dlg.ShowModal() != wxID_OK)
+            return;
+
+        wxString error;
+        if (!plater->load_calibration_swatch_oracle_measurements(dlg.GetPath(), &error)) {
+            MessageDialog(this, error, _L("Measured oracle preview"), wxOK | wxICON_WARNING).ShowModal();
+            return;
+        }
+
+        if (p->m_check_mixed_oracle)
+            p->m_check_mixed_oracle->SetValue(true);
+        update_color_mix_panel();
+        m_scrolled_sizer->Layout();
+    });
+
     auto* h_title = new wxBoxSizer(wxHORIZONTAL);
     auto* white_left_c = new wxPanel(p->m_panel_color_mix_title, wxID_ANY, wxDefaultPosition, wxSize(FromDIP(SidebarProps::ContentMargin()), -1));
     white_left_c->SetBackgroundColour(StateColor::darkModeColorFor(*wxWHITE));
@@ -5588,6 +5892,10 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
     h_title->AddSpacer(FromDIP(SidebarProps::ElementSpacing()));
     h_title->Add(label, 0, wxALIGN_CENTER_VERTICAL);
     h_title->AddStretchSpacer();
+    h_title->Add(p->m_choice_mixed_color_engine, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+    h_title->Add(p->m_check_mixed_use_td, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+    h_title->Add(p->m_check_mixed_oracle, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+    h_title->Add(p->m_btn_load_mixed_oracle, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
     h_title->Add(p->m_btn_del_color_mix, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
     h_title->Add(p->m_btn_add_color_mix, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
     auto* white_right_c = new wxPanel(p->m_panel_color_mix_title, wxID_ANY, wxDefaultPosition, wxSize(FromDIP(SidebarProps::ContentMargin()), -1));
@@ -5622,7 +5930,8 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
         const std::vector<std::string> colors = co ? co->values : std::vector<std::string>{};
         if (colors.size() < 2) return;
 
-        MixedFilamentDialog dlg(wxGetApp().mainframe, colors);
+        const std::vector<double> physical_tds = project_filament_transmission_distances(pb, colors.size());
+        MixedFilamentDialog dlg(wxGetApp().mainframe, colors, physical_tds);
         if (dlg.ShowModal() != wxID_OK) return;
 
         auto& mgr = pb->mixed_filaments;
@@ -5689,6 +5998,21 @@ void Sidebar::update_color_mix_panel()
     const bool show = (n_physical >= 2);
     p->m_panel_color_mix_title->Show(show);
     p->m_scrolled_color_mix->Show(show);
+    if (p->m_choice_mixed_color_engine) {
+        p->m_choice_mixed_color_engine->SetSelection(
+            MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual ? 1 : 0);
+        p->m_choice_mixed_color_engine->Enable(show);
+    }
+    if (p->m_check_mixed_use_td) {
+        p->m_check_mixed_use_td->SetValue(MixedFilamentManager::use_td_for_color_prediction());
+        p->m_check_mixed_use_td->Enable(show && MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    }
+    if (p->m_check_mixed_oracle) {
+        p->m_check_mixed_oracle->SetValue(wxGetApp().plater() != nullptr && wxGetApp().plater()->calibration_swatch_oracle_preview_enabled());
+        p->m_check_mixed_oracle->Enable(show);
+    }
+    if (p->m_btn_load_mixed_oracle)
+        p->m_btn_load_mixed_oracle->Enable(show);
     if (!show) {
         return;
     }
@@ -5709,6 +6033,7 @@ void Sidebar::update_color_mix_panel()
             for (size_t i = 0; i < num_physical; ++i)
                 nozzle_diameters[i] = std::max(0.05, opt->get_at(unsigned(std::min(i, opt_count - 1))));
     }
+    const std::vector<double> physical_tds = project_filament_transmission_distances(preset_bundle, num_physical);
 
     float lower_bound = 0.04f, upper_bound = 0.16f;
     if (preset_bundle->project_config.has("mixed_filament_height_lower_bound"))
@@ -5727,10 +6052,12 @@ void Sidebar::update_color_mix_panel()
     const MixedFilamentPreviewSettings preview_settings {
         0.2f, lower_bound, upper_bound, 0.f, 0.f, local_z_mode, false, 1
     };
-    const MixedFilamentDisplayContext display_context {
+    MixedFilamentDisplayContext display_context {
         num_physical, physical_colors, nozzle_diameters, preview_settings, component_bias_enabled
     };
+    display_context.physical_tds = physical_tds;
     preset_bundle->mixed_filaments.set_display_context(display_context);
+    refresh_model_canvas_colors();
 
     auto& mfs = preset_bundle->mixed_filaments.mixed_filaments();
     bool any_visible = false;
@@ -5877,7 +6204,8 @@ void Sidebar::update_color_mix_panel()
             auto& mgr = wxGetApp().preset_bundle->mixed_filaments;
             auto& mfs2 = mgr.mixed_filaments();
             if (i >= mfs2.size()) return;
-            MixedFilamentDialog dlg(wxGetApp().mainframe, colors, mfs2[i]);
+            const std::vector<double> physical_tds = project_filament_transmission_distances(wxGetApp().preset_bundle, colors.size());
+            MixedFilamentDialog dlg(wxGetApp().mainframe, colors, physical_tds, mfs2[i]);
             if (dlg.ShowModal() != wxID_OK) return;
             const MixedFilament& r = dlg.GetResult();
             mfs2[i].component_a                = r.component_a;
@@ -5926,7 +6254,8 @@ void Sidebar::update_color_mix_panel()
                 auto& mgr = wxGetApp().preset_bundle->mixed_filaments;
                 auto& mfs2 = mgr.mixed_filaments();
                 if (i >= mfs2.size()) return;
-                MixedFilamentDialog dlg(wxGetApp().mainframe, colors, mfs2[i]);
+                const std::vector<double> physical_tds = project_filament_transmission_distances(wxGetApp().preset_bundle, colors.size());
+                MixedFilamentDialog dlg(wxGetApp().mainframe, colors, physical_tds, mfs2[i]);
                 if (dlg.ShowModal() != wxID_OK) return;
                 const MixedFilament& r = dlg.GetResult();
                 mfs2[i].component_a                = r.component_a;
@@ -6134,22 +6463,6 @@ void Sidebar::update_mixed_filament_panel(bool sync_manager)
     wxWindowUpdateLocker noUpdates_sidebar(this);
     wxWindowUpdateLocker noUpdates_mixed_panel(p->m_panel_mixed_filaments_content);
 
-    auto refresh_model_canvas_colors = []() {
-        Plater *plater = wxGetApp().plater();
-        if (plater == nullptr)
-            return;
-
-        auto refresh_canvas = [](GLCanvas3D *canvas) {
-            if (canvas == nullptr || !canvas->is_initialized())
-                return;
-            canvas->update_volumes_colors_by_extruder();
-            canvas->render();
-        };
-
-        refresh_canvas(plater->get_view3D_canvas3D());
-        refresh_canvas(plater->get_assmeble_canvas3D());
-    };
-
     int prev_rows_view_y = 0;
     for (wxWindow *child : p->m_panel_mixed_filaments_content->GetChildren()) {
         if (auto *scrolled = dynamic_cast<wxScrolledWindow*>(child)) {
@@ -6176,6 +6489,7 @@ void Sidebar::update_mixed_filament_panel(bool sync_manager)
                 nozzle_diameters[i] = std::max(0.05, opt->get_at(unsigned(std::min(i, opt_count - 1))));
         }
     }
+    const std::vector<double> physical_tds = project_filament_transmission_distances(preset_bundle, num_physical);
 
     auto get_mixed_bool = [preset_bundle, print_cfg](const std::string &key, bool fallback) {
         if (const ConfigOptionBool *opt = preset_bundle->project_config.option<ConfigOptionBool>(key))
@@ -6472,13 +6786,14 @@ void Sidebar::update_mixed_filament_panel(bool sync_manager)
         local_z_direct_multicolor,
         wall_loops
     };
-    const MixedFilamentDisplayContext display_context {
+    MixedFilamentDisplayContext display_context {
         num_physical,
         physical_colors,
         nozzle_diameters,
         preview_settings,
         component_bias_enabled
     };
+    display_context.physical_tds = physical_tds;
     auto summarize_sequence = [num_physical](const std::vector<unsigned int> &sequence) {
         if (sequence.empty() || num_physical == 0)
             return std::string();
@@ -6584,6 +6899,21 @@ void Sidebar::update_mixed_filament_panel(bool sync_manager)
         p->m_btn_add_pattern->Enable(num_physical >= 2);
     if (p->m_btn_add_color)
         p->m_btn_add_color->Enable(num_physical >= 2);
+    if (p->m_choice_mixed_color_engine) {
+        p->m_choice_mixed_color_engine->SetSelection(
+            MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual ? 1 : 0);
+        p->m_choice_mixed_color_engine->Enable(num_physical >= 2);
+    }
+    if (p->m_check_mixed_use_td) {
+        p->m_check_mixed_use_td->SetValue(MixedFilamentManager::use_td_for_color_prediction());
+        p->m_check_mixed_use_td->Enable(num_physical >= 2 && MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+    }
+    if (p->m_check_mixed_oracle) {
+        p->m_check_mixed_oracle->SetValue(wxGetApp().plater() != nullptr && wxGetApp().plater()->calibration_swatch_oracle_preview_enabled());
+        p->m_check_mixed_oracle->Enable(num_physical >= 2);
+    }
+    if (p->m_btn_load_mixed_oracle)
+        p->m_btn_load_mixed_oracle->Enable(num_physical >= 2);
 
     // Mixed Filaments panel is hidden
     p->m_panel_mixed_filaments_title->Hide();
@@ -6945,7 +7275,7 @@ void Sidebar::update_mixed_filament_panel(bool sync_manager)
             return row->GetClientRect().Contains(local);
         };
 
-        auto ensure_editor = [this, mixed_id, num_physical, physical_colors, nozzle_diameters, palette, preview_settings, component_bias_enabled, preset_bundle,
+        auto ensure_editor = [this, mixed_id, num_physical, physical_colors, nozzle_diameters, physical_tds, palette, preview_settings, component_bias_enabled, preset_bundle,
                               editor_host, editor_sizer, swatch, summary_label, header_panel, row,
                               rows_scroller, mixed_summary_text, apply_mixed_entry_changes]() {
             if (!preset_bundle || !editor_sizer || editor_sizer->GetItemCount() > 0)
@@ -6956,7 +7286,7 @@ void Sidebar::update_mixed_filament_panel(bool sync_manager)
             if (mixed_id >= mfs.size())
                 return;
 
-            auto *editor = new MixedFilamentConfigPanel(editor_host, mixed_id, mfs[mixed_id], num_physical, physical_colors, nozzle_diameters, palette, preview_settings,
+            auto *editor = new MixedFilamentConfigPanel(editor_host, mixed_id, mfs[mixed_id], num_physical, physical_colors, nozzle_diameters, physical_tds, palette, preview_settings,
                 component_bias_enabled,
                 [this, mixed_id, swatch, summary_label, header_panel, row, rows_scroller, mixed_summary_text, apply_mixed_entry_changes](const MixedFilament &updated_mf) {
                     apply_mixed_entry_changes(mixed_id, updated_mf, true);
@@ -8521,6 +8851,10 @@ struct Plater::priv
     bool   m_last_auto_gradient_prompt_accepted = false;
     std::string m_calibration_swatch_manifest_json_path;
     std::string m_calibration_swatch_manifest_csv_path;
+    bool m_calibration_swatch_oracle_preview_enabled = false;
+    wxString m_calibration_swatch_oracle_path;
+    std::unordered_map<std::string, std::string> m_calibration_swatch_oracle_hex_by_key;
+    std::unordered_map<std::string, std::string> m_calibration_swatch_oracle_hex_by_id;
 
     priv(Plater *q, MainFrame *main_frame);
     ~priv();
@@ -13058,9 +13392,11 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
 
     if (preset_type == Preset::TYPE_FILAMENT) {
         wxGetApp().preset_bundle->set_filament_preset(idx, preset_name);
+        wxGetApp().preset_bundle->update_multi_material_filament_presets();
         wxGetApp().plater()->update_project_dirty_from_presets();
         wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
         sidebar->update_dynamic_filament_list();
+        sidebar->update_mixed_filament_panel(false);
         sidebar->update_color_mix_panel();
         bool flag_is_change = is_support_filament(idx);
         if (flag != flag_is_change) {
@@ -16516,10 +16852,16 @@ static int ensure_virtual_mixed_extruder(PresetBundle *preset_bundle,
     created.distribution_mode = int(MixedFilament::LayerCycle);
     created.custom = true;
 
-    std::vector<std::pair<std::string, int>> color_percents;
+    const std::vector<double> physical_tds = project_filament_transmission_distances(preset_bundle, num_physical);
+    std::vector<MixedFilamentColorInput> color_percents;
     color_percents.reserve(component_ids.size());
-    for (size_t i = 0; i < component_ids.size(); ++i)
-        color_percents.emplace_back(physical_colors[component_ids[i] - 1], spec.ratios[i]);
+    for (size_t i = 0; i < component_ids.size(); ++i) {
+        const size_t physical_idx = component_ids[i] - 1;
+        std::optional<double> td;
+        if (physical_idx < physical_tds.size() && std::isfinite(physical_tds[physical_idx]) && physical_tds[physical_idx] > 0.0)
+            td = physical_tds[physical_idx];
+        color_percents.push_back({physical_colors[physical_idx], spec.ratios[i], td});
+    }
     created.display_color = MixedFilamentManager::blend_color_multi(color_percents);
 
     created_mixed_filament = true;
@@ -16560,6 +16902,7 @@ struct PlateLabelSummary
     size_t      pair     = 0;
     size_t      ternary  = 0;
     size_t quaternary = 0;
+    double max_depth_mm = 0.0;
 };
 
 static std::string label_decimal(double value)
@@ -16584,6 +16927,7 @@ static std::map<unsigned int, PlateLabelSummary> plate_label_summaries(const CCS
         PlateLabelSummary &summary = summaries[record.position.plate_index];
         if (summary.plate_reference.empty() && !record.plate_reference.empty())
             summary.plate_reference = record.plate_reference;
+        summary.max_depth_mm = std::max(summary.max_depth_mm, record.spec.total_thickness_mm);
         ++summary.swatches;
         if (record.spec.type == CCS::SwatchType::PairMix || record.spec.type == CCS::SwatchType::PairOrder)
             ++summary.pair;
@@ -16609,7 +16953,7 @@ static std::string make_plate_label_text(const CCS::SwatchGeneratorConfig &confi
     ss << (plate_index + 1) << "/" << std::max<size_t>(plate_count, 1) << '\n';
     ss << "Swatches " << summary.swatches << '\n';
     ss << "Width " << label_decimal(config.layout.chip_width_mm) << "mm"
-       << "  Depth " << label_decimal(config.anchor_thickness_mm) << "mm" << '\n';
+       << "  Depth " << label_decimal(summary.max_depth_mm > 0.0 ? summary.max_depth_mm : config.anchor_thickness_mm) << "mm" << '\n';
     ss << "Layer " << label_decimal(config.nominal_layer_height_mm) << "mm" << '\n';
     ss << "Pair " << summary.pair << "  Ternary " << summary.ternary;
     if (summary.quaternary > 0)
@@ -21750,6 +22094,151 @@ void Plater::force_print_bed_update()
 void Plater::on_activate()
 {
     this->p->show_delayed_error_message();
+}
+
+bool Plater::load_calibration_swatch_oracle_measurements(const wxString& path, wxString* error)
+{
+    const std::string path_u8 = path.ToUTF8().data();
+    boost::nowide::ifstream file(path_u8, std::ios::binary);
+    if (!file) {
+        if (error)
+            *error = _L("Could not open the selected measurement JSON.");
+        return false;
+    }
+
+    nlohmann::json measurements;
+    try {
+        file >> measurements;
+    } catch (const std::exception &e) {
+        if (error)
+            *error = _L("Could not parse measurement JSON: ") + wxString::FromUTF8(e.what());
+        return false;
+    }
+
+    if (!measurements.contains("records") || !measurements["records"].is_array()) {
+        if (error)
+            *error = _L("The selected JSON file does not contain measurement records.");
+        return false;
+    }
+
+    std::unordered_map<std::string, std::string> by_key;
+    std::unordered_map<std::string, std::string> by_id;
+
+    for (const nlohmann::json &record : measurements["records"]) {
+        const nlohmann::json *manifest = record.contains("manifest") && record["manifest"].is_object() ? &record["manifest"] : nullptr;
+        const nlohmann::json *measured = record.contains("measured") && record["measured"].is_object() ? &record["measured"] : &record;
+
+        std::string swatch_id = calibration_oracle_string_value(record, "swatch_id");
+        if (swatch_id.empty() && manifest != nullptr)
+            swatch_id = calibration_oracle_string_value(*manifest, "swatch_id");
+        if (swatch_id.empty())
+            continue;
+
+        std::string condition = calibration_oracle_string_value(record, "measurement_condition");
+        if (condition.empty() && manifest != nullptr)
+            condition = calibration_oracle_string_value(*manifest, "measurement_condition");
+        condition = calibration_oracle_canonical_condition(condition);
+
+        std::string hex = calibration_oracle_string_value(*measured, "rgb_hex");
+        if (hex.empty())
+            hex = calibration_oracle_string_value(*measured, "measured_rgb_hex");
+
+        if (!calibration_oracle_hex_is_valid(hex)) {
+            std::optional<CalibrationOracleLab> lab;
+            if (measured->contains("lab"))
+                lab = calibration_oracle_lab_from_json((*measured)["lab"]);
+            if (!lab && measured->contains("lab_average"))
+                lab = calibration_oracle_lab_from_json((*measured)["lab_average"]);
+            if (!lab && measured->contains("measured_lab"))
+                lab = calibration_oracle_lab_from_json((*measured)["measured_lab"]);
+            if (!lab)
+                continue;
+            hex = calibration_oracle_lab_to_hex(*lab);
+        }
+
+        if (!calibration_oracle_hex_is_valid(hex))
+            continue;
+
+        by_key[calibration_oracle_record_key(swatch_id, condition)] = hex;
+        if (by_id.find(swatch_id) == by_id.end() || condition == "black_backing")
+            by_id[swatch_id] = hex;
+
+        if (manifest != nullptr) {
+            const std::string physical_id = calibration_oracle_string_value(*manifest, "physical_swatch_id");
+            if (!physical_id.empty()) {
+                by_key[calibration_oracle_record_key(physical_id, condition)] = hex;
+                if (by_id.find(physical_id) == by_id.end() || condition == "black_backing")
+                    by_id[physical_id] = hex;
+            }
+        }
+    }
+
+    if (by_key.empty() && by_id.empty()) {
+        if (error)
+            *error = _L("No measured Lab or RGB values were found in the selected JSON.");
+        return false;
+    }
+
+    p->m_calibration_swatch_oracle_hex_by_key = std::move(by_key);
+    p->m_calibration_swatch_oracle_hex_by_id = std::move(by_id);
+    p->m_calibration_swatch_oracle_path = path;
+    p->m_calibration_swatch_oracle_preview_enabled = true;
+    refresh_model_canvas_colors();
+    return true;
+}
+
+void Plater::clear_calibration_swatch_oracle_measurements()
+{
+    p->m_calibration_swatch_oracle_hex_by_key.clear();
+    p->m_calibration_swatch_oracle_hex_by_id.clear();
+    p->m_calibration_swatch_oracle_path.clear();
+    p->m_calibration_swatch_oracle_preview_enabled = false;
+    refresh_model_canvas_colors();
+}
+
+void Plater::set_calibration_swatch_oracle_preview_enabled(bool enabled)
+{
+    p->m_calibration_swatch_oracle_preview_enabled =
+        enabled && (!p->m_calibration_swatch_oracle_hex_by_key.empty() || !p->m_calibration_swatch_oracle_hex_by_id.empty());
+    refresh_model_canvas_colors();
+}
+
+bool Plater::calibration_swatch_oracle_preview_enabled() const
+{
+    return p->m_calibration_swatch_oracle_preview_enabled;
+}
+
+size_t Plater::calibration_swatch_oracle_measurement_count() const
+{
+    return p->m_calibration_swatch_oracle_hex_by_id.size();
+}
+
+std::optional<std::string> Plater::calibration_swatch_oracle_hex_for_volume(const ModelObject& object, const ModelVolume& volume) const
+{
+    if (!p->m_calibration_swatch_oracle_preview_enabled || !volume.is_model_part())
+        return std::nullopt;
+
+    const std::string &volume_name = volume.name;
+    if (volume_name.rfind("backing_", 0) == 0 || volume_name.rfind("reference_", 0) == 0 || volume_name.rfind("plate_label_", 0) == 0)
+        return std::nullopt;
+
+    std::string swatch_id = calibration_oracle_swatch_id_from_volume_name(volume_name);
+    if (swatch_id.empty())
+        swatch_id = calibration_oracle_swatch_id_from_object_name(object.name);
+    if (swatch_id.empty())
+        return std::nullopt;
+
+    static const std::array<const char*, 5> preferred_conditions = {{
+        "black_backing", "normal", "none", "", "white_backing"
+    }};
+    for (const char *condition : preferred_conditions) {
+        auto it = p->m_calibration_swatch_oracle_hex_by_key.find(calibration_oracle_record_key(swatch_id, condition));
+        if (it != p->m_calibration_swatch_oracle_hex_by_key.end())
+            return it->second;
+    }
+
+    auto by_id = p->m_calibration_swatch_oracle_hex_by_id.find(swatch_id);
+    return by_id == p->m_calibration_swatch_oracle_hex_by_id.end() ? std::nullopt : std::optional<std::string>(by_id->second);
 }
 
 // Get vector of extruder colors considering filament color, if extruder color is undefined.

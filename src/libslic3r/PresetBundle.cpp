@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <set>
 #include <fstream>
@@ -3581,7 +3582,30 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
             };
 
             color_opt->values.resize(num_filaments, "#26A69A");
-            this->mixed_filaments.auto_generate(color_opt->values);
+
+            const Preset *edited_filament_preset = &this->filaments.get_edited_preset();
+            const std::string edited_filament_name = edited_filament_preset != nullptr ?
+                Preset::remove_suffix_modified(edited_filament_preset->name) :
+                std::string();
+
+            std::vector<double> physical_tds(num_filaments, 0.0);
+            for (size_t i = 0; i < num_filaments && i < this->filament_presets.size(); ++i) {
+                const std::string selected_filament_name = Preset::remove_suffix_modified(this->filament_presets[i]);
+                const Preset *filament_preset =
+                    (!edited_filament_name.empty() && selected_filament_name == edited_filament_name) ?
+                    edited_filament_preset :
+                    this->filaments.find_preset(selected_filament_name, true);
+                const ConfigOptionFloats *td_opt = filament_preset != nullptr ?
+                    filament_preset->config.option<ConfigOptionFloats>("filament_transmission_distance") :
+                    nullptr;
+                if (td_opt != nullptr && !td_opt->values.empty()) {
+                    const double td = td_opt->get_at(0);
+                    if (std::isfinite(td) && td > 0.0)
+                        physical_tds[i] = td;
+                }
+            }
+            if (ConfigOptionFloats *td_opt = this->project_config.option<ConfigOptionFloats>("filament_transmission_distance"))
+                td_opt->values = physical_tds;
 
             int   gradient_mode = get_mixed_mode(false) ? 1 : 0;
             float lower_bound = get_mixed_float("mixed_filament_height_lower_bound", 0.04f);
@@ -3591,6 +3615,16 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
             lower_bound = std::max(0.01f, lower_bound);
             upper_bound = std::max(lower_bound, upper_bound);
 
+            MixedFilamentDisplayContext context;
+            context.num_physical = num_filaments;
+            context.physical_colors = color_opt->values;
+            context.physical_tds = physical_tds;
+            context.preview_settings.mixed_lower_bound = lower_bound;
+            context.preview_settings.mixed_upper_bound = upper_bound;
+            context.component_bias_enabled = get_mixed_bool("mixed_filament_component_bias_enabled", false);
+            this->mixed_filaments.set_display_context(context);
+
+            this->mixed_filaments.auto_generate(color_opt->values);
             this->mixed_filaments.clear_custom_entries();
             this->mixed_filaments.load_custom_entries(
                 deleting_filament ? post_delete_mixed_defs : get_mixed_string("mixed_filament_definitions"),

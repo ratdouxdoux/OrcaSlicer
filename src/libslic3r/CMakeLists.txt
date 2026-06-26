@@ -287,6 +287,10 @@ set(lisbslic3r_sources
     MinAreaBoundingBox.hpp
     MinimumSpanningTree.cpp
     MinimumSpanningTree.hpp
+    FullSpectrumKSPairResidual.cpp
+    FullSpectrumKSPairResidual.hpp
+    FullSpectrumMaterialDatabaseProfile.h
+    FullSpectrumKSPairResidualProfile.h
     MixedFilament.cpp
     MixedFilament.hpp
     filament_mixer.cpp

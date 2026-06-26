@@ -1,25 +1,34 @@
 #include "MixedGradientSelector.hpp"
+#include "libslic3r/MixedFilament.hpp"
+
+#include <cmath>
 
 namespace Slic3r { namespace GUI {
 
+static std::string color_to_hex(const wxColour &color)
+{
+    const wxColour safe = color.IsOk() ? color : wxColour("#26A69A");
+    return wxString::Format("#%02X%02X%02X", safe.Red(), safe.Green(), safe.Blue()).ToStdString();
+}
+
 wxColour blend_pair_filament_mixer(const wxColour &left, const wxColour &right, float t)
+{
+    return blend_pair_filament_mixer(left, right, t, std::nullopt, std::nullopt);
+}
+
+wxColour blend_pair_filament_mixer(const wxColour &left,
+                                   const wxColour &right,
+                                   float           t,
+                                   const std::optional<double> &left_td,
+                                   const std::optional<double> &right_td)
 {
     const wxColour safe_left  = left.IsOk()  ? left  : wxColour("#26A69A");
     const wxColour safe_right = right.IsOk() ? right : wxColour("#26A69A");
 
-    unsigned char out_r = static_cast<unsigned char>(safe_left.Red());
-    unsigned char out_g = static_cast<unsigned char>(safe_left.Green());
-    unsigned char out_b = static_cast<unsigned char>(safe_left.Blue());
-    ::Slic3r::filament_mixer_lerp(
-        static_cast<unsigned char>(safe_left.Red()),
-        static_cast<unsigned char>(safe_left.Green()),
-        static_cast<unsigned char>(safe_left.Blue()),
-        static_cast<unsigned char>(safe_right.Red()),
-        static_cast<unsigned char>(safe_right.Green()),
-        static_cast<unsigned char>(safe_right.Blue()),
-        std::clamp(t, 0.f, 1.f),
-        &out_r, &out_g, &out_b);
-    return wxColour(out_r, out_g, out_b);
+    const int pct_right = std::clamp(int(std::lround(std::clamp(t, 0.f, 1.f) * 1000.f)), 0, 1000);
+    const int pct_left  = 1000 - pct_right;
+    return wxColour(MixedFilamentManager::blend_color(
+        color_to_hex(safe_left), color_to_hex(safe_right), pct_left, pct_right, left_td, right_td));
 }
 
 wxRect MixedGradientSelector::gradient_rect() const
@@ -109,7 +118,7 @@ void MixedGradientSelector::on_paint(wxPaintEvent &)
         if (data != nullptr) {
             for (int x = 0; x < w; ++x) {
                 const float t   = (w > 1) ? float(x) / float(w - 1) : 0.5f;
-                const wxColour col = blend_pair_filament_mixer(m_left, m_right, t);
+                const wxColour col = blend_pair_filament_mixer(m_left, m_right, t, m_left_td, m_right_td);
                 const unsigned char r = static_cast<unsigned char>(col.Red());
                 const unsigned char g = static_cast<unsigned char>(col.Green());
                 const unsigned char b = static_cast<unsigned char>(col.Blue());

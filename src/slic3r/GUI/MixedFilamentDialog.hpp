@@ -10,6 +10,7 @@
 #include <wx/clrpicker.h>
 
 #include <set>
+#include <optional>
 #include <vector>
 #include <string>
 
@@ -31,9 +32,15 @@ class MatchRangeSlider;
 class MixedFilamentDialog : public DPIDialog
 {
 public:
-    MixedFilamentDialog(wxWindow* parent, const std::vector<std::string>& filament_colours);
+    MixedFilamentDialog(wxWindow* parent,
+                        const std::vector<std::string>& filament_colours,
+                        const std::vector<double>& filament_tds = {});
     MixedFilamentDialog(wxWindow* parent, const std::vector<std::string>& filament_colours,
                       const Slic3r::MixedFilament& existing);
+    MixedFilamentDialog(wxWindow* parent,
+                        const std::vector<std::string>& filament_colours,
+                        const std::vector<double>& filament_tds,
+                        const Slic3r::MixedFilament& existing);
 
     const Slic3r::MixedFilament& GetResult() const { return m_result; }
     void on_dpi_changed(const wxRect& suggested_rect) override;
@@ -48,10 +55,14 @@ private:
     void sync_rows_to_result();
     void resize_gradient_ids(int target_count);
     void update_compatibility_warning();
+    void on_color_engine_changed();
     wxString get_ratio_warning_msg();
     void display_warning(const wxString& msg);
     void set_error(const wxString& msg);
     std::string compute_preview_color();
+    std::optional<double> filament_td_for_index(int index) const;
+    Slic3r::MixedFilamentColorInput color_input_for_index(int index, int percent) const;
+    Slic3r::MixedFilamentDisplayContext display_context() const;
     wxBitmap make_color_bitmap(const wxColour& c, int size);
     int max_filaments_for_mode(int mode_index) const;
     void collect_result();
@@ -68,6 +79,8 @@ private:
     int                     m_mode_btn_selected     = MODE_RATIO;
     ScalableButton*         m_btn_add_filament    = nullptr;
     ScalableButton*         m_btn_remove_filament = nullptr;
+    wxChoice*               m_color_engine_choice = nullptr;
+    wxCheckBox*             m_use_td_prediction_checkbox = nullptr;
     wxStaticText*           m_filament_card_title  = nullptr;
     wxPanel*                m_filament_rows_panel = nullptr;
     wxBoxSizer*             m_filament_rows_sizer = nullptr;
@@ -178,6 +191,7 @@ private:
     std::vector<FilamentRow> m_filament_rows;
 
     const std::vector<std::string>& m_filament_colours;
+    std::vector<double>              m_filament_tds;
     Slic3r::MixedFilament            m_result;
     int                              m_current_mode = MODE_RATIO;
 };

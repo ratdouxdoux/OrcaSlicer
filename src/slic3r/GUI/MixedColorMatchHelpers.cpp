@@ -7,6 +7,7 @@
 #include "PresetBundle.hpp"
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <fstream>
 #include <queue>
 #include <sstream>
@@ -577,12 +578,56 @@ MixedColorMatchRecipeResult build_best_color_match_recipe(const std::vector<std:
     return best;
 }
 
+static std::vector<double> selected_filament_transmission_distances(PresetBundle *preset_bundle, size_t count)
+{
+    std::vector<double> tds(count, 0.0);
+    if (preset_bundle == nullptr)
+        return tds;
+
+    const Preset *edited_filament_preset = &preset_bundle->filaments.get_edited_preset();
+    const std::string edited_filament_name = edited_filament_preset != nullptr ?
+        Preset::remove_suffix_modified(edited_filament_preset->name) :
+        std::string();
+
+    for (size_t i = 0; i < count && i < preset_bundle->filament_presets.size(); ++i) {
+        const std::string selected_filament_name = Preset::remove_suffix_modified(preset_bundle->filament_presets[i]);
+        const Preset *filament_preset =
+            (!edited_filament_name.empty() && selected_filament_name == edited_filament_name) ?
+            edited_filament_preset :
+            preset_bundle->filaments.find_preset(selected_filament_name, true);
+
+        const ConfigOptionFloats *td_opt = filament_preset != nullptr ?
+            filament_preset->config.option<ConfigOptionFloats>("filament_transmission_distance") :
+            nullptr;
+        if (td_opt != nullptr && !td_opt->values.empty()) {
+            const double td = td_opt->get_at(0);
+            if (std::isfinite(td) && td > 0.0)
+                tds[i] = td;
+        }
+    }
+
+    const ConfigOptionFloats *opt = preset_bundle->project_config.option<ConfigOptionFloats>("filament_transmission_distance");
+    if (opt == nullptr || opt->values.empty())
+        return tds;
+
+    const size_t opt_count = opt->values.size();
+    for (size_t i = 0; i < count; ++i) {
+        if (tds[i] > 0.0)
+            continue;
+        const double td = opt->get_at(unsigned(std::min(i, opt_count - 1)));
+        tds[i] = (std::isfinite(td) && td > 0.0) ? td : 0.0;
+    }
+
+    return tds;
+}
+
 MixedFilamentDisplayContext build_mixed_filament_display_context(const std::vector<std::string>& physical_colors)
 {
     MixedFilamentDisplayContext context;
     context.num_physical    = physical_colors.size();
     context.physical_colors = physical_colors;
     context.nozzle_diameters.assign(context.num_physical, 0.4);
+    context.physical_tds.assign(context.num_physical, 0.0);
 
     auto* preset_bundle = wxGetApp().preset_bundle;
     if (preset_bundle == nullptr)
@@ -596,6 +641,7 @@ MixedFilamentDisplayContext build_mixed_filament_display_context(const std::vect
                 context.nozzle_diameters[i] = std::max(0.05, opt->get_at(unsigned(std::min(i, opt_count - 1))));
         }
     }
+    context.physical_tds = selected_filament_transmission_distances(preset_bundle, context.num_physical);
 
     auto get_mixed_bool = [preset_bundle, print_cfg](const std::string& key, bool fallback) {
         if (const ConfigOptionBool* opt = preset_bundle->project_config.option<ConfigOptionBool>(key))

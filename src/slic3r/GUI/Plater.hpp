@@ -3,6 +3,7 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include <boost/filesystem/path.hpp>
@@ -517,6 +518,12 @@ public:
     void on_activate();
     std::vector<std::string> get_extruder_colors_from_plater_config(const GCodeProcessorResult* const result = nullptr, bool include_mixed = true) const;
     std::vector<std::string> get_colors_for_color_print(const GCodeProcessorResult* const result = nullptr) const;
+    bool load_calibration_swatch_oracle_measurements(const wxString& path, wxString* error = nullptr);
+    void clear_calibration_swatch_oracle_measurements();
+    void set_calibration_swatch_oracle_preview_enabled(bool enabled);
+    bool calibration_swatch_oracle_preview_enabled() const;
+    size_t calibration_swatch_oracle_measurement_count() const;
+    std::optional<std::string> calibration_swatch_oracle_hex_for_volume(const ModelObject& object, const ModelVolume& volume) const;
 
     void update_menus();
     // BBS

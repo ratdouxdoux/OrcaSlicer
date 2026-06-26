@@ -1,52 +1,38 @@
 #include "MixedFilamentColorMapPanel.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <numeric>
 #include "MixedColorMatchHelpers.hpp"
+#include "libslic3r/MixedFilament.hpp"
 
 namespace Slic3r { namespace GUI {
+
+static std::string color_to_hex(const wxColour &color)
+{
+    const wxColour safe = color.IsOk() ? color : wxColour("#26A69A");
+    return wxString::Format("#%02X%02X%02X", safe.Red(), safe.Green(), safe.Blue()).ToStdString();
+}
 
 wxColour blend_multi_filament_mixer(const std::vector<wxColour>& colors, const std::vector<double>& weights)
 {
     if (colors.empty() || weights.empty())
         return wxColour("#26A69A");
 
-    unsigned char out_r              = 0;
-    unsigned char out_g              = 0;
-    unsigned char out_b              = 0;
-    double        accumulated_weight = 0.0;
-    bool          has_color          = false;
+    std::vector<std::pair<std::string, int>> color_percents;
+    color_percents.reserve(std::min(colors.size(), weights.size()));
 
     for (size_t i = 0; i < colors.size() && i < weights.size(); ++i) {
         const double weight = std::max(0.0, weights[i]);
         if (weight <= 0.0)
             continue;
-
-        const wxColour      safe = colors[i].IsOk() ? colors[i] : wxColour("#26A69A");
-        const unsigned char r    = static_cast<unsigned char>(safe.Red());
-        const unsigned char g    = static_cast<unsigned char>(safe.Green());
-        const unsigned char b    = static_cast<unsigned char>(safe.Blue());
-
-        if (!has_color) {
-            out_r              = r;
-            out_g              = g;
-            out_b              = b;
-            accumulated_weight = weight;
-            has_color          = true;
-            continue;
-        }
-
-        const double new_total = accumulated_weight + weight;
-        if (new_total <= 0.0)
-            continue;
-        const float t = float(weight / new_total);
-        ::Slic3r::filament_mixer_lerp(out_r, out_g, out_b, r, g, b, t, &out_r, &out_g, &out_b);
-        accumulated_weight = new_total;
+        color_percents.emplace_back(color_to_hex(colors[i]), std::max(1, int(std::lround(weight * 1000.0))));
     }
 
-    if (!has_color)
+    if (color_percents.empty())
         return wxColour("#26A69A");
 
-    return wxColour(out_r, out_g, out_b);
+    return wxColour(MixedFilamentManager::blend_color_multi(color_percents));
 }
 
 // --- MixedFilamentColorMapPanel ---

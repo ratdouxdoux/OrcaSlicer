@@ -1876,7 +1876,7 @@ void Tab::on_value_change(const std::string& opt_key, const boost::any& value)
 
     const bool refresh_mixed_filament_panel =
         (m_type == Preset::TYPE_PRINT && opt_key == "mixed_filament_component_bias_enabled") ||
-        (m_type == Preset::TYPE_FILAMENT && opt_key == "filament_type");
+        (m_type == Preset::TYPE_FILAMENT && (opt_key == "filament_type" || opt_key == "filament_transmission_distance"));
 
     // Keep Mixed Filaments global settings in sync with project_config. In
     // full_fff_config(), project_config is applied last and would otherwise
@@ -1911,6 +1911,8 @@ void Tab::on_value_change(const std::string& opt_key, const boost::any& value)
     m_page_view->GetParent()->Layout();
 
     if (refresh_mixed_filament_panel && wxGetApp().plater() != nullptr) {
+        if (m_type == Preset::TYPE_FILAMENT && opt_key == "filament_transmission_distance" && wxGetApp().preset_bundle != nullptr)
+            wxGetApp().preset_bundle->update_multi_material_filament_presets();
         wxGetApp().sidebar().update_mixed_filament_panel(false);
         wxGetApp().sidebar().update_color_mix_panel();
     }
@@ -3683,6 +3685,7 @@ void TabFilament::build()
         optgroup->append_single_option_line("required_nozzle_HRC");
         optgroup->append_single_option_line("default_filament_colour");
         optgroup->append_single_option_line("filament_diameter");
+        optgroup->append_single_option_line("filament_transmission_distance");
 
         optgroup->append_single_option_line("filament_density");
         optgroup->append_single_option_line("filament_shrink");
