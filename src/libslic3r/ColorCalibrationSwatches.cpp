@@ -605,39 +605,38 @@ static SwatchRecord make_record(SwatchSpec spec,
     return record;
 }
 
-static void warn_if_anchor_may_not_be_opaque(SwatchRecord &record, const SwatchGeneratorConfig &config)
-{
-    if (record.spec.type != SwatchType::ReflectiveAnchor)
-        return;
-    if (record.spec.filaments.empty() || !record.spec.filaments.front().td)
-        return;
-
-    const double td = *record.spec.filaments.front().td;
-    const double suggested = td * config.anchor_td_warning_multiplier;
-    if (suggested > 0.0 && record.spec.total_thickness_mm + 1e-6 < suggested) {
-        std::ostringstream ss;
-        ss << "anchor thickness " << record.spec.total_thickness_mm
-           << "mm is below TD-derived guidance " << suggested
-           << "mm; measure as a thin/transmissive chip, not an opaque anchor";
-        record.warnings.emplace_back(ss.str());
-    }
-}
-
 static void append_record(SwatchPlan                 &plan,
                           SwatchSpec                  spec,
                           const SwatchGeneratorConfig &config)
 {
     SwatchRecord record = make_record(std::move(spec), config.id_format);
-    warn_if_anchor_may_not_be_opaque(record, config);
     plan.records.emplace_back(std::move(record));
 }
 
-static double anchor_thickness_for(const FilamentSlot &filament, const SwatchGeneratorConfig &config)
+static std::vector<double> anchor_thicknesses_for(const FilamentSlot &filament, const SwatchGeneratorConfig &config)
 {
-    if (!config.anchor_use_td_derived_thickness || !filament.td)
-        return config.anchor_thickness_mm;
+    std::vector<double> thicknesses;
+    thicknesses.reserve(3);
 
-    return std::min(config.anchor_max_thickness_mm, *filament.td * config.anchor_td_multiplier);
+    const auto add_unique = [&thicknesses](double value) {
+        value = std::max(0.2, value);
+        const bool duplicate = std::any_of(thicknesses.begin(), thicknesses.end(), [value](double existing) {
+            return std::abs(existing - value) < 1e-6;
+        });
+        if (!duplicate)
+            thicknesses.emplace_back(value);
+    };
+
+    if (filament.td && std::isfinite(*filament.td) && *filament.td >= 0.0) {
+        add_unique(*filament.td + 1.0);
+        add_unique(*filament.td * 0.5 + 1.0);
+    } else {
+        const double fallback = std::max(0.2, config.anchor_thickness_mm);
+        add_unique(fallback);
+        add_unique(fallback * 0.5);
+    }
+    add_unique(1.0);
+    return thicknesses;
 }
 
 struct LayoutRect
@@ -829,6 +828,14 @@ static bool slot_exists(unsigned int slot, const std::vector<FilamentSlot> &fila
     return std::any_of(filaments.begin(), filaments.end(), [slot](const FilamentSlot &filament) { return filament.slot == slot; });
 }
 
+static double max_record_thickness(const SwatchPlan &plan, double fallback)
+{
+    double max_thickness = fallback;
+    for (const SwatchRecord &record : plan.records)
+        max_thickness = std::max(max_thickness, record.spec.total_thickness_mm);
+    return max_thickness;
+}
+
 } // namespace
 
 std::string swatch_type_key(SwatchType type)
@@ -948,7 +955,8 @@ std::string make_swatch_id(const SwatchSpec &spec, const IdFormatOptions &option
     if (options.include_backing && has_backing(spec.backing))
         tokens.emplace_back(backing_label(spec.backing));
 
-    if (options.include_thickness && spec.type != SwatchType::TDLadder && spec.total_thickness_mm > 0.0)
+    const bool include_thickness = options.include_thickness || spec.type == SwatchType::ReflectiveAnchor;
+    if (include_thickness && spec.type != SwatchType::TDLadder && spec.total_thickness_mm > 0.0)
         tokens.emplace_back(format_decimal_token(spec.total_thickness_mm) + "MM");
 
     return join_strings(tokens, options.separator);
@@ -1011,15 +1019,17 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
 
     if (config.families.reflective_anchor) {
         for (const FilamentSlot &filament : config.filaments) {
-            for (const Backing &backing : backings_or_none(config.anchor_backings)) {
-                SwatchSpec spec;
-                spec.type               = SwatchType::ReflectiveAnchor;
-                spec.filaments          = { filament };
-                spec.backing            = backing;
-                spec.total_thickness_mm = anchor_thickness_for(filament, config);
-                spec.layer_height_mm    = config.nominal_layer_height_mm;
-                spec.stack_order        = { filament.slot };
-                append_record(plan, std::move(spec), config);
+            for (double thickness : anchor_thicknesses_for(filament, config)) {
+                for (const Backing &backing : backings_or_none(config.anchor_backings)) {
+                    SwatchSpec spec;
+                    spec.type               = SwatchType::ReflectiveAnchor;
+                    spec.filaments          = { filament };
+                    spec.backing            = backing;
+                    spec.total_thickness_mm = thickness;
+                    spec.layer_height_mm    = config.nominal_layer_height_mm;
+                    spec.stack_order        = { filament.slot };
+                    append_record(plan, std::move(spec), config);
+                }
             }
         }
     }
@@ -1176,6 +1186,7 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
         }
     }
 
+    plan.swatch_depth_mm = max_record_thickness(plan, config.anchor_thickness_mm);
     assign_layout(plan, config);
     assign_printed_references(plan, config);
     return plan;

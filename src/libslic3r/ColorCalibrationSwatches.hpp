@@ -212,10 +212,6 @@ struct SwatchGeneratorConfig
     bool   local_z_direct_multicolor   = false;
 
     double anchor_thickness_mm             = 6.0;
-    bool   anchor_use_td_derived_thickness = false;
-    double anchor_td_multiplier            = 1.0;
-    double anchor_max_thickness_mm         = 8.0;
-    double anchor_td_warning_multiplier    = 1.0;
     std::vector<Backing> anchor_backings;
 
     std::vector<double>  td_ladder_thicknesses;

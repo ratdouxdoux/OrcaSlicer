@@ -123,15 +123,20 @@ static std::optional<std::string> normalize_hex_color(std::string value)
     }), value.end());
     if (!value.empty() && value.front() != '#')
         value.insert(value.begin(), '#');
-    if (value.size() != 7)
+    if (value.size() != 7 && value.size() != 9)
         return std::nullopt;
 
     std::string out = "#";
-    for (size_t i = 1; i < value.size(); ++i) {
+    for (size_t i = 1; i < 7; ++i) {
         const unsigned char ch = static_cast<unsigned char>(value[i]);
         if (!std::isxdigit(ch))
             return std::nullopt;
         out.push_back(char(std::toupper(ch)));
+    }
+    for (size_t i = 7; i < value.size(); ++i) {
+        const unsigned char ch = static_cast<unsigned char>(value[i]);
+        if (!std::isxdigit(ch))
+            return std::nullopt;
     }
     return out;
 }
@@ -230,13 +235,14 @@ public:
         m_instrument    = new wxTextCtrl(metadata_parent, wxID_ANY, "3nh CR9");
         m_illuminant    = new wxTextCtrl(metadata_parent, wxID_ANY, "D65");
         m_observer      = new wxTextCtrl(metadata_parent, wxID_ANY, "10");
-        m_geometry      = new wxTextCtrl(metadata_parent, wxID_ANY, _L("side"));
+        m_geometry      = new wxTextCtrl(metadata_parent, wxID_ANY, _L("side d/8"));
         m_illuminant->SetToolTip(_L("Reference light used for Lab conversion."));
-        m_observer->SetToolTip(_L("CIE standard observer angle, usually 2 or 10."));
+        m_observer->SetToolTip(_L("CIE standard observer angle for Lab conversion, usually 2 or 10. Use Geometry for d/8."));
+        m_geometry->SetToolTip(_L("Measurement geometry and sample face. CR9 reflective measurements use d/8 geometry."));
         add_meta_row(meta_grid, metadata_parent, _L("Manifest"), m_manifest_path);
         add_meta_row(meta_grid, metadata_parent, _L("Instrument"), m_instrument);
         add_meta_row(meta_grid, metadata_parent, _L("Illuminant"), m_illuminant);
-        add_meta_row(meta_grid, metadata_parent, _L("Observer"), m_observer);
+        add_meta_row(meta_grid, metadata_parent, _L("CIE observer"), m_observer);
         add_meta_row(meta_grid, metadata_parent, _L("Geometry"), m_geometry);
 
         auto *primary_colors_row = new wxBoxSizer(wxHORIZONTAL);
@@ -301,6 +307,20 @@ public:
         add_meta_row(capture_grid, _L("Samples per swatch"), m_target_takes);
         add_meta_row(capture_grid, _L("Pass dE*ab"), m_pass_delta_e);
         add_meta_row(capture_grid, wxString(), m_auto_advance);
+
+        auto *white_backing_row = new wxBoxSizer(wxHORIZONTAL);
+        m_reference_white_backing = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, FromDIP(wxSize(180, -1)));
+        auto *measure_white_backing = new wxButton(this, wxID_ANY, _L("Measure"));
+        white_backing_row->Add(m_reference_white_backing, 0, wxRIGHT, FromDIP(8));
+        white_backing_row->Add(measure_white_backing, 0);
+        add_meta_row(capture_grid, _L("White backing"), white_backing_row);
+
+        auto *black_backing_row = new wxBoxSizer(wxHORIZONTAL);
+        m_reference_black_backing = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, FromDIP(wxSize(180, -1)));
+        auto *measure_black_backing = new wxButton(this, wxID_ANY, _L("Measure"));
+        black_backing_row->Add(m_reference_black_backing, 0, wxRIGHT, FromDIP(8));
+        black_backing_row->Add(measure_black_backing, 0);
+        add_meta_row(capture_grid, _L("Black backing"), black_backing_row);
 
         auto *sample_row = new wxBoxSizer(wxHORIZONTAL);
         auto *previous_sample = new wxButton(this, wxID_ANY, _L("Previous sample"));
@@ -389,6 +409,7 @@ public:
         m_grid->SetColLabelValue(ColColors, _L("Colors"));
         m_grid->SetColLabelValue(ColTd, _L("TD"));
         m_grid->SetColLabelValue(ColBacking, _L("Backing"));
+        m_grid->SetColLabelValue(ColMeasurement, _L("Measure"));
         m_grid->SetColLabelValue(ColThickness, _L("mm"));
         m_grid->SetColLabelValue(ColPlate, _L("Plate"));
         m_grid->SetColLabelValue(ColReadings, _L("Readings"));
@@ -415,6 +436,7 @@ public:
         m_grid->SetColSize(ColColors, FromDIP(130));
         m_grid->SetColSize(ColTd, FromDIP(80));
         m_grid->SetColSize(ColBacking, FromDIP(90));
+        m_grid->SetColSize(ColMeasurement, FromDIP(105));
         m_grid->SetColSize(ColThickness, FromDIP(70));
         m_grid->SetColSize(ColPlate, FromDIP(70));
         m_grid->SetColSize(ColReadings, FromDIP(260));
@@ -450,6 +472,8 @@ public:
         m_connect_serial->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_toggle_serial, this);
         m_measure_serial->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_measure_serial, this);
         m_measure_all_serial->Bind(wxEVT_BUTTON, &ColorSwatchMeasurementPage::on_measure_all_serial, this);
+        measure_white_backing->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { on_measure_reference(ReferenceMeasurementTarget::WhiteBacking); });
+        measure_black_backing->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { on_measure_reference(ReferenceMeasurementTarget::BlackBacking); });
         Bind(wxEVT_TIMER, &ColorSwatchMeasurementPage::on_serial_timer, this, m_serial_timer->GetId());
         for (size_t i = 0; i < m_primary_color_pickers.size(); ++i) {
             if (m_primary_color_pickers[i] == nullptr)
@@ -522,6 +546,7 @@ private:
         ColColors,
         ColTd,
         ColBacking,
+        ColMeasurement,
         ColThickness,
         ColPlate,
         ColReadings,
@@ -570,6 +595,8 @@ private:
     struct MeasurementTake
     {
         LabReading lab;
+        std::optional<LabReading> sci_lab;
+        std::optional<LabReading> sce_lab;
         wxString source;
         wxString timestamp;
         std::optional<RawSpectrumData> raw_spectrum;
@@ -578,12 +605,16 @@ private:
     struct PtsParsedMeasurement
     {
         LabReading lab;
+        std::optional<LabReading> sci_lab;
+        std::optional<LabReading> sce_lab;
         std::optional<RawSpectrumData> raw_spectrum;
     };
 
     struct Row
     {
         nlohmann::json manifest_record;
+        size_t         source_manifest_index = 0;
+        std::string    measurement_condition = "black_backing";
         std::vector<MeasurementTake> takes;
         wxString rgb_hex;
         wxString notes;
@@ -615,6 +646,19 @@ private:
         Configuring,
         Ready,
         Measuring
+    };
+
+    enum class PtsSpecularMode
+    {
+        SCI,
+        SCE
+    };
+
+    enum class ReferenceMeasurementTarget
+    {
+        None,
+        WhiteBacking,
+        BlackBacking
     };
 
     struct PtsCommand
@@ -1061,12 +1105,14 @@ private:
             SpectrumSamples samples;
             samples.raw_u16.reserve(31);
             samples.reflectance.reserve(31);
+            bool has_signal = false;
             for (size_t i = 0; i < 31; ++i) {
                 const uint16_t raw = read_le16(data, offset + i * sizeof(uint16_t));
+                has_signal = has_signal || raw != 0;
                 samples.raw_u16.push_back(raw);
                 samples.reflectance.push_back(double(raw) * 0.0001);
             }
-            return samples;
+            return has_signal ? std::optional<SpectrumSamples>(samples) : std::nullopt;
         };
 
         RawSpectrumData raw;
@@ -1078,13 +1124,20 @@ private:
         raw.sce = read_spectrum(sce_offset);
         raw.payload = data;
 
-        if (raw.sci) {
-            if (auto reading = lab_from_spectrum_samples(*raw.sci, illuminant, observer))
-                return PtsParsedMeasurement { *reading, raw };
-        }
-        if (raw.sce) {
-            if (auto reading = lab_from_spectrum_samples(*raw.sce, illuminant, observer))
-                return PtsParsedMeasurement { *reading, raw };
+        std::optional<LabReading> sci_lab;
+        std::optional<LabReading> sce_lab;
+        if (raw.sci)
+            sci_lab = lab_from_spectrum_samples(*raw.sci, illuminant, observer);
+        if (raw.sce)
+            sce_lab = lab_from_spectrum_samples(*raw.sce, illuminant, observer);
+
+        if (sci_lab || sce_lab) {
+            PtsParsedMeasurement parsed;
+            parsed.lab = sci_lab ? *sci_lab : *sce_lab;
+            parsed.sci_lab = sci_lab;
+            parsed.sce_lab = sce_lab;
+            parsed.raw_spectrum = raw;
+            return parsed;
         }
         return std::nullopt;
     }
@@ -1095,9 +1148,15 @@ private:
             return std::nullopt;
 
         // PTS color blocks store observer, illuminant, then three
-        // little-endian float values. Prefer SCI and fall back to SCE.
+        // little-endian float values. Keep both when the record has them;
+        // SCI remains the primary Lab value for existing averages.
         const auto read_block = [&data](size_t offset) -> std::optional<LabReading> {
             if (offset + 14 > data.size())
+                return std::nullopt;
+            bool has_signal = false;
+            for (size_t i = 0; i < 14; ++i)
+                has_signal = has_signal || data[offset + i] != 0;
+            if (!has_signal)
                 return std::nullopt;
             LabReading reading { read_float_le(data, offset + 2),
                                  read_float_le(data, offset + 6),
@@ -1105,10 +1164,15 @@ private:
             return lab_reading_is_plausible(reading) ? std::optional<LabReading>(reading) : std::nullopt;
         };
 
-        if (auto sci = read_block(sci_offset))
-            return PtsParsedMeasurement { *sci, std::nullopt };
-        if (auto sce = read_block(sce_offset))
-            return PtsParsedMeasurement { *sce, std::nullopt };
+        const std::optional<LabReading> sci = read_block(sci_offset);
+        const std::optional<LabReading> sce = read_block(sce_offset);
+        if (sci || sce) {
+            PtsParsedMeasurement parsed;
+            parsed.lab = sci ? *sci : *sce;
+            parsed.sci_lab = sci;
+            parsed.sce_lab = sce;
+            return parsed;
+        }
         return std::nullopt;
     }
 
@@ -1198,6 +1262,199 @@ private:
         return { { "L", reading.l }, { "a", reading.a }, { "b", reading.b } };
     }
 
+    static bool is_reflective_anchor_record(const nlohmann::json &record)
+    {
+        return record.contains("swatch_type") && record["swatch_type"].is_string() &&
+               record["swatch_type"].get<std::string>() == "reflective_anchor";
+    }
+
+    static std::vector<std::string> measurement_conditions_for_record(const nlohmann::json &record)
+    {
+        if (!is_reflective_anchor_record(record))
+            return { "black_backing" };
+        return { "white_backing", "black_backing" };
+    }
+
+    static std::string default_measurement_condition_for_record(const nlohmann::json &record)
+    {
+        return is_reflective_anchor_record(record) ? std::string("white_backing") : std::string("black_backing");
+    }
+
+    static std::string canonical_measurement_condition(const std::string &condition, const std::string &fallback = "black_backing")
+    {
+        if (condition == "white_backing" || condition == "black_backing")
+            return condition;
+        return fallback;
+    }
+
+    static wxString measurement_condition_label(const std::string &condition)
+    {
+        if (canonical_measurement_condition(condition) == "black_backing")
+            return _L("black backing");
+        return _L("white backing");
+    }
+
+    static std::string measurement_condition_from_record(const nlohmann::json &record)
+    {
+        const std::string fallback = default_measurement_condition_for_record(record);
+        if (record.contains("measurement_condition") && record["measurement_condition"].is_string())
+            return canonical_measurement_condition(record["measurement_condition"].get<std::string>(), fallback);
+        return fallback;
+    }
+
+    static nlohmann::json manifest_record_for_measurement_condition(const nlohmann::json &record, const std::string &condition)
+    {
+        nlohmann::json out = record;
+        const std::string canonical_condition = canonical_measurement_condition(condition, default_measurement_condition_for_record(record));
+        out["measurement_condition"] = canonical_condition;
+        out["measurement_condition_label"] = wx_to_u8(measurement_condition_label(canonical_condition));
+        if (record.contains("swatch_id"))
+            out["physical_swatch_id"] = record["swatch_id"];
+        if (record.contains("printed_reference"))
+            out["physical_printed_reference"] = record["printed_reference"];
+        return out;
+    }
+
+    static std::string measurement_record_key(const std::string &swatch_id, const std::string &condition)
+    {
+        return swatch_id + "\n" + condition;
+    }
+
+    static wxString measurement_type_text(const nlohmann::json &record)
+    {
+        const wxString type = json_string_value(record, "swatch_type");
+        const std::string condition = measurement_condition_from_record(record);
+        return type + _L(" ") + measurement_condition_label(condition);
+    }
+
+    static nlohmann::json reference_measurement_to_json(wxTextCtrl *control)
+    {
+        if (control == nullptr)
+            return nullptr;
+        wxString text = control->GetValue();
+        text.Trim(true).Trim(false);
+        if (text.empty())
+            return nullptr;
+
+        const std::vector<LabReading> readings = parse_readings_text(text);
+        if (!readings.empty())
+            return lab_to_json(readings.front());
+        return wx_to_u8(text);
+    }
+
+    static wxString reference_measurement_from_json(const nlohmann::json &value)
+    {
+        if (const std::optional<LabReading> reading = lab_from_json(value))
+            return format_reading(*reading);
+        if (value.is_string())
+            return u8_to_wx(value.get<std::string>());
+        if (value.is_null())
+            return wxString();
+        return json_scalar_to_text(value);
+    }
+
+    static const char* specular_mode_name(PtsSpecularMode mode)
+    {
+        return mode == PtsSpecularMode::SCI ? "SCI" : "SCE";
+    }
+
+    static uint8_t pts_specular_mode_code(PtsSpecularMode mode)
+    {
+        return mode == PtsSpecularMode::SCI ? 0 : 1;
+    }
+
+    static wxString take_specular_mode_text(const MeasurementTake &take)
+    {
+        if (take.sci_lab && take.sce_lab)
+            return _L("SCI+SCE");
+        if (take.sci_lab)
+            return _L("SCI");
+        if (take.sce_lab)
+            return _L("SCE");
+        if (take.raw_spectrum && take.raw_spectrum->sci && take.raw_spectrum->sce)
+            return _L("SCI+SCE");
+        if (take.raw_spectrum && take.raw_spectrum->sci)
+            return _L("SCI");
+        if (take.raw_spectrum && take.raw_spectrum->sce)
+            return _L("SCE");
+        return wxString();
+    }
+
+    static bool parsed_has_sci(const PtsParsedMeasurement &parsed)
+    {
+        return parsed.sci_lab || (parsed.raw_spectrum && parsed.raw_spectrum->sci);
+    }
+
+    static bool parsed_has_sce(const PtsParsedMeasurement &parsed)
+    {
+        return parsed.sce_lab || (parsed.raw_spectrum && parsed.raw_spectrum->sce);
+    }
+
+    static PtsParsedMeasurement parsed_with_requested_mode(PtsParsedMeasurement parsed, PtsSpecularMode mode)
+    {
+        const bool has_sci = parsed.sci_lab || (parsed.raw_spectrum && parsed.raw_spectrum->sci);
+        const bool has_sce = parsed.sce_lab || (parsed.raw_spectrum && parsed.raw_spectrum->sce);
+
+        if (has_sci && !has_sce && mode == PtsSpecularMode::SCE) {
+            parsed.sce_lab = parsed.sci_lab ? parsed.sci_lab : std::optional<LabReading>(parsed.lab);
+            parsed.sci_lab.reset();
+            if (parsed.raw_spectrum && parsed.raw_spectrum->sci) {
+                parsed.raw_spectrum->sce = std::move(parsed.raw_spectrum->sci);
+                parsed.raw_spectrum->sci.reset();
+            }
+            parsed.lab = *parsed.sce_lab;
+        } else if (has_sce && !has_sci && mode == PtsSpecularMode::SCI) {
+            parsed.sci_lab = parsed.sce_lab ? parsed.sce_lab : std::optional<LabReading>(parsed.lab);
+            parsed.sce_lab.reset();
+            if (parsed.raw_spectrum && parsed.raw_spectrum->sce) {
+                parsed.raw_spectrum->sci = std::move(parsed.raw_spectrum->sce);
+                parsed.raw_spectrum->sce.reset();
+            }
+            parsed.lab = *parsed.sci_lab;
+        } else if (!has_sci && !has_sce) {
+            if (mode == PtsSpecularMode::SCI)
+                parsed.sci_lab = parsed.lab;
+            else
+                parsed.sce_lab = parsed.lab;
+        }
+        return parsed;
+    }
+
+    static PtsParsedMeasurement merge_pts_measurements(const std::optional<PtsParsedMeasurement> &first,
+                                                       const std::optional<PtsParsedMeasurement> &second)
+    {
+        PtsParsedMeasurement merged = first ? *first : (second ? *second : PtsParsedMeasurement {});
+
+        const auto merge_one = [&merged](const PtsParsedMeasurement &parsed) {
+            if (!merged.sci_lab && parsed.sci_lab)
+                merged.sci_lab = parsed.sci_lab;
+            if (!merged.sce_lab && parsed.sce_lab)
+                merged.sce_lab = parsed.sce_lab;
+
+            if (parsed.raw_spectrum) {
+                if (!merged.raw_spectrum)
+                    merged.raw_spectrum = parsed.raw_spectrum;
+                else {
+                    if (!merged.raw_spectrum->sci && parsed.raw_spectrum->sci)
+                        merged.raw_spectrum->sci = parsed.raw_spectrum->sci;
+                    if (!merged.raw_spectrum->sce && parsed.raw_spectrum->sce)
+                        merged.raw_spectrum->sce = parsed.raw_spectrum->sce;
+                }
+            }
+        };
+
+        if (first)
+            merge_one(*first);
+        if (second)
+            merge_one(*second);
+
+        if (merged.sci_lab)
+            merged.lab = *merged.sci_lab;
+        else if (merged.sce_lab)
+            merged.lab = *merged.sce_lab;
+        return merged;
+    }
+
     static wxString pts_operation_name(uint8_t operation)
     {
         if (operation == 0x23)
@@ -1237,6 +1494,11 @@ private:
         out["wavelength_end_nm"] = 700;
         out["wavelength_step_nm"] = 10;
         out["wavelength_nm"] = wavelength_json_400_700_10nm();
+        out["specular_modes"] = nlohmann::json::array();
+        if (raw.sci)
+            out["specular_modes"].push_back("SCI");
+        if (raw.sce)
+            out["specular_modes"].push_back("SCE");
         if (raw.sci)
             out["sci"] = spectrum_samples_to_json(*raw.sci);
         if (raw.sce)
@@ -1285,6 +1547,8 @@ private:
         if (auto raw = uint16_vector_from_json(object["raw_u16"]))
             samples.raw_u16 = std::move(*raw);
         else
+            return std::nullopt;
+        if (std::none_of(samples.raw_u16.begin(), samples.raw_u16.end(), [](uint16_t value) { return value != 0; }))
             return std::nullopt;
 
         if (object.contains("reflectance")) {
@@ -1680,6 +1944,7 @@ private:
         for (const LabReading &reading : readings)
             replacement.push_back(make_table_take(reading));
         m_rows[static_cast<size_t>(row)].takes = std::move(replacement);
+        update_primary_color_from_anchor_measurement(row);
     }
 
     void set_takes_for_row(int row, std::vector<MeasurementTake> takes)
@@ -1690,6 +1955,7 @@ private:
             if (take.timestamp.empty())
                 take.timestamp = current_timestamp();
         m_rows[static_cast<size_t>(row)].takes = std::move(takes);
+        update_primary_color_from_anchor_measurement(row);
         refresh_measurement_grid();
         select_measurement_row(row);
         update_summary();
@@ -1705,6 +1971,7 @@ private:
         if (take.timestamp.empty())
             take.timestamp = current_timestamp();
         m_rows[static_cast<size_t>(row)].takes.push_back(std::move(take));
+        update_primary_color_from_anchor_measurement(row);
         const std::vector<LabReading> readings = readings_from_takes(m_rows[static_cast<size_t>(row)].takes);
         refresh_measurement_grid();
         select_measurement_row(row);
@@ -1736,6 +2003,32 @@ private:
         take.source = source;
         take.timestamp = current_timestamp();
         append_take_to_row(row, std::move(take));
+    }
+
+    void append_pts_measurement_to_row(int row, const PtsParsedMeasurement &parsed)
+    {
+        MeasurementTake take;
+        take.lab = parsed.lab;
+        take.sci_lab = parsed.sci_lab;
+        take.sce_lab = parsed.sce_lab;
+        take.raw_spectrum = parsed.raw_spectrum;
+        take.source = _L("Spectro");
+        const wxString specular_mode = take_specular_mode_text(take);
+        if (!specular_mode.empty())
+            take.source += _L(" ") + specular_mode;
+        append_take_to_row(row, std::move(take));
+    }
+
+    void handle_completed_pts_measurement(const PtsParsedMeasurement &parsed)
+    {
+        if (m_reference_measure_target != ReferenceMeasurementTarget::None) {
+            const ReferenceMeasurementTarget target = m_reference_measure_target;
+            m_reference_measure_target = ReferenceMeasurementTarget::None;
+            store_reference_measurement(target, parsed.lab);
+            return;
+        }
+
+        append_pts_measurement_to_row(active_row(), parsed);
     }
 
     void set_readings_for_row(int row, const std::vector<LabReading> &readings)
@@ -1846,6 +2139,18 @@ private:
             load_manifest(dlg.GetPath());
     }
 
+    void load_reference_measurements_from_json(const nlohmann::json &measurements)
+    {
+        if (!measurements.contains("reference_measurements") || !measurements["reference_measurements"].is_object())
+            return;
+
+        const nlohmann::json &references = measurements["reference_measurements"];
+        if (m_reference_white_backing != nullptr && references.contains("white_backing"))
+            m_reference_white_backing->SetValue(reference_measurement_from_json(references["white_backing"]));
+        if (m_reference_black_backing != nullptr && references.contains("black_backing"))
+            m_reference_black_backing->SetValue(reference_measurement_from_json(references["black_backing"]));
+    }
+
     void on_import_measurements(wxCommandEvent &)
     {
         if (m_rows.empty()) {
@@ -1870,11 +2175,23 @@ private:
             return;
         }
 
+        load_reference_measurements_from_json(measurements);
+
         std::map<std::string, int> row_by_id;
         for (size_t row = 0; row < m_rows.size(); ++row) {
             const nlohmann::json &manifest_record = m_rows[row].manifest_record;
-            if (manifest_record.contains("swatch_id"))
-                row_by_id[wx_to_u8(json_scalar_to_text(manifest_record["swatch_id"]))] = static_cast<int>(row);
+            if (manifest_record.contains("swatch_id")) {
+                const std::string id = wx_to_u8(json_scalar_to_text(manifest_record["swatch_id"]));
+                row_by_id[measurement_record_key(id, m_rows[row].measurement_condition)] = static_cast<int>(row);
+
+                // Backward compatibility for measurement files written before explicit backing rows.
+                const bool anchor = is_reflective_anchor_record(manifest_record);
+                if ((anchor && m_rows[row].measurement_condition == "white_backing") ||
+                    (!anchor && m_rows[row].measurement_condition == "black_backing")) {
+                    row_by_id[measurement_record_key(id, "normal")] = static_cast<int>(row);
+                    row_by_id[measurement_record_key(id, "")] = static_cast<int>(row);
+                }
+            }
         }
 
         for (const nlohmann::json &record : measurements["records"]) {
@@ -1883,11 +2200,18 @@ private:
                 id = record["swatch_id"].get<std::string>();
             else if (record.contains("manifest") && record["manifest"].contains("swatch_id") && record["manifest"]["swatch_id"].is_string())
                 id = record["manifest"]["swatch_id"].get<std::string>();
-            if (id.empty() || row_by_id.count(id) == 0)
+            std::string condition = "normal";
+            if (record.contains("measurement_condition") && record["measurement_condition"].is_string())
+                condition = record["measurement_condition"].get<std::string>();
+            else if (record.contains("manifest") && record["manifest"].contains("measurement_condition") &&
+                     record["manifest"]["measurement_condition"].is_string())
+                condition = record["manifest"]["measurement_condition"].get<std::string>();
+            const std::string key = measurement_record_key(id, condition);
+            if (id.empty() || row_by_id.count(key) == 0)
                 continue;
 
             const nlohmann::json *measured = record.contains("measured") ? &record["measured"] : &record;
-            const int row = row_by_id[id];
+            const int row = row_by_id[key];
 
             std::vector<MeasurementTake> takes;
             if (measured->contains("readings") && (*measured)["readings"].is_array()) {
@@ -1900,6 +2224,10 @@ private:
                         take.lab = { reading_json[0].get<double>(), reading_json[1].get<double>(), reading_json[2].get<double>() };
                     else
                         continue;
+                    if (reading_json.contains("lab_sci"))
+                        take.sci_lab = lab_from_json(reading_json["lab_sci"]);
+                    if (reading_json.contains("lab_sce"))
+                        take.sce_lab = lab_from_json(reading_json["lab_sce"]);
                     take.source = reading_json.contains("source") && reading_json["source"].is_string() ?
                         u8_to_wx(reading_json["source"].get<std::string>()) :
                         _L("Import");
@@ -1937,6 +2265,9 @@ private:
             if (measured->contains("notes") && (*measured)["notes"].is_string())
                 m_rows[static_cast<size_t>(row)].notes = u8_to_wx((*measured)["notes"].get<std::string>());
         }
+
+        for (int row = 0; row < static_cast<int>(m_rows.size()); ++row)
+            update_primary_color_from_anchor_measurement(row);
 
         refresh_measurement_grid();
         update_summary();
@@ -1984,7 +2315,13 @@ private:
             { "illuminant", wx_to_u8(m_illuminant->GetValue()) },
             { "observer", wx_to_u8(m_observer->GetValue()) },
             { "measurement_geometry", wx_to_u8(m_geometry->GetValue()) },
+            { "specular_modes", { "SCI", "SCE" } },
+            { "primary_lab_mode", "SCI" },
             { "target_take_count", target_take_count() }
+        };
+        out["reference_measurements"] = {
+            { "white_backing", reference_measurement_to_json(m_reference_white_backing) },
+            { "black_backing", reference_measurement_to_json(m_reference_black_backing) }
         };
         out["records"] = nlohmann::json::array();
 
@@ -2001,6 +2338,15 @@ private:
                     reading_json["take"] = i + 1;
                     if (!takes[i].source.empty())
                         reading_json["source"] = wx_to_u8(takes[i].source);
+                    const wxString specular_mode = take_specular_mode_text(takes[i]);
+                    if (!specular_mode.empty()) {
+                        reading_json["specular_mode"] = wx_to_u8(specular_mode);
+                        reading_json["primary_lab_mode"] = takes[i].sci_lab ? "SCI" : "SCE";
+                    }
+                    if (takes[i].sci_lab)
+                        reading_json["lab_sci"] = lab_to_json(*takes[i].sci_lab);
+                    if (takes[i].sce_lab)
+                        reading_json["lab_sce"] = lab_to_json(*takes[i].sce_lab);
                     if (!takes[i].timestamp.empty()) {
                         reading_json["timestamp"] = wx_to_u8(takes[i].timestamp);
                         reading_json["date_time"] = wx_to_u8(takes[i].timestamp);
@@ -2038,6 +2384,7 @@ private:
 
             nlohmann::json result_record;
             result_record["swatch_id"] = wx_to_u8(json_scalar_to_text(m_rows[static_cast<size_t>(row)].manifest_record["swatch_id"]));
+            result_record["measurement_condition"] = m_rows[static_cast<size_t>(row)].measurement_condition;
             result_record["manifest"] = m_rows[static_cast<size_t>(row)].manifest_record;
             result_record["measured"] = measured;
             out["records"].push_back(std::move(result_record));
@@ -2055,6 +2402,10 @@ private:
 
     void on_clear_values(wxCommandEvent &)
     {
+        if (m_reference_white_backing != nullptr)
+            m_reference_white_backing->Clear();
+        if (m_reference_black_backing != nullptr)
+            m_reference_black_backing->Clear();
         for (Row &row : m_rows) {
             row.takes.clear();
             row.rgb_hex.clear();
@@ -2063,6 +2414,62 @@ private:
         refresh_measurement_grid();
         update_summary();
         update_next_sample();
+    }
+
+    wxTextCtrl* reference_measurement_control(ReferenceMeasurementTarget target) const
+    {
+        switch (target) {
+        case ReferenceMeasurementTarget::WhiteBacking: return m_reference_white_backing;
+        case ReferenceMeasurementTarget::BlackBacking: return m_reference_black_backing;
+        case ReferenceMeasurementTarget::None: break;
+        }
+        return nullptr;
+    }
+
+    wxString reference_measurement_label(ReferenceMeasurementTarget target) const
+    {
+        switch (target) {
+        case ReferenceMeasurementTarget::WhiteBacking: return _L("white backing");
+        case ReferenceMeasurementTarget::BlackBacking: return _L("black backing");
+        case ReferenceMeasurementTarget::None: break;
+        }
+        return wxString();
+    }
+
+    bool serial_ready_for_reference_measurement()
+    {
+        if (!serial_connected()) {
+            m_serial_status->SetLabel(_L("Disconnected"));
+            return false;
+        }
+        if (m_pts_state != PtsProtocolState::Ready) {
+            m_serial_status->SetLabel(_L("Spectro is not ready"));
+            return false;
+        }
+        return true;
+    }
+
+    void store_reference_measurement(ReferenceMeasurementTarget target, const LabReading &reading)
+    {
+        wxTextCtrl *control = reference_measurement_control(target);
+        if (control == nullptr)
+            return;
+        control->SetValue(format_reading(reading));
+        if (m_serial_status != nullptr)
+            m_serial_status->SetLabel(_L("Measured ") + reference_measurement_label(target));
+    }
+
+    void on_measure_reference(ReferenceMeasurementTarget target)
+    {
+        if (!serial_ready_for_reference_measurement())
+            return;
+
+        m_reference_measure_target = target;
+        if (!send_pts_measure()) {
+            m_reference_measure_target = ReferenceMeasurementTarget::None;
+            if (m_serial_status != nullptr)
+                m_serial_status->SetLabel(_L("Could not start reference measurement"));
+        }
     }
 
     void on_toggle_serial(wxCommandEvent &)
@@ -2218,6 +2625,7 @@ private:
             if (const std::optional<FailedTake> failed = failed_take_for_row(m_measure_all_row)) {
                 const size_t take_number = failed->index + 1;
                 takes.erase(takes.begin() + static_cast<std::ptrdiff_t>(failed->index));
+                update_primary_color_from_anchor_measurement(m_measure_all_row);
                 refresh_measurement_grid();
                 select_measurement_row(m_measure_all_row);
                 const wxString message = wxString::Format(_L("Removed failed take %zu (dE %.2f); re-measuring"), take_number, failed->delta_e);
@@ -2324,28 +2732,73 @@ private:
     {
         m_pts_state = PtsProtocolState::Handshaking;
         m_pts_session = 0;
+        m_pts_product = 0;
         m_pts_rx_buffer.clear();
         m_pts_measure_buffer.clear();
         m_pts_config_commands.clear();
         m_pts_config_index = 0;
         m_pts_pending_command = 0;
+        m_pts_config_for_measurement = false;
+        m_pts_dual_measurement_active = false;
+        m_pts_requested_specular_mode = PtsSpecularMode::SCI;
+        m_pts_current_measurement_mode = PtsSpecularMode::SCI;
+        m_reference_measure_target = ReferenceMeasurementTarget::None;
+        m_pts_pending_sci_measurement.reset();
+        m_pts_pending_sce_measurement.reset();
         update_serial_buttons();
 
         write_serial_bytes({ 0x55, 0xAA, 0xAA, 0x00 }, _L("TX"));
         write_serial_bytes({ 0x55, 0xAA, 0xA1, 0x00, 0x00, 0x00, 0x02, 0x00, 0x02 }, _L("TX"));
     }
 
-    bool send_pts_measure()
+    bool send_pts_measure_frame(PtsSpecularMode mode)
     {
         const std::vector<uint8_t> frame = make_pts_data_frame(m_pts_session, 0x23, { 0x00 });
         if (write_serial_bytes(frame, _L("TX"))) {
+            m_pts_current_measurement_mode = mode;
             m_pts_state = PtsProtocolState::Measuring;
             m_pts_measure_buffer.clear();
-            m_serial_status->SetLabel(_L("Measuring"));
+            m_serial_status->SetLabel(_L("Measuring ") + u8_to_wx(specular_mode_name(mode)));
             update_serial_buttons();
             return true;
         }
         return false;
+    }
+
+    bool send_pts_specular_config_for_measurement(PtsSpecularMode mode)
+    {
+        if (!serial_connected())
+            return false;
+
+        m_pts_config_for_measurement = true;
+        m_pts_requested_specular_mode = mode;
+        m_pts_pending_command = 0xB4;
+        m_pts_state = PtsProtocolState::Configuring;
+        m_serial_status->SetLabel(_L("Configuring ") + u8_to_wx(specular_mode_name(mode)));
+        update_serial_buttons();
+
+        const std::vector<uint8_t> frame = make_pts_data_frame(m_pts_session, 0xB4, { 0x01, pts_specular_mode_code(mode) });
+        if (write_serial_bytes(frame, _L("TX")))
+            return true;
+
+        m_pts_config_for_measurement = false;
+        m_pts_pending_command = 0;
+        m_pts_state = PtsProtocolState::Ready;
+        update_serial_buttons();
+        return false;
+    }
+
+    bool send_pts_measure()
+    {
+        if (m_pts_product != 2) {
+            m_pts_dual_measurement_active = false;
+            return send_pts_measure_frame(PtsSpecularMode::SCI);
+        }
+
+        m_pts_dual_measurement_active = true;
+        m_pts_pending_sci_measurement.reset();
+        m_pts_pending_sce_measurement.reset();
+        return send_pts_specular_config_for_measurement(PtsSpecularMode::SCI);
     }
 
     void queue_pts_lab_config()
@@ -2365,6 +2818,7 @@ private:
         if (m_pts_config_index >= m_pts_config_commands.size()) {
             m_pts_state = PtsProtocolState::Ready;
             m_pts_pending_command = 0;
+            m_pts_config_for_measurement = false;
             m_serial_status->SetLabel(_L("Ready"));
             update_serial_buttons();
             return;
@@ -2441,10 +2895,26 @@ private:
         } else if (type == 0xA6) {
             handle_pts_data_frame(frame);
         } else if (type == 0xA7) {
-            if (m_pts_state == PtsProtocolState::Configuring)
-                send_next_pts_config_command();
-            else if (m_pts_state == PtsProtocolState::Measuring)
+            if (m_pts_state == PtsProtocolState::Configuring) {
+                if (m_pts_config_for_measurement) {
+                    m_pts_config_for_measurement = false;
+                    m_pts_pending_command = 0;
+                    if (!send_pts_measure_frame(m_pts_requested_specular_mode)) {
+                        m_pts_dual_measurement_active = false;
+                        m_pts_state = PtsProtocolState::Ready;
+                        if (m_measure_all_active)
+                            stop_measure_all(_L("Measure All stopped: could not start measurement"));
+                        else {
+                            m_serial_status->SetLabel(_L("Could not start spectro measurement"));
+                            update_serial_buttons();
+                        }
+                    }
+                } else {
+                    send_next_pts_config_command();
+                }
+            } else if (m_pts_state == PtsProtocolState::Measuring) {
                 m_serial_status->SetLabel(_L("Waiting for reading"));
+            }
         } else if (type == 0xA8) {
 #ifdef _WIN32
             write_serial_bytes({ 0x55, 0xAA, 0xA9, m_pts_session }, _L("TX"));
@@ -2461,14 +2931,14 @@ private:
 
         m_pts_session = frame[3];
         const uint32_t version = read_le32(frame, 7);
-        const uint32_t product = (version >> 8) & 0x00FFFFFF;
-        log_serial(wxString::Format(_L("PTS session %u product %u"), unsigned(m_pts_session), unsigned(product)));
+        m_pts_product = (version >> 8) & 0x00FFFFFF;
+        log_serial(wxString::Format(_L("PTS session %u product %u"), unsigned(m_pts_session), unsigned(m_pts_product)));
 
 #ifdef _WIN32
         write_serial_bytes({ 0x55, 0xAA, 0xA3, m_pts_session }, _L("TX"));
 #endif
 
-        if (product == 2)
+        if (m_pts_product == 2)
             queue_pts_lab_config();
         else {
             m_pts_state = PtsProtocolState::Ready;
@@ -2517,6 +2987,38 @@ private:
             finish_pts_measurement(operation);
     }
 
+    void handle_pts_dual_measurement_result(PtsParsedMeasurement parsed)
+    {
+        parsed = parsed_with_requested_mode(std::move(parsed), m_pts_current_measurement_mode);
+
+        if (parsed_has_sci(parsed) && parsed_has_sce(parsed)) {
+            m_pts_dual_measurement_active = false;
+            m_pts_pending_sci_measurement.reset();
+            m_pts_pending_sce_measurement.reset();
+            handle_completed_pts_measurement(parsed);
+            return;
+        }
+
+        if (m_pts_current_measurement_mode == PtsSpecularMode::SCI) {
+            m_pts_pending_sci_measurement = std::move(parsed);
+            if (!send_pts_specular_config_for_measurement(PtsSpecularMode::SCE)) {
+                m_pts_dual_measurement_active = false;
+                m_serial_status->SetLabel(_L("Could not switch spectro to SCE"));
+                update_serial_buttons();
+                if (m_measure_all_active)
+                    stop_measure_all(_L("Measure All stopped: could not switch to SCE"));
+            }
+            return;
+        }
+
+        m_pts_pending_sce_measurement = std::move(parsed);
+        PtsParsedMeasurement merged = merge_pts_measurements(m_pts_pending_sci_measurement, m_pts_pending_sce_measurement);
+        m_pts_dual_measurement_active = false;
+        m_pts_pending_sci_measurement.reset();
+        m_pts_pending_sce_measurement.reset();
+        handle_completed_pts_measurement(merged);
+    }
+
     void finish_pts_measurement(uint8_t operation)
     {
         const uint8_t illuminant = pts_illuminant_code(m_illuminant->GetValue());
@@ -2527,14 +3029,17 @@ private:
             update_serial_buttons();
             if (pts_record_is_spectrum(m_pts_measure_buffer))
                 log_serial(wxString::Format(_L("PTS spectrum converted to Lab D65/%s"), observer == 0 ? _L("2") : _L("10")));
-            MeasurementTake take;
-            take.lab = parsed->lab;
-            take.source = _L("Spectro");
-            take.raw_spectrum = parsed->raw_spectrum;
-            append_take_to_row(active_row(), std::move(take));
+            if (m_pts_dual_measurement_active)
+                handle_pts_dual_measurement_result(*parsed);
+            else
+                handle_completed_pts_measurement(parsed_with_requested_mode(*parsed, m_pts_current_measurement_mode));
         } else {
             if (m_pts_state == PtsProtocolState::Measuring)
                 m_pts_state = PtsProtocolState::Ready;
+            m_pts_dual_measurement_active = false;
+            m_reference_measure_target = ReferenceMeasurementTarget::None;
+            m_pts_pending_sci_measurement.reset();
+            m_pts_pending_sce_measurement.reset();
             m_serial_status->SetLabel(pts_record_is_spectrum(m_pts_measure_buffer) && illuminant != 0 ?
                                           _L("Spectrum conversion currently supports D65") :
                                           _L("Could not parse spectro reading"));
@@ -2885,6 +3390,25 @@ private:
         return changed;
     }
 
+    static std::optional<unsigned int> measured_anchor_slot(const nlohmann::json &record)
+    {
+        if (!record.is_object() || !record.contains("swatch_type") || !record["swatch_type"].is_string())
+            return std::nullopt;
+        if (record["swatch_type"].get<std::string>() != "reflective_anchor")
+            return std::nullopt;
+        if (measurement_condition_from_record(record) != "white_backing")
+            return std::nullopt;
+
+        if (record.contains("filament_slots") && record["filament_slots"].is_array() && record["filament_slots"].size() == 1)
+            return json_slot_value(record["filament_slots"][0]);
+
+        if (record.contains("filaments") && record["filaments"].is_array() && record["filaments"].size() == 1 &&
+            record["filaments"][0].is_object() && record["filaments"][0].contains("slot"))
+            return json_slot_value(record["filaments"][0]["slot"]);
+
+        return std::nullopt;
+    }
+
     bool write_manifest_json(const wxString &path)
     {
         std::ofstream file(wx_to_u8(path), std::ios::binary);
@@ -2894,6 +3418,82 @@ private:
         return bool(file);
     }
 
+    bool apply_primary_color_to_manifest(unsigned int slot, const std::string &color)
+    {
+        if (!m_manifest.contains("records") || !m_manifest["records"].is_array())
+            return false;
+
+        if (!m_manifest.contains("primary_colors") || !m_manifest["primary_colors"].is_object())
+            m_manifest["primary_colors"] = nlohmann::json::object();
+        bool changed = !m_manifest["primary_colors"].contains(std::to_string(slot)) ||
+            !m_manifest["primary_colors"][std::to_string(slot)].is_string() ||
+            m_manifest["primary_colors"][std::to_string(slot)].get<std::string>() != color;
+        m_manifest["primary_colors"][std::to_string(slot)] = color;
+        changed = apply_primary_color_to_primary_filaments(m_manifest, slot, color) || changed;
+
+        nlohmann::json &records = m_manifest["records"];
+        for (size_t row = 0; row < records.size(); ++row) {
+            if (!apply_primary_color_to_record(records[row], slot, color))
+                continue;
+            changed = true;
+            for (size_t measurement_row = 0; measurement_row < m_rows.size(); ++measurement_row) {
+                if (m_rows[measurement_row].source_manifest_index != row)
+                    continue;
+                m_rows[measurement_row].manifest_record =
+                    manifest_record_for_measurement_condition(records[row], m_rows[measurement_row].measurement_condition);
+                if (m_grid != nullptr) {
+                    const int grid_row = grid_row_for_swatch(measurement_row);
+                    if (grid_row >= 0)
+                        m_grid->SetCellValue(grid_row, ColColors, json_array_to_text(m_rows[measurement_row].manifest_record, "colors"));
+                }
+            }
+        }
+
+        return changed;
+    }
+
+    void set_primary_color_picker(unsigned int slot, const std::string &color)
+    {
+        if (slot < 1 || slot > m_primary_color_pickers.size())
+            return;
+        wxColourPickerCtrl *picker = m_primary_color_pickers[slot - 1];
+        if (picker == nullptr)
+            return;
+        m_updating_primary_colors = true;
+        picker->Enable(true);
+        picker->SetColour(colour_from_hex(color));
+        m_updating_primary_colors = false;
+    }
+
+    void update_primary_color_from_anchor_measurement(int row)
+    {
+        if (row < 0 || static_cast<size_t>(row) >= m_rows.size())
+            return;
+
+        const std::optional<unsigned int> slot = measured_anchor_slot(m_rows[static_cast<size_t>(row)].manifest_record);
+        if (!slot || *slot < 1 || *slot > m_primary_color_pickers.size())
+            return;
+
+        const std::optional<LabReading> avg = average_reading(readings_from_takes(m_rows[static_cast<size_t>(row)].takes));
+        if (!avg)
+            return;
+
+        const std::string color = colour_to_hex(lab_to_srgb_colour(*avg));
+        m_rows[static_cast<size_t>(row)].rgb_hex = u8_to_wx(color);
+        const bool changed = apply_primary_color_to_manifest(*slot, color);
+        set_primary_color_picker(*slot, color);
+
+        if (!changed)
+            return;
+
+        const bool saved = !m_manifest_path->GetValue().empty() && write_manifest_json(m_manifest_path->GetValue());
+        if (m_primary_color_status != nullptr) {
+            m_primary_color_status->SetLabel(saved ?
+                wxString::Format(_L("Slot %u measured as %s"), *slot, u8_to_wx(color)) :
+                wxString::Format(_L("Slot %u measured in memory"), *slot));
+        }
+    }
+
     void on_primary_color_changed(unsigned int slot)
     {
         if (m_updating_primary_colors || slot < 1 || slot > m_primary_color_pickers.size())
@@ -2901,30 +3501,9 @@ private:
         wxColourPickerCtrl *picker = m_primary_color_pickers[slot - 1];
         if (picker == nullptr || !picker->IsEnabled())
             return;
-        if (!m_manifest.contains("records") || !m_manifest["records"].is_array())
-            return;
 
         const std::string color = colour_to_hex(picker->GetColour());
-        if (!m_manifest.contains("primary_colors") || !m_manifest["primary_colors"].is_object())
-            m_manifest["primary_colors"] = nlohmann::json::object();
-        m_manifest["primary_colors"][std::to_string(slot)] = color;
-        bool changed = apply_primary_color_to_primary_filaments(m_manifest, slot, color);
-
-        nlohmann::json &records = m_manifest["records"];
-        for (size_t row = 0; row < records.size(); ++row) {
-            if (!apply_primary_color_to_record(records[row], slot, color))
-                continue;
-            changed = true;
-            if (row < m_rows.size())
-                m_rows[row].manifest_record = records[row];
-            if (m_grid != nullptr) {
-                const int grid_row = grid_row_for_swatch(row);
-                if (grid_row >= 0)
-                    m_grid->SetCellValue(grid_row, ColColors, json_array_to_text(records[row], "colors"));
-            }
-        }
-
-        if (!changed)
+        if (!apply_primary_color_to_manifest(slot, color))
             return;
 
         const bool saved = !m_manifest_path->GetValue().empty() && write_manifest_json(m_manifest_path->GetValue());
@@ -2962,12 +3541,16 @@ private:
             if (!apply_primary_td_to_record(records[row], slot, td))
                 continue;
             changed = true;
-            if (row < m_rows.size())
-                m_rows[row].manifest_record = records[row];
-            if (m_grid != nullptr) {
-                const int grid_row = grid_row_for_swatch(row);
-                if (grid_row >= 0)
-                    m_grid->SetCellValue(grid_row, ColTd, json_array_to_text(records[row], "td_values"));
+            for (size_t measurement_row = 0; measurement_row < m_rows.size(); ++measurement_row) {
+                if (m_rows[measurement_row].source_manifest_index != row)
+                    continue;
+                m_rows[measurement_row].manifest_record =
+                    manifest_record_for_measurement_condition(records[row], m_rows[measurement_row].measurement_condition);
+                if (m_grid != nullptr) {
+                    const int grid_row = grid_row_for_swatch(measurement_row);
+                    if (grid_row >= 0)
+                        m_grid->SetCellValue(grid_row, ColTd, json_array_to_text(m_rows[measurement_row].manifest_record, "td_values"));
+                }
             }
         }
 
@@ -3001,8 +3584,16 @@ private:
         m_current_swatch = 0;
 
         const nlohmann::json &records = m_manifest["records"];
-        for (const nlohmann::json &record : records)
-            m_rows.push_back({ record });
+        for (size_t record_index = 0; record_index < records.size(); ++record_index) {
+            const nlohmann::json &record = records[record_index];
+            for (const std::string &condition : measurement_conditions_for_record(record)) {
+                Row row;
+                row.manifest_record = manifest_record_for_measurement_condition(record, condition);
+                row.source_manifest_index = record_index;
+                row.measurement_condition = condition;
+                m_rows.push_back(std::move(row));
+            }
+        }
 
         update_primary_color_controls_from_manifest();
         update_primary_td_controls_from_manifest();
@@ -3019,7 +3610,7 @@ private:
     void fill_manifest_row(int row, const nlohmann::json &record)
     {
         m_grid->SetCellValue(row, ColId, manifest_display_id(record));
-        m_grid->SetCellValue(row, ColType, json_string_value(record, "swatch_type"));
+        m_grid->SetCellValue(row, ColType, measurement_type_text(record));
         m_grid->SetCellValue(row, ColSlots, json_array_to_text(record, "filament_slots"));
         m_grid->SetCellValue(row, ColRatios, json_array_to_text(record, "ratios"));
         m_grid->SetCellValue(row, ColPercentages, json_array_to_text(record, "percentages"));
@@ -3027,6 +3618,7 @@ private:
         m_grid->SetCellValue(row, ColTd, json_array_to_text(record, "td_values"));
         if (record.contains("backing") && record["backing"].is_object())
             m_grid->SetCellValue(row, ColBacking, json_string_value(record["backing"], "type"));
+        m_grid->SetCellValue(row, ColMeasurement, measurement_condition_label(measurement_condition_from_record(record)));
         m_grid->SetCellValue(row, ColThickness, json_string_value(record, "total_thickness_mm"));
         if (record.contains("plate_index"))
             m_grid->SetCellValue(row, ColPlate, json_scalar_to_text(record["plate_index"]));
@@ -3065,7 +3657,7 @@ private:
         if (m_rows.empty())
             m_summary->SetLabel(_L("No manifest loaded"));
         else
-            m_summary->SetLabel(wxString::Format(_L("%zu swatches loaded. %zu have data. %zu reached %d takes."),
+            m_summary->SetLabel(wxString::Format(_L("%zu measurement rows loaded. %zu have data. %zu reached %d takes."),
                                                  m_rows.size(),
                                                  measured,
                                                  complete,
@@ -3084,8 +3676,9 @@ private:
             row = 0;
         const int target = target_take_count();
         const size_t takes = readings_for_row(row).size();
-        m_next_sample->SetLabel(wxString::Format(_L("Next sample: %s  take %zu/%d"),
+        m_next_sample->SetLabel(wxString::Format(_L("Next sample: %s %s  take %zu/%d"),
                                                  manifest_display_id(m_rows[static_cast<size_t>(row)].manifest_record),
+                                                 measurement_condition_label(m_rows[static_cast<size_t>(row)].measurement_condition),
                                                  std::min<size_t>(takes + 1, size_t(target)),
                                                  target));
     }
@@ -3124,11 +3717,19 @@ private:
 #endif
         m_pts_state = PtsProtocolState::Disconnected;
         m_pts_session = 0;
+        m_pts_product = 0;
         m_pts_rx_buffer.clear();
         m_pts_measure_buffer.clear();
         m_pts_config_commands.clear();
         m_pts_config_index = 0;
         m_pts_pending_command = 0;
+        m_pts_config_for_measurement = false;
+        m_pts_dual_measurement_active = false;
+        m_pts_requested_specular_mode = PtsSpecularMode::SCI;
+        m_pts_current_measurement_mode = PtsSpecularMode::SCI;
+        m_reference_measure_target = ReferenceMeasurementTarget::None;
+        m_pts_pending_sci_measurement.reset();
+        m_pts_pending_sce_measurement.reset();
         if (m_connect_serial)
             m_connect_serial->SetLabel(_L("Connect"));
         if (m_serial_status)
@@ -3145,12 +3746,25 @@ private:
                 break;
             const std::string line = m_serial_buffer.substr(0, pos);
             m_serial_buffer.erase(0, pos + 1);
-            if (const std::optional<LabReading> reading = parse_lab_reading_from_serial_text(line))
-                append_reading_to_row(active_row(), *reading, _L("Spectro"));
+            if (const std::optional<LabReading> reading = parse_lab_reading_from_serial_text(line)) {
+                if (m_reference_measure_target != ReferenceMeasurementTarget::None) {
+                    const ReferenceMeasurementTarget target = m_reference_measure_target;
+                    m_reference_measure_target = ReferenceMeasurementTarget::None;
+                    store_reference_measurement(target, *reading);
+                } else {
+                    append_reading_to_row(active_row(), *reading, _L("Spectro"));
+                }
+            }
         }
 
         if (const std::optional<LabReading> reading = parse_lab_reading_from_serial_text(m_serial_buffer)) {
-            append_reading_to_row(active_row(), *reading, _L("Spectro"));
+            if (m_reference_measure_target != ReferenceMeasurementTarget::None) {
+                const ReferenceMeasurementTarget target = m_reference_measure_target;
+                m_reference_measure_target = ReferenceMeasurementTarget::None;
+                store_reference_measurement(target, *reading);
+            } else {
+                append_reading_to_row(active_row(), *reading, _L("Spectro"));
+            }
             m_serial_buffer.clear();
         } else if (m_serial_buffer.size() > 2048) {
             m_serial_buffer.erase(0, m_serial_buffer.size() - 512);
@@ -3162,6 +3776,8 @@ private:
     wxTextCtrl *m_illuminant = nullptr;
     wxTextCtrl *m_observer = nullptr;
     wxTextCtrl *m_geometry = nullptr;
+    wxTextCtrl *m_reference_white_backing = nullptr;
+    wxTextCtrl *m_reference_black_backing = nullptr;
     std::array<wxColourPickerCtrl*, 4> m_primary_color_pickers {};
     std::array<wxTextCtrl*, 4> m_primary_td_inputs {};
     wxStaticText *m_primary_color_status = nullptr;
@@ -3194,14 +3810,22 @@ private:
     int m_measure_all_row = -1;
     int m_measure_all_attempts = 0;
     int m_measure_all_max_attempts = 0;
+    ReferenceMeasurementTarget m_reference_measure_target = ReferenceMeasurementTarget::None;
     std::string m_serial_buffer;
     PtsProtocolState m_pts_state = PtsProtocolState::Disconnected;
     uint8_t m_pts_session = 0;
+    uint32_t m_pts_product = 0;
     std::vector<uint8_t> m_pts_rx_buffer;
     std::vector<uint8_t> m_pts_measure_buffer;
     std::vector<PtsCommand> m_pts_config_commands;
     size_t m_pts_config_index = 0;
     uint8_t m_pts_pending_command = 0;
+    bool m_pts_config_for_measurement = false;
+    bool m_pts_dual_measurement_active = false;
+    PtsSpecularMode m_pts_requested_specular_mode = PtsSpecularMode::SCI;
+    PtsSpecularMode m_pts_current_measurement_mode = PtsSpecularMode::SCI;
+    std::optional<PtsParsedMeasurement> m_pts_pending_sci_measurement;
+    std::optional<PtsParsedMeasurement> m_pts_pending_sce_measurement;
 #ifdef _WIN32
     HANDLE m_serial_handle = INVALID_HANDLE_VALUE;
 #endif

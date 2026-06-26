@@ -7,6 +7,8 @@
 
 #include <wx/string.h>
 
+#include <vector>
+
 class wxCheckBox;
 class wxChoice;
 class wxDirPickerCtrl;
@@ -31,12 +33,15 @@ private:
     using SwatchGeneratorConfig = ColorCalibrationSwatches::SwatchGeneratorConfig;
 
     SwatchGeneratorConfig build_config() const;
+    bool                  apply_filament_tds(std::vector<ColorCalibrationSwatches::FilamentSlot> &filaments,
+                                             wxString *error = nullptr) const;
     void                  update_preview();
     void                  on_generate(wxCommandEvent &event);
 
     Plater *m_plater = nullptr;
 
     wxCheckBox *m_family_anchor     = nullptr;
+    wxCheckBox *m_family_td_ladder  = nullptr;
     wxCheckBox *m_family_pair_mix   = nullptr;
     wxCheckBox *m_family_ternary    = nullptr;
     wxCheckBox *m_family_quaternary = nullptr;
@@ -72,6 +77,9 @@ private:
 
     wxTextCtrl *m_plate_reference   = nullptr;
     wxTextCtrl *m_plate_label_title = nullptr;
+    wxTextCtrl *m_td_ladder_widths  = nullptr;
+    std::vector<wxTextCtrl*> m_filament_td_inputs;
+    std::vector<unsigned int> m_filament_td_slots;
 
     wxChoice   *m_jig_filament = nullptr;
     wxCheckBox *m_plate_label_enabled = nullptr;

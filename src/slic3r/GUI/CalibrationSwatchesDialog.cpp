@@ -21,6 +21,7 @@
 #include <wx/stattext.h>
 #include <wx/stdpaths.h>
 #include <wx/textctrl.h>
+#include <wx/tokenzr.h>
 #include <wx/utils.h>
 
 #include <algorithm>
@@ -53,6 +54,44 @@ static void add_labeled_control(wxWindow *parent, wxFlexGridSizer *grid, const w
     grid->Add(control, 0, wxEXPAND | wxBOTTOM, parent->FromDIP(6));
 }
 
+static bool parse_positive_mm_list(const wxString &text, std::vector<double> &values, wxString *error = nullptr)
+{
+    values.clear();
+
+    wxStringTokenizer tokenizer(text, ",", wxTOKEN_RET_EMPTY_ALL);
+    unsigned int token_index = 0;
+    while (tokenizer.HasMoreTokens()) {
+        ++token_index;
+        wxString token = tokenizer.GetNextToken().Trim(true).Trim(false);
+        if (token.empty()) {
+            if (error != nullptr)
+                *error = wxString::Format(_L("TD staircase width %u is empty."), token_index);
+            return false;
+        }
+
+        double value = 0.0;
+        if (!token.ToDouble(&value) || !std::isfinite(value) || value <= 0.0) {
+            if (error != nullptr)
+                *error = wxString::Format(_L("TD staircase width \"%s\" is not a positive number."), token.c_str());
+            return false;
+        }
+
+        const bool duplicate = std::any_of(values.begin(), values.end(), [value](double existing) {
+            return std::abs(existing - value) < 1e-6;
+        });
+        if (!duplicate)
+            values.emplace_back(value);
+    }
+
+    if (values.empty()) {
+        if (error != nullptr)
+            *error = _L("Enter at least one TD staircase width.");
+        return false;
+    }
+
+    return true;
+}
+
 static std::vector<ColorCalibrationSwatches::FilamentSlot> current_filaments()
 {
     std::vector<ColorCalibrationSwatches::FilamentSlot> filaments;
@@ -62,6 +101,7 @@ static std::vector<ColorCalibrationSwatches::FilamentSlot> current_filaments()
 
     const DynamicPrintConfig &project_config = preset_bundle->project_config;
     const ConfigOptionStrings *color_opt = project_config.option<ConfigOptionStrings>("filament_colour");
+    const ConfigOptionFloats *td_opt = project_config.option<ConfigOptionFloats>("filament_transmission_distance");
     std::vector<std::string> colors = color_opt ? color_opt->values : std::vector<std::string>();
 
     const size_t filament_count = static_cast<size_t>(std::max(wxGetApp().filaments_cnt(), 0));
@@ -76,6 +116,8 @@ static std::vector<ColorCalibrationSwatches::FilamentSlot> current_filaments()
                                std::string("Filament ") + std::to_string(i + 1);
         slot.short_label = std::to_string(i + 1);
         slot.color_hex   = colors[i];
+        if (td_opt != nullptr && i < td_opt->values.size() && std::isfinite(td_opt->values[i]) && td_opt->values[i] > 0.0)
+            slot.td = td_opt->values[i];
         filaments.emplace_back(std::move(slot));
     }
     return filaments;
@@ -186,19 +228,51 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
     auto *families_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Swatches"));
     auto *families_grid = new wxFlexGridSizer(2, FromDIP(12), FromDIP(16));
     m_family_anchor     = new wxCheckBox(settings_scroll, wxID_ANY, _L("Anchor chips"));
+    m_family_td_ladder  = new wxCheckBox(settings_scroll, wxID_ANY, _L("TD staircase"));
     m_family_pair_mix   = new wxCheckBox(settings_scroll, wxID_ANY, _L("Pair mixes"));
     m_family_ternary    = new wxCheckBox(settings_scroll, wxID_ANY, _L("Ternary mixes"));
     m_family_quaternary = new wxCheckBox(settings_scroll, wxID_ANY, _L("Four-color mixes"));
     m_family_anchor->SetValue(true);
+    m_family_td_ladder->SetValue(false);
     m_family_pair_mix->SetValue(true);
     m_family_ternary->SetValue(false);
     m_family_quaternary->SetValue(false);
     families_grid->Add(m_family_anchor, 0, wxBOTTOM, FromDIP(4));
+    families_grid->Add(m_family_td_ladder, 0, wxBOTTOM, FromDIP(4));
     families_grid->Add(m_family_pair_mix, 0, wxBOTTOM, FromDIP(4));
     families_grid->Add(m_family_ternary, 0, wxBOTTOM, FromDIP(4));
     families_grid->Add(m_family_quaternary, 0, wxBOTTOM, FromDIP(4));
     families_box->Add(families_grid, 0, wxALL, FromDIP(8));
     settings_sizer->Add(families_box, 0, wxEXPAND);
+
+    auto *filament_td_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Filament TD"));
+    if (dialog_filaments.empty()) {
+        auto *empty_note = new wxStaticText(settings_scroll, wxID_ANY, _L("No physical filaments are available."));
+        filament_td_box->Add(empty_note, 0, wxALL, FromDIP(8));
+    } else {
+        auto *filament_td_grid = new wxFlexGridSizer(2, FromDIP(6), FromDIP(10));
+        filament_td_grid->AddGrowableCol(1);
+        for (const ColorCalibrationSwatches::FilamentSlot &filament : dialog_filaments) {
+            wxString label = wxString::Format(_L("Slot %u TD (mm)"), filament.slot);
+            if (!filament.color_hex.empty())
+                label += _L(" ") + wxString::FromUTF8(filament.color_hex.c_str());
+
+            wxString td_value;
+            if (filament.td && std::isfinite(*filament.td) && *filament.td > 0.0)
+                td_value = wxString::Format("%g", *filament.td);
+            auto *td_input = new wxTextCtrl(settings_scroll,
+                                            wxID_ANY,
+                                            td_value,
+                                            wxDefaultPosition,
+                                            FromDIP(wxSize(90, -1)));
+            td_input->SetToolTip(_L("Transmission distance in mm. Leave empty if unknown. Anchor depths are TD + 1 mm, TD / 2 + 1 mm, and 1 mm."));
+            m_filament_td_inputs.emplace_back(td_input);
+            m_filament_td_slots.emplace_back(filament.slot);
+            add_labeled_control(settings_scroll, filament_td_grid, label, td_input);
+        }
+        filament_td_box->Add(filament_td_grid, 0, wxEXPAND | wxALL, FromDIP(8));
+    }
+    settings_sizer->Add(filament_td_box, 0, wxEXPAND | wxTOP, FromDIP(12));
 
     auto *layout_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Layout"));
     auto *layout_grid = new wxFlexGridSizer(2, FromDIP(6), FromDIP(10));
@@ -209,6 +283,12 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
     m_spacing      = make_spin(settings_scroll, 0.0, 30.0, 4.0, 0.5);
     m_strip_spacing = make_spin(settings_scroll, 0.0, 30.0, 2.0, 0.25, 2);
     m_anchor_thick = make_spin(settings_scroll, 0.2, 20.0, 6.0, 0.2);
+    m_td_ladder_widths = new wxTextCtrl(settings_scroll,
+                                        wxID_ANY,
+                                        _L("1, 2, 3, 4, 5, 6"),
+                                        wxDefaultPosition,
+                                        FromDIP(wxSize(180, -1)));
+    m_td_ladder_widths->SetToolTip(_L("Comma-separated TD staircase widths in mm. These generate single-filament base swatches only."));
     m_plate_buffer = make_spin(settings_scroll, 0.0, 30.0, 8.0, 0.5, 1);
     m_prime_tower_reserve = new wxCheckBox(settings_scroll, wxID_ANY, _L("Reserve prime tower"));
     m_prime_tower_reserve->SetValue(default_layout.reserve_prime_tower);
@@ -218,7 +298,8 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
     add_labeled_control(settings_scroll, layout_grid, _L("Face height"), m_chip_depth);
     add_labeled_control(settings_scroll, layout_grid, _L("Column spacing"), m_spacing);
     add_labeled_control(settings_scroll, layout_grid, _L("Strip spacing"), m_strip_spacing);
-    add_labeled_control(settings_scroll, layout_grid, _L("Swatch depth"), m_anchor_thick);
+    add_labeled_control(settings_scroll, layout_grid, _L("Mix swatch depth"), m_anchor_thick);
+    add_labeled_control(settings_scroll, layout_grid, _L("TD staircase widths"), m_td_ladder_widths);
     add_labeled_control(settings_scroll, layout_grid, _L("Plate buffer"), m_plate_buffer);
     layout_grid->Add(m_prime_tower_reserve, 0, wxEXPAND | wxBOTTOM, FromDIP(6));
     layout_grid->AddSpacer(0);
@@ -369,6 +450,7 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
 
     const auto bind_preview = [this](wxEvent &) { update_preview(); };
     for (wxWindow *control : { static_cast<wxWindow*>(m_family_anchor),
+                               static_cast<wxWindow*>(m_family_td_ladder),
                                static_cast<wxWindow*>(m_family_pair_mix),
                                static_cast<wxWindow*>(m_family_ternary),
                                static_cast<wxWindow*>(m_family_quaternary),
@@ -377,6 +459,7 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
                                static_cast<wxWindow*>(m_spacing),
                                static_cast<wxWindow*>(m_strip_spacing),
                                static_cast<wxWindow*>(m_anchor_thick),
+                               static_cast<wxWindow*>(m_td_ladder_widths),
                                static_cast<wxWindow*>(m_plate_buffer),
                                static_cast<wxWindow*>(m_prime_tower_reserve),
                                static_cast<wxWindow*>(m_prime_tower_width),
@@ -412,6 +495,9 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
         control->Bind(wxEVT_SPINCTRL, bind_preview);
         control->Bind(wxEVT_SPINCTRLDOUBLE, bind_preview);
     }
+    for (wxTextCtrl *td_input : m_filament_td_inputs)
+        if (td_input != nullptr)
+            td_input->Bind(wxEVT_TEXT, bind_preview);
     generate->Bind(wxEVT_BUTTON, &CalibrationSwatchesDialog::on_generate, this);
 
     update_preview();
@@ -426,13 +512,52 @@ void CalibrationSwatchesDialog::on_dpi_changed(const wxRect &suggested_rect)
     Layout();
 }
 
+bool CalibrationSwatchesDialog::apply_filament_tds(std::vector<ColorCalibrationSwatches::FilamentSlot> &filaments, wxString *error) const
+{
+    for (size_t i = 0; i < m_filament_td_inputs.size(); ++i) {
+        wxTextCtrl *input = m_filament_td_inputs[i];
+        if (input == nullptr)
+            continue;
+
+        const unsigned int slot = i < m_filament_td_slots.size() ? m_filament_td_slots[i] : static_cast<unsigned int>(i + 1);
+        wxString text = input->GetValue();
+        text.Trim(true).Trim(false);
+
+        auto it = std::find_if(filaments.begin(), filaments.end(), [slot](const ColorCalibrationSwatches::FilamentSlot &filament) {
+            return filament.slot == slot;
+        });
+        if (it == filaments.end())
+            continue;
+
+        if (text.empty()) {
+            it->td.reset();
+            continue;
+        }
+
+        double td = 0.0;
+        if (!text.ToDouble(&td) || !std::isfinite(td) || td < 0.0) {
+            if (error != nullptr)
+                *error = wxString::Format(_L("Filament slot %u TD must be a non-negative number."), slot);
+            return false;
+        }
+
+        if (td > 0.0)
+            it->td = td;
+        else
+            it->td.reset();
+    }
+
+    return true;
+}
+
 CalibrationSwatchesDialog::SwatchGeneratorConfig CalibrationSwatchesDialog::build_config() const
 {
     SwatchGeneratorConfig config;
     config.filaments = current_filaments();
+    apply_filament_tds(config.filaments);
 
     config.families.reflective_anchor = m_family_anchor->GetValue();
-    config.families.td_ladder         = false;
+    config.families.td_ladder         = m_family_td_ladder->GetValue();
     config.families.pair_mix          = m_family_pair_mix->GetValue();
     config.families.pair_order        = false;
     config.families.ternary_mix       = m_family_ternary->GetValue();
@@ -448,7 +573,7 @@ CalibrationSwatchesDialog::SwatchGeneratorConfig CalibrationSwatchesDialog::buil
     config.layout.chip_depth_mm  = m_chip_depth->GetValue();
     config.layout.spacing_x_mm   = m_spacing->GetValue();
     config.layout.spacing_y_mm   = m_strip_spacing->GetValue();
-    config.layout.footprint_depth_mm = swatch_depth;
+    config.layout.footprint_depth_mm = 0.0;
     config.layout.margin_x_mm    = plate_buffer;
     config.layout.margin_y_mm    = plate_buffer;
     config.layout.plate_width_mm = std::max(50.0, bed_size.x());
@@ -491,7 +616,13 @@ CalibrationSwatchesDialog::SwatchGeneratorConfig CalibrationSwatchesDialog::buil
     config.ternary_layer_height_mm = layer_height;
     config.quaternary_layer_height_mm = layer_height;
     config.layer_line_strip_layer_height_mm = layer_height;
-    config.td_ladder_thicknesses = { config.anchor_thickness_mm };
+    if (config.families.td_ladder) {
+        std::vector<double> td_ladder_widths;
+        if (parse_positive_mm_list(m_td_ladder_widths->GetValue(), td_ladder_widths))
+            config.td_ladder_thicknesses = std::move(td_ladder_widths);
+    } else {
+        config.td_ladder_thicknesses = { config.anchor_thickness_mm };
+    }
     config.pair_ratio_layer_limit = static_cast<unsigned int>(std::max(m_pair_layer_limit->GetValue(), 1));
     config.quaternary_ratio_layer_limit = static_cast<unsigned int>(std::max(m_quaternary_layer_limit->GetValue(), 1));
 
@@ -509,6 +640,24 @@ void CalibrationSwatchesDialog::update_preview()
 {
     if (m_direct_multicolor_solver != nullptr)
         m_direct_multicolor_solver->Enable(m_local_z_enabled != nullptr && m_local_z_enabled->GetValue());
+    if (m_td_ladder_widths != nullptr)
+        m_td_ladder_widths->Enable(m_family_td_ladder != nullptr && m_family_td_ladder->GetValue());
+
+    std::vector<ColorCalibrationSwatches::FilamentSlot> filaments = current_filaments();
+    wxString filament_td_error;
+    if (!apply_filament_tds(filaments, &filament_td_error)) {
+        m_preview->SetLabel(filament_td_error);
+        return;
+    }
+
+    if (m_family_td_ladder != nullptr && m_family_td_ladder->GetValue()) {
+        std::vector<double> td_ladder_widths;
+        wxString td_ladder_error;
+        if (!parse_positive_mm_list(m_td_ladder_widths->GetValue(), td_ladder_widths, &td_ladder_error)) {
+            m_preview->SetLabel(td_ladder_error);
+            return;
+        }
+    }
 
     const SwatchGeneratorConfig config = build_config();
     const auto plan = ColorCalibrationSwatches::generate_swatch_plan(config);
@@ -541,6 +690,22 @@ void CalibrationSwatchesDialog::update_preview()
 
 void CalibrationSwatchesDialog::on_generate(wxCommandEvent &)
 {
+    std::vector<ColorCalibrationSwatches::FilamentSlot> filaments = current_filaments();
+    wxString filament_td_error;
+    if (!apply_filament_tds(filaments, &filament_td_error)) {
+        MessageDialog(this, filament_td_error, _L("Calibration swatches"), wxOK | wxICON_WARNING).ShowModal();
+        return;
+    }
+
+    if (m_family_td_ladder != nullptr && m_family_td_ladder->GetValue()) {
+        std::vector<double> td_ladder_widths;
+        wxString td_ladder_error;
+        if (!parse_positive_mm_list(m_td_ladder_widths->GetValue(), td_ladder_widths, &td_ladder_error)) {
+            MessageDialog(this, td_ladder_error, _L("Calibration swatches"), wxOK | wxICON_WARNING).ShowModal();
+            return;
+        }
+    }
+
     const SwatchGeneratorConfig config = build_config();
     if (config.filaments.empty()) {
         MessageDialog(this,
