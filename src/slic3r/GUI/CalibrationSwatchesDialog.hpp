@@ -11,6 +11,7 @@
 
 class wxCheckBox;
 class wxChoice;
+class wxButton;
 class wxDirPickerCtrl;
 class wxSpinCtrl;
 class wxSpinCtrlDouble;
@@ -36,6 +37,8 @@ private:
     bool                  apply_filament_tds(std::vector<ColorCalibrationSwatches::FilamentSlot> &filaments,
                                              wxString *error = nullptr) const;
     void                  update_preview();
+    void                  on_open_ratio_file(wxCommandEvent &event);
+    void                  on_clear_ratio_file(wxCommandEvent &event);
     void                  on_generate(wxCommandEvent &event);
 
     Plater *m_plater = nullptr;
@@ -74,6 +77,12 @@ private:
 
     wxSpinCtrl *m_pair_layer_limit = nullptr;
     wxSpinCtrl *m_quaternary_layer_limit = nullptr;
+
+    wxButton     *m_ratio_file_open   = nullptr;
+    wxButton     *m_ratio_file_clear  = nullptr;
+    wxStaticText *m_ratio_file_status = nullptr;
+    wxString      m_ratio_file_path;
+    std::vector<std::vector<int>> m_ratio_file_rows;
 
     wxTextCtrl *m_plate_reference   = nullptr;
     wxTextCtrl *m_plate_label_title = nullptr;

@@ -122,6 +122,9 @@ struct SwatchSpec
     // Bottom-to-top stack order where it is meaningful.
     std::vector<unsigned int> stack_order;
 
+    // Extra token appended to generated IDs for externally supplied recipes.
+    std::string id_suffix;
+
     std::string measurement_side = "side";
 };
 
@@ -210,6 +213,10 @@ struct SwatchGeneratorConfig
     double nominal_layer_height_mm     = 0.2;
     bool   local_z_enabled             = false;
     bool   local_z_direct_multicolor   = false;
+
+    // Explicit four-slot ratio rows imported from a spreadsheet. When non-empty,
+    // these rows replace the automatic family/range generators below.
+    std::vector<std::vector<int>> explicit_ratio_rows;
 
     double anchor_thickness_mm             = 6.0;
     std::vector<Backing> anchor_backings;

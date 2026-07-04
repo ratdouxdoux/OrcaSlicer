@@ -8,8 +8,10 @@
 
 #include "libslic3r/Config.hpp"
 #include "libslic3r/BuildVolume.hpp"
+#include "libslic3r/miniz_extension.hpp"
 #include "libslic3r/PresetBundle.hpp"
 
+#include <wx/filename.h>
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
@@ -25,7 +27,15 @@
 #include <wx/utils.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <limits>
+#include <map>
+#include <numeric>
+#include <set>
+#include <sstream>
+#include <array>
 
 namespace Slic3r {
 namespace GUI {
@@ -207,6 +217,557 @@ static bool current_bool_option(const char *key)
     return false;
 }
 
+static std::string trim_copy(std::string value)
+{
+    auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), not_space));
+    value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(), value.end());
+    return value;
+}
+
+static std::string normalized_header(std::string value)
+{
+    value = trim_copy(std::move(value));
+    std::string out;
+    out.reserve(value.size());
+    for (unsigned char ch : value) {
+        if (std::isalnum(ch))
+            out.push_back(char(std::tolower(ch)));
+    }
+    return out;
+}
+
+static int ratio_header_slot(const std::string &header)
+{
+    const std::string h = normalized_header(header);
+    if (h == "cratio" || h == "c" || h == "cyan" || h == "f1" || h == "f1ratio" || h == "slot1")
+        return 0;
+    if (h == "mratio" || h == "m" || h == "magenta" || h == "f2" || h == "f2ratio" || h == "slot2")
+        return 1;
+    if (h == "yratio" || h == "y" || h == "yellow" || h == "f3" || h == "f3ratio" || h == "slot3")
+        return 2;
+    if (h == "wratio" || h == "w" || h == "k" || h == "white" || h == "grey" || h == "gray" ||
+        h == "f4" || h == "f4ratio" || h == "slot4")
+        return 3;
+    return -1;
+}
+
+static void replace_all(std::string &value, const std::string &from, const std::string &to)
+{
+    if (from.empty())
+        return;
+    size_t pos = 0;
+    while ((pos = value.find(from, pos)) != std::string::npos) {
+        value.replace(pos, from.size(), to);
+        pos += to.size();
+    }
+}
+
+static std::string xml_decode(std::string value)
+{
+    replace_all(value, "&quot;", "\"");
+    replace_all(value, "&apos;", "'");
+    replace_all(value, "&lt;", "<");
+    replace_all(value, "&gt;", ">");
+    replace_all(value, "&amp;", "&");
+    return value;
+}
+
+static std::string xml_attr_value(const std::string &tag, const std::string &name)
+{
+    for (const char quote : { '"', '\'' }) {
+        const std::string needle = name + "=" + quote;
+        const size_t start = tag.find(needle);
+        if (start == std::string::npos)
+            continue;
+
+        const size_t value_start = start + needle.size();
+        const size_t value_end = tag.find(quote, value_start);
+        if (value_end == std::string::npos)
+            return {};
+        return xml_decode(tag.substr(value_start, value_end - value_start));
+    }
+    return {};
+}
+
+static std::string xml_tag_text(const std::string &xml, const std::string &tag_name)
+{
+    const std::string open = "<" + tag_name;
+    const size_t tag_start = xml.find(open);
+    if (tag_start == std::string::npos)
+        return {};
+
+    const size_t text_start = xml.find('>', tag_start);
+    if (text_start == std::string::npos)
+        return {};
+
+    const std::string close = "</" + tag_name + ">";
+    const size_t text_end = xml.find(close, text_start + 1);
+    if (text_end == std::string::npos)
+        return {};
+
+    return xml_decode(xml.substr(text_start + 1, text_end - text_start - 1));
+}
+
+static std::vector<std::string> xlsx_shared_strings(const std::string &xml)
+{
+    std::vector<std::string> strings;
+    size_t pos = 0;
+    while ((pos = xml.find("<si", pos)) != std::string::npos) {
+        const size_t open_end = xml.find('>', pos);
+        const size_t end = open_end == std::string::npos ? std::string::npos : xml.find("</si>", open_end + 1);
+        if (open_end == std::string::npos || end == std::string::npos)
+            break;
+
+        const std::string si = xml.substr(open_end + 1, end - open_end - 1);
+        std::string text;
+        size_t text_pos = 0;
+        while ((text_pos = si.find("<t", text_pos)) != std::string::npos) {
+            const size_t text_open_end = si.find('>', text_pos);
+            const size_t text_end = text_open_end == std::string::npos ? std::string::npos : si.find("</t>", text_open_end + 1);
+            if (text_open_end == std::string::npos || text_end == std::string::npos)
+                break;
+            text += xml_decode(si.substr(text_open_end + 1, text_end - text_open_end - 1));
+            text_pos = text_end + 4;
+        }
+        strings.emplace_back(std::move(text));
+        pos = end + 5;
+    }
+    return strings;
+}
+
+static bool zip_entry_to_string(mz_zip_archive &zip, const char *entry_name, std::string &out)
+{
+    const int index = mz_zip_reader_locate_file(&zip, entry_name, nullptr, 0);
+    if (index < 0)
+        return false;
+
+    mz_zip_archive_file_stat stat;
+    if (!mz_zip_reader_file_stat(&zip, mz_uint(index), &stat))
+        return false;
+
+    out.assign(size_t(stat.m_uncomp_size), '\0');
+    if (out.empty())
+        return true;
+
+    return mz_zip_reader_extract_to_mem(&zip, stat.m_file_index, out.data(), out.size(), 0) != 0;
+}
+
+static std::string first_worksheet_path(const std::string &workbook_xml, const std::string &rels_xml)
+{
+    std::string rel_id;
+    size_t sheet_start = 0;
+    while ((sheet_start = workbook_xml.find("<sheet", sheet_start)) != std::string::npos) {
+        const size_t sheet_end = workbook_xml.find('>', sheet_start);
+        if (sheet_end == std::string::npos)
+            return "xl/worksheets/sheet1.xml";
+
+        const std::string sheet_tag = workbook_xml.substr(sheet_start, sheet_end - sheet_start + 1);
+        rel_id = xml_attr_value(sheet_tag, "r:id");
+        if (!rel_id.empty())
+            break;
+
+        sheet_start = sheet_end + 1;
+    }
+
+    if (rel_id.empty())
+        return "xl/worksheets/sheet1.xml";
+
+    size_t pos = 0;
+    while ((pos = rels_xml.find("<Relationship", pos)) != std::string::npos) {
+        const size_t rel_end = rels_xml.find('>', pos);
+        if (rel_end == std::string::npos)
+            break;
+        const std::string rel_tag = rels_xml.substr(pos, rel_end - pos + 1);
+        if (xml_attr_value(rel_tag, "Id") == rel_id) {
+            std::string target = xml_attr_value(rel_tag, "Target");
+            if (target.empty())
+                break;
+            if (!target.empty() && target.front() == '/')
+                target.erase(target.begin());
+            else if (target.rfind("xl/", 0) != 0)
+                target = "xl/" + target;
+            return target;
+        }
+        pos = rel_end + 1;
+    }
+
+    return "xl/worksheets/sheet1.xml";
+}
+
+static unsigned int xlsx_column_index(const std::string &cell_ref)
+{
+    unsigned int index = 0;
+    for (unsigned char ch : cell_ref) {
+        if (!std::isalpha(ch))
+            break;
+        index = index * 26u + unsigned(std::toupper(ch) - 'A' + 1);
+    }
+    return index > 0 ? index - 1 : 0;
+}
+
+static std::string xlsx_cell_value(const std::string &cell_xml, const std::vector<std::string> &shared_strings)
+{
+    const size_t open_end = cell_xml.find('>');
+    if (open_end == std::string::npos)
+        return {};
+
+    const std::string cell_tag = cell_xml.substr(0, open_end + 1);
+    const std::string type = xml_attr_value(cell_tag, "t");
+    if (type == "inlineStr")
+        return trim_copy(xml_tag_text(cell_xml, "t"));
+
+    std::string value = trim_copy(xml_tag_text(cell_xml, "v"));
+    if (type == "s" && !value.empty()) {
+        char *end = nullptr;
+        const long index = std::strtol(value.c_str(), &end, 10);
+        if (end != value.c_str() && index >= 0 && size_t(index) < shared_strings.size())
+            value = shared_strings[size_t(index)];
+    }
+    return trim_copy(value);
+}
+
+static std::vector<std::map<unsigned int, std::string>> xlsx_sheet_rows(const std::string &sheet_xml,
+                                                                        const std::vector<std::string> &shared_strings)
+{
+    std::vector<std::map<unsigned int, std::string>> rows;
+
+    size_t row_pos = 0;
+    while ((row_pos = sheet_xml.find("<row", row_pos)) != std::string::npos) {
+        const size_t row_open_end = sheet_xml.find('>', row_pos);
+        const size_t row_end = row_open_end == std::string::npos ? std::string::npos : sheet_xml.find("</row>", row_open_end + 1);
+        if (row_open_end == std::string::npos || row_end == std::string::npos)
+            break;
+
+        const std::string row_xml = sheet_xml.substr(row_open_end + 1, row_end - row_open_end - 1);
+        std::map<unsigned int, std::string> row;
+
+        size_t cell_pos = 0;
+        while ((cell_pos = row_xml.find("<c", cell_pos)) != std::string::npos) {
+            const size_t cell_open_end = row_xml.find('>', cell_pos);
+            if (cell_open_end == std::string::npos)
+                break;
+
+            const std::string cell_tag = row_xml.substr(cell_pos, cell_open_end - cell_pos + 1);
+            const std::string ref = xml_attr_value(cell_tag, "r");
+
+            size_t cell_end = cell_open_end;
+            std::string cell_xml;
+            if (cell_open_end > cell_pos && row_xml[cell_open_end - 1] == '/') {
+                cell_xml = cell_tag;
+            } else {
+                cell_end = row_xml.find("</c>", cell_open_end + 1);
+                if (cell_end == std::string::npos)
+                    break;
+                cell_xml = row_xml.substr(cell_pos, cell_end - cell_pos + 4);
+            }
+
+            if (!ref.empty()) {
+                const std::string value = xlsx_cell_value(cell_xml, shared_strings);
+                if (!value.empty())
+                    row[xlsx_column_index(ref)] = value;
+            }
+
+            cell_pos = cell_end + 1;
+        }
+
+        rows.emplace_back(std::move(row));
+        row_pos = row_end + 6;
+    }
+
+    return rows;
+}
+
+static bool parse_ratio_number(const std::string &text, double &value)
+{
+    std::string normalized = trim_copy(text);
+    std::replace(normalized.begin(), normalized.end(), ',', '.');
+    if (normalized.empty()) {
+        value = 0.0;
+        return true;
+    }
+
+    char *end = nullptr;
+    value = std::strtod(normalized.c_str(), &end);
+    if (end == normalized.c_str())
+        return false;
+    while (end != nullptr && *end != '\0') {
+        if (!std::isspace(static_cast<unsigned char>(*end)))
+            return false;
+        ++end;
+    }
+    return std::isfinite(value);
+}
+
+static std::pair<int, int> approximate_fraction(double value, int max_denominator)
+{
+    int best_num = 0;
+    int best_den = 1;
+    double best_error = std::numeric_limits<double>::max();
+    for (int den = 1; den <= max_denominator; ++den) {
+        int num = int(std::llround(value * double(den)));
+        num = std::max(0, std::min(num, den));
+        const double error = std::abs(double(num) / double(den) - value);
+        if (error + 1e-12 < best_error) {
+            best_error = error;
+            best_num = num;
+            best_den = den;
+        }
+    }
+
+    const int g = std::gcd(std::max(0, best_num), std::max(1, best_den));
+    return { best_num / g, best_den / g };
+}
+
+static std::vector<int> denominator_search_counts(const std::vector<double> &normalized, const std::vector<size_t> &positive_indices)
+{
+    std::vector<int> best(normalized.size(), 0);
+    double best_error = std::numeric_limits<double>::max();
+    int best_total = std::numeric_limits<int>::max();
+
+    for (int total = int(positive_indices.size()); total <= 120; ++total) {
+        std::vector<int> counts(normalized.size(), 0);
+        for (size_t idx : positive_indices)
+            counts[idx] = std::max(1, int(std::llround(normalized[idx] * double(total))));
+
+        const int count_total = std::accumulate(counts.begin(), counts.end(), 0);
+        if (count_total <= 0)
+            continue;
+
+        double error = 0.0;
+        for (size_t idx : positive_indices)
+            error += std::abs(double(counts[idx]) / double(count_total) - normalized[idx]);
+
+        if (error + 1e-12 < best_error || (std::abs(error - best_error) < 1e-12 && count_total < best_total)) {
+            best_error = error;
+            best_total = count_total;
+            best = std::move(counts);
+        }
+    }
+
+    int g = 0;
+    for (int count : best)
+        if (count > 0)
+            g = std::gcd(g, count);
+    if (g > 1) {
+        for (int &count : best)
+            if (count > 0)
+                count /= g;
+    }
+
+    return best;
+}
+
+static std::vector<int> ratio_counts_from_weights(const std::array<double, 4> &weights)
+{
+    std::vector<size_t> positive_indices;
+    positive_indices.reserve(weights.size());
+    double sum = 0.0;
+    for (size_t i = 0; i < weights.size(); ++i) {
+        if (weights[i] > 1e-9) {
+            positive_indices.emplace_back(i);
+            sum += weights[i];
+        }
+    }
+
+    std::vector<int> counts(weights.size(), 0);
+    if (positive_indices.empty())
+        return counts;
+    if (positive_indices.size() == 1) {
+        counts[positive_indices.front()] = 1;
+        return counts;
+    }
+
+    std::vector<double> normalized(weights.size(), 0.0);
+    for (size_t idx : positive_indices)
+        normalized[idx] = weights[idx] / sum;
+
+    constexpr int max_denominator = 1000;
+    constexpr int max_lcm = 10000;
+    int lcm = 1;
+    std::vector<std::pair<int, int>> fractions(weights.size(), { 0, 1 });
+    bool lcm_ok = true;
+    for (size_t idx : positive_indices) {
+        fractions[idx] = approximate_fraction(normalized[idx], max_denominator);
+        if (fractions[idx].first <= 0) {
+            lcm_ok = false;
+            break;
+        }
+        lcm = std::lcm(lcm, fractions[idx].second);
+        if (lcm <= 0 || lcm > max_lcm) {
+            lcm_ok = false;
+            break;
+        }
+    }
+
+    if (!lcm_ok)
+        return denominator_search_counts(normalized, positive_indices);
+
+    for (size_t idx : positive_indices)
+        counts[idx] = fractions[idx].first * (lcm / fractions[idx].second);
+
+    int g = 0;
+    for (int count : counts)
+        if (count > 0)
+            g = std::gcd(g, count);
+    if (g > 1) {
+        for (int &count : counts)
+            if (count > 0)
+                count /= g;
+    }
+    return counts;
+}
+
+struct RatioRowSummary
+{
+    size_t row_count = 0;
+    size_t one_filament_rows = 0;
+    size_t mixed_rows = 0;
+    size_t unique_recipes = 0;
+    size_t unique_mixed_recipes = 0;
+};
+
+static std::string ratio_recipe_key(const std::vector<int> &row)
+{
+    std::ostringstream ss;
+    for (size_t i = 0; i < row.size(); ++i) {
+        const int ratio = std::max(0, row[i]);
+        if (ratio <= 0)
+            continue;
+        if (ss.tellp() > 0)
+            ss << '|';
+        ss << (i + 1) << ':' << ratio;
+    }
+    return ss.str();
+}
+
+static RatioRowSummary summarize_ratio_rows(const std::vector<std::vector<int>> &rows)
+{
+    RatioRowSummary summary;
+    summary.row_count = rows.size();
+
+    std::set<std::string> recipes;
+    std::set<std::string> mixed_recipes;
+    for (const std::vector<int> &row : rows) {
+        const size_t positive_count = static_cast<size_t>(std::count_if(row.begin(), row.end(), [](int value) { return value > 0; }));
+        if (positive_count == 0)
+            continue;
+
+        const std::string key = ratio_recipe_key(row);
+        recipes.insert(key);
+        if (positive_count == 1) {
+            ++summary.one_filament_rows;
+        } else {
+            ++summary.mixed_rows;
+            mixed_recipes.insert(key);
+        }
+    }
+
+    summary.unique_recipes = recipes.size();
+    summary.unique_mixed_recipes = mixed_recipes.size();
+    return summary;
+}
+
+static bool load_xlsx_ratio_rows(const wxString &path, std::vector<std::vector<int>> &ratio_rows, wxString *error)
+{
+    ratio_rows.clear();
+
+    mz_zip_archive zip;
+    mz_zip_zero_struct(&zip);
+    if (!open_zip_reader(&zip, wx_to_u8(path))) {
+        if (error != nullptr)
+            *error = _L("Could not open the selected workbook. Only .xlsx/.xlsm files are supported.");
+        return false;
+    }
+
+    struct ZipGuard
+    {
+        mz_zip_archive *zip = nullptr;
+        ~ZipGuard() { if (zip != nullptr) close_zip_reader(zip); }
+    } guard { &zip };
+
+    std::string workbook_xml;
+    std::string rels_xml;
+    std::string sheet_xml;
+    std::string shared_xml;
+    if (!zip_entry_to_string(zip, "xl/workbook.xml", workbook_xml) ||
+        !zip_entry_to_string(zip, "xl/_rels/workbook.xml.rels", rels_xml)) {
+        if (error != nullptr)
+            *error = _L("The selected workbook is missing workbook metadata.");
+        return false;
+    }
+
+    const std::string sheet_path = first_worksheet_path(workbook_xml, rels_xml);
+    if (!zip_entry_to_string(zip, sheet_path.c_str(), sheet_xml)) {
+        if (error != nullptr)
+            *error = _L("The selected workbook has no readable first worksheet.");
+        return false;
+    }
+
+    std::vector<std::string> shared_strings;
+    if (zip_entry_to_string(zip, "xl/sharedStrings.xml", shared_xml))
+        shared_strings = xlsx_shared_strings(shared_xml);
+
+    const auto rows = xlsx_sheet_rows(sheet_xml, shared_strings);
+    std::array<int, 4> ratio_columns { -1, -1, -1, -1 };
+    size_t header_row = rows.size();
+    for (size_t row_index = 0; row_index < rows.size(); ++row_index) {
+        std::array<int, 4> candidate { -1, -1, -1, -1 };
+        for (const auto &[column, value] : rows[row_index]) {
+            const int slot = ratio_header_slot(value);
+            if (slot >= 0)
+                candidate[size_t(slot)] = int(column);
+        }
+        if (std::all_of(candidate.begin(), candidate.end(), [](int column) { return column >= 0; })) {
+            ratio_columns = candidate;
+            header_row = row_index;
+            break;
+        }
+    }
+
+    if (header_row == rows.size()) {
+        if (error != nullptr)
+            *error = _L("Expected columns C_ratio, M_ratio, Y_ratio, and W_ratio in the first worksheet.");
+        return false;
+    }
+
+    for (size_t row_index = header_row + 1; row_index < rows.size(); ++row_index) {
+        std::array<double, 4> weights { 0.0, 0.0, 0.0, 0.0 };
+        bool has_value = false;
+        for (size_t i = 0; i < ratio_columns.size(); ++i) {
+            const auto cell = rows[row_index].find(unsigned(ratio_columns[i]));
+            if (cell == rows[row_index].end())
+                continue;
+
+            double value = 0.0;
+            if (!parse_ratio_number(cell->second, value) || value < 0.0) {
+                if (error != nullptr)
+                    *error = wxString::Format(_L("Invalid ratio value in spreadsheet row %llu."), static_cast<unsigned long long>(row_index + 1));
+                return false;
+            }
+
+            if (value > 1e-9)
+                has_value = true;
+            weights[i] = value;
+        }
+
+        if (!has_value)
+            continue;
+
+        std::vector<int> counts = ratio_counts_from_weights(weights);
+        if (std::any_of(counts.begin(), counts.end(), [](int count) { return count > 0; }))
+            ratio_rows.emplace_back(std::move(counts));
+    }
+
+    if (ratio_rows.empty()) {
+        if (error != nullptr)
+            *error = _L("No ratio rows were found in the selected workbook.");
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace
 
 CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *plater)
@@ -224,6 +785,22 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
     auto *settings_sizer = new wxBoxSizer(wxVERTICAL);
     settings_scroll->SetSizer(settings_sizer);
     root->Add(settings_scroll, 1, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(12));
+
+    auto *ratio_file_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Ratio spreadsheet"));
+    auto *ratio_file_row = new wxBoxSizer(wxHORIZONTAL);
+    m_ratio_file_open = new wxButton(settings_scroll, wxID_ANY, _L("Open ratios file..."));
+    m_ratio_file_clear = new wxButton(settings_scroll, wxID_ANY, _L("Clear"));
+    m_ratio_file_clear->Enable(false);
+    ratio_file_row->Add(m_ratio_file_open, 0, wxRIGHT, FromDIP(8));
+    ratio_file_row->Add(m_ratio_file_clear, 0);
+    ratio_file_box->Add(ratio_file_row, 0, wxALL, FromDIP(8));
+
+    m_ratio_file_status = new wxStaticText(settings_scroll,
+                                           wxID_ANY,
+                                           _L("No ratio file loaded. When loaded, spreadsheet rows replace the automatic mix proportions."));
+    m_ratio_file_status->Wrap(FromDIP(500));
+    ratio_file_box->Add(m_ratio_file_status, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(8));
+    settings_sizer->Add(ratio_file_box, 0, wxEXPAND);
 
     auto *families_box = new wxStaticBoxSizer(wxVERTICAL, settings_scroll, _L("Swatches"));
     auto *families_grid = new wxFlexGridSizer(2, FromDIP(12), FromDIP(16));
@@ -498,6 +1075,8 @@ CalibrationSwatchesDialog::CalibrationSwatchesDialog(wxWindow *parent, Plater *p
     for (wxTextCtrl *td_input : m_filament_td_inputs)
         if (td_input != nullptr)
             td_input->Bind(wxEVT_TEXT, bind_preview);
+    m_ratio_file_open->Bind(wxEVT_BUTTON, &CalibrationSwatchesDialog::on_open_ratio_file, this);
+    m_ratio_file_clear->Bind(wxEVT_BUTTON, &CalibrationSwatchesDialog::on_clear_ratio_file, this);
     generate->Bind(wxEVT_BUTTON, &CalibrationSwatchesDialog::on_generate, this);
 
     update_preview();
@@ -585,6 +1164,7 @@ CalibrationSwatchesDialog::SwatchGeneratorConfig CalibrationSwatchesDialog::buil
     config.nominal_layer_height_mm = layer_height;
     config.local_z_enabled             = m_local_z_enabled->GetValue();
     config.local_z_direct_multicolor   = config.local_z_enabled && m_direct_multicolor_solver->GetValue();
+    config.explicit_ratio_rows         = m_ratio_file_rows;
     config.plate_label.enabled   = m_plate_label_enabled->GetValue();
     config.plate_label.title     = wx_to_u8(m_plate_label_title->GetValue());
     config.plate_label.text_size_mm = m_plate_label_size->GetValue();
@@ -636,12 +1216,70 @@ CalibrationSwatchesDialog::SwatchGeneratorConfig CalibrationSwatchesDialog::buil
     return config;
 }
 
+void CalibrationSwatchesDialog::on_open_ratio_file(wxCommandEvent &)
+{
+    wxFileDialog dlg(this,
+                     _L("Open ratio spreadsheet"),
+                     wxEmptyString,
+                     wxEmptyString,
+                     _L("Excel workbooks (*.xlsx;*.xlsm)|*.xlsx;*.xlsm|All files (*.*)|*.*"),
+                     wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dlg.ShowModal() != wxID_OK)
+        return;
+
+    std::vector<std::vector<int>> rows;
+    wxString error;
+    if (!load_xlsx_ratio_rows(dlg.GetPath(), rows, &error)) {
+        MessageDialog(this, error, _L("Calibration swatches"), wxOK | wxICON_WARNING).ShowModal();
+        return;
+    }
+
+    m_ratio_file_path = dlg.GetPath();
+    m_ratio_file_rows = std::move(rows);
+    update_preview();
+}
+
+void CalibrationSwatchesDialog::on_clear_ratio_file(wxCommandEvent &)
+{
+    m_ratio_file_path.clear();
+    m_ratio_file_rows.clear();
+    update_preview();
+}
+
 void CalibrationSwatchesDialog::update_preview()
 {
     if (m_direct_multicolor_solver != nullptr)
         m_direct_multicolor_solver->Enable(m_local_z_enabled != nullptr && m_local_z_enabled->GetValue());
+    const bool ratio_file_loaded = !m_ratio_file_rows.empty();
+    for (wxWindow *control : { static_cast<wxWindow*>(m_family_anchor),
+                               static_cast<wxWindow*>(m_family_td_ladder),
+                               static_cast<wxWindow*>(m_family_pair_mix),
+                               static_cast<wxWindow*>(m_family_ternary),
+                               static_cast<wxWindow*>(m_family_quaternary),
+                               static_cast<wxWindow*>(m_pair_layer_limit),
+                               static_cast<wxWindow*>(m_quaternary_layer_limit) }) {
+        if (control != nullptr)
+            control->Enable(!ratio_file_loaded);
+    }
     if (m_td_ladder_widths != nullptr)
-        m_td_ladder_widths->Enable(m_family_td_ladder != nullptr && m_family_td_ladder->GetValue());
+        m_td_ladder_widths->Enable(!ratio_file_loaded && m_family_td_ladder != nullptr && m_family_td_ladder->GetValue());
+    if (m_ratio_file_clear != nullptr)
+        m_ratio_file_clear->Enable(ratio_file_loaded);
+    if (m_ratio_file_status != nullptr) {
+        if (ratio_file_loaded) {
+            const wxString file_name = wxFileName(m_ratio_file_path).GetFullName();
+            const RatioRowSummary ratio_summary = summarize_ratio_rows(m_ratio_file_rows);
+            m_ratio_file_status->SetLabel(wxString::Format(_L("Loaded %llu ratio rows from %s: %llu unique recipes, %llu mixed material definitions, %llu one-filament rows. Automatic swatch families are ignored until the file is cleared."),
+                                                           static_cast<unsigned long long>(m_ratio_file_rows.size()),
+                                                           file_name.c_str(),
+                                                           static_cast<unsigned long long>(ratio_summary.unique_recipes),
+                                                           static_cast<unsigned long long>(ratio_summary.unique_mixed_recipes),
+                                                           static_cast<unsigned long long>(ratio_summary.one_filament_rows)));
+        } else {
+            m_ratio_file_status->SetLabel(_L("No ratio file loaded. When loaded, spreadsheet rows replace the automatic mix proportions."));
+        }
+        m_ratio_file_status->Wrap(FromDIP(500));
+    }
 
     std::vector<ColorCalibrationSwatches::FilamentSlot> filaments = current_filaments();
     wxString filament_td_error;
@@ -685,6 +1323,8 @@ void CalibrationSwatchesDialog::update_preview()
                 config.nominal_layer_height_mm,
                 config.local_z_enabled ? _L("on") : _L("off"),
                 error_count);
+    if (ratio_file_loaded)
+        text += wxString::Format(_L(" Ratio file: %llu row(s)."), static_cast<unsigned long long>(m_ratio_file_rows.size()));
     m_preview->SetLabel(text);
 }
 

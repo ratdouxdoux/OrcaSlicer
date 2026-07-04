@@ -613,6 +613,87 @@ static void append_record(SwatchPlan                 &plan,
     plan.records.emplace_back(std::move(record));
 }
 
+static void append_explicit_ratio_rows(SwatchPlan &plan, const SwatchGeneratorConfig &config)
+{
+    for (size_t row_index = 0; row_index < config.explicit_ratio_rows.size(); ++row_index) {
+        const std::vector<int> &row = config.explicit_ratio_rows[row_index];
+        std::vector<FilamentSlot> row_filaments;
+        std::vector<int> row_ratios;
+        std::vector<unsigned int> stack_order;
+
+        bool skipped = false;
+        for (size_t i = 0; i < row.size(); ++i) {
+            const int ratio = std::max(0, row[i]);
+            if (ratio <= 0)
+                continue;
+
+            if (i >= config.filaments.size()) {
+                plan.warnings.emplace_back("explicit ratio row " + std::to_string(row_index + 1) +
+                                           " references a filament slot that is not available");
+                skipped = true;
+                break;
+            }
+
+            row_filaments.emplace_back(config.filaments[i]);
+            row_ratios.emplace_back(ratio);
+            stack_order.emplace_back(config.filaments[i].slot);
+        }
+
+        if (skipped)
+            continue;
+        if (row_filaments.empty()) {
+            plan.warnings.emplace_back("explicit ratio row " + std::to_string(row_index + 1) + " is empty");
+            continue;
+        }
+
+        SwatchSpec spec;
+        spec.filaments = std::move(row_filaments);
+        spec.stack_order = std::move(stack_order);
+        spec.id_suffix = "XL" + std::to_string(row_index + 1);
+
+        const std::vector<Backing> *backings = nullptr;
+        switch (spec.filaments.size()) {
+        case 1:
+            spec.type = SwatchType::ReflectiveAnchor;
+            spec.total_thickness_mm = config.anchor_thickness_mm;
+            spec.layer_height_mm = config.nominal_layer_height_mm;
+            backings = &config.anchor_backings;
+            break;
+        case 2:
+            spec.type = SwatchType::PairMix;
+            spec.ratios = std::move(row_ratios);
+            spec.total_thickness_mm = config.pair_mix_thickness_mm;
+            spec.layer_height_mm = config.pair_mix_layer_height_mm;
+            backings = &config.pair_mix_backings;
+            break;
+        case 3:
+            spec.type = SwatchType::TernaryMix;
+            spec.ratios = std::move(row_ratios);
+            spec.total_thickness_mm = config.ternary_thickness_mm;
+            spec.layer_height_mm = config.ternary_layer_height_mm;
+            backings = &config.ternary_backings;
+            break;
+        case 4:
+            spec.type = SwatchType::QuaternaryMix;
+            spec.ratios = std::move(row_ratios);
+            spec.total_thickness_mm = config.quaternary_thickness_mm;
+            spec.layer_height_mm = config.quaternary_layer_height_mm;
+            backings = &config.quaternary_backings;
+            break;
+        default:
+            plan.warnings.emplace_back("explicit ratio row " + std::to_string(row_index + 1) +
+                                       " has too many positive components");
+            continue;
+        }
+
+        for (const Backing &backing : backings_or_none(*backings)) {
+            SwatchSpec backed_spec = spec;
+            backed_spec.backing = backing;
+            append_record(plan, std::move(backed_spec), config);
+        }
+    }
+}
+
 static std::vector<double> anchor_thicknesses_for(const FilamentSlot &filament, const SwatchGeneratorConfig &config)
 {
     std::vector<double> thicknesses;
@@ -959,6 +1040,9 @@ std::string make_swatch_id(const SwatchSpec &spec, const IdFormatOptions &option
     if (include_thickness && spec.type != SwatchType::TDLadder && spec.total_thickness_mm > 0.0)
         tokens.emplace_back(format_decimal_token(spec.total_thickness_mm) + "MM");
 
+    if (!spec.id_suffix.empty())
+        tokens.emplace_back(spec.id_suffix);
+
     return join_strings(tokens, options.separator);
 }
 
@@ -1017,7 +1101,10 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
     plan.local_z_enabled         = config.local_z_enabled;
     plan.local_z_direct_multicolor = config.local_z_direct_multicolor;
 
-    if (config.families.reflective_anchor) {
+    if (!config.explicit_ratio_rows.empty())
+        append_explicit_ratio_rows(plan, config);
+
+    if (config.explicit_ratio_rows.empty() && config.families.reflective_anchor) {
         for (const FilamentSlot &filament : config.filaments) {
             for (double thickness : anchor_thicknesses_for(filament, config)) {
                 for (const Backing &backing : backings_or_none(config.anchor_backings)) {
@@ -1034,7 +1121,7 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
         }
     }
 
-    if (config.families.td_ladder) {
+    if (config.explicit_ratio_rows.empty() && config.families.td_ladder) {
         const std::vector<double> td_ladder_thicknesses =
             config.td_ladder_thicknesses.empty() ? std::vector<double> { config.anchor_thickness_mm } : config.td_ladder_thicknesses;
         for (const FilamentSlot &filament : config.filaments) {
@@ -1053,7 +1140,7 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
         }
     }
 
-    if (config.families.pair_mix) {
+    if (config.explicit_ratio_rows.empty() && config.families.pair_mix) {
         const std::vector<std::vector<int>> pair_mix_ratios =
             config.pair_mix_ratios.empty() ?
                 generated_pair_layer_ratios(config.pair_ratio_layer_limit) :
@@ -1077,7 +1164,7 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
         }
     }
 
-    if (config.families.pair_order) {
+    if (config.explicit_ratio_rows.empty() && config.families.pair_order) {
         const std::vector<std::vector<int>> pair_order_ratios =
             config.pair_order_ratios.empty() ?
                 generated_pair_layer_ratios(config.pair_ratio_layer_limit) :
@@ -1107,7 +1194,7 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
         }
     }
 
-    if (config.families.ternary_mix) {
+    if (config.explicit_ratio_rows.empty() && config.families.ternary_mix) {
         const std::vector<std::vector<int>> ternary_ratios =
             config.ternary_ratios.empty() ?
                 generated_ternary_layer_ratios(config.pair_ratio_layer_limit) :
@@ -1133,7 +1220,7 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
         }
     }
 
-    if (config.families.quaternary_mix) {
+    if (config.explicit_ratio_rows.empty() && config.families.quaternary_mix) {
         const std::vector<std::vector<int>> quaternary_ratios =
             config.quaternary_ratios.empty() ?
                 generated_quaternary_layer_ratios(config.quaternary_ratio_layer_limit) :
@@ -1164,7 +1251,7 @@ SwatchPlan generate_swatch_plan(const SwatchGeneratorConfig &config)
         }
     }
 
-    if (config.families.layer_line_strip) {
+    if (config.explicit_ratio_rows.empty() && config.families.layer_line_strip) {
         for (size_t i = 0; i < config.filaments.size(); ++i) {
             for (size_t j = i + 1; j < config.filaments.size(); ++j) {
                 const unsigned int a = config.filaments[i].slot;
