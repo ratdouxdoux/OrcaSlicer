@@ -2975,32 +2975,6 @@ static std::vector<ExPolygons> build_local_z_transition_fixed_masks_for_pass(
     return pass_masks_by_extruder;
 }
 
-static bool append_fixed_masks_for_pass(
-    std::vector<ExPolygons>          &plan_fixed_masks_by_extruder,
-    const std::vector<ExPolygons>    &fixed_state_masks_by_extruder,
-    const std::vector<ExPolygons>    &prev_fixed_state_masks_by_extruder,
-    const std::vector<ExPolygons>    &next_fixed_state_masks_by_extruder,
-    const size_t                      pass_idx,
-    const size_t                      num_passes)
-{
-    const std::vector<ExPolygons> fixed_masks_for_pass =
-        build_local_z_transition_fixed_masks_for_pass(fixed_state_masks_by_extruder,
-                                                      prev_fixed_state_masks_by_extruder,
-                                                      next_fixed_state_masks_by_extruder,
-                                                      pass_idx,
-                                                      num_passes);
-    bool appended = false;
-    for (size_t extruder_idx = 0; extruder_idx < fixed_masks_for_pass.size() &&
-                                 extruder_idx < plan_fixed_masks_by_extruder.size();
-         ++extruder_idx) {
-        if (fixed_masks_for_pass[extruder_idx].empty())
-            continue;
-        append(plan_fixed_masks_by_extruder[extruder_idx], fixed_masks_for_pass[extruder_idx]);
-        appended = true;
-    }
-    return appended;
-}
-
 template<typename ThrowOnCancel>
 static void build_local_z_plan(PrintObject &print_object, const std::vector<std::vector<ExPolygons>> &segmentation, ThrowOnCancel throw_on_cancel)
 {
@@ -3728,6 +3702,8 @@ static void build_local_z_plan(PrintObject &print_object, const std::vector<std:
 
                     sort_local_z_plans(isolated_plans);
 
+                    // Whole-domain fixed masks are emitted once in their own pass chain.
+                    // Attaching them to every mixed-row pass multiplies the same paths.
                     std::vector<SubLayerPlan> fixed_plans = build_whole_object_fixed_plans(isolated_plans.size());
                     if (!fixed_plans.empty()) {
                         isolated_plans.insert(isolated_plans.end(),
@@ -3742,16 +3718,6 @@ static void build_local_z_plan(PrintObject &print_object, const std::vector<std:
                         isolated_plans[idx].pass_index = idx;
                         min_flow_height = std::min(min_flow_height, isolated_plans[idx].flow_height);
                         max_flow_height = std::max(max_flow_height, isolated_plans[idx].flow_height);
-                        bool plan_has_fixed_masks = false;
-                        if (local_z_whole_objects) {
-                            plan_has_fixed_masks = append_fixed_masks_for_pass(
-                                isolated_plans[idx].fixed_painted_masks_by_extruder,
-                                fixed_state_masks_by_extruder,
-                                prev_fixed_state_masks_by_extruder,
-                                next_fixed_state_masks_by_extruder,
-                                idx,
-                                isolated_plans.size());
-                        }
                         for (ExPolygons &masks : isolated_plans[idx].painted_masks_by_extruder)
                             if (masks.size() > 1)
                                 masks = union_ex(masks);
@@ -3934,15 +3900,6 @@ static void build_local_z_plan(PrintObject &print_object, const std::vector<std:
                         if (row_is_gradient_vec[row_idx] == 0)
                             non_gradient_row_done[row_idx] = uint8_t(1);
                     }
-                    if (local_z_whole_objects) {
-                        pass_has_painted_masks |= append_fixed_masks_for_pass(
-                            plan.fixed_painted_masks_by_extruder,
-                            fixed_state_masks_by_extruder,
-                            prev_fixed_state_masks_by_extruder,
-                            next_fixed_state_masks_by_extruder,
-                            pass_idx,
-                            pass_heights.size());
-                    }
                     for (ExPolygons &masks : plan.painted_masks_by_extruder)
                         if (masks.size() > 1)
                             masks = union_ex(masks);
@@ -3969,6 +3926,8 @@ static void build_local_z_plan(PrintObject &print_object, const std::vector<std:
                             ++row_cadence_index[mixed_idx];
                     z_cursor = z_next;
                 }
+                // Whole-domain fixed masks are emitted once in their own pass chain.
+                // Attaching them to every mixed pass would duplicate physical paths.
                 std::vector<SubLayerPlan> fixed_plans = build_whole_object_fixed_plans(pass_idx);
                 for (SubLayerPlan &fixed_plan : fixed_plans) {
                     interval.sublayer_height = std::min(interval.sublayer_height, fixed_plan.flow_height);
