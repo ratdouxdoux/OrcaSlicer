@@ -13,7 +13,22 @@ else()
 endif()
 
 if(WIN32)
-    set(_conf_cmd perl Configure )
+    set(_openssl_native_perl_paths
+        "C:/Strawberry/perl/bin"
+        "C:/Perl64/bin"
+        "C:/Perl/bin"
+    )
+    if(DEFINED ENV{STRAWBERRY})
+        list(PREPEND _openssl_native_perl_paths "$ENV{STRAWBERRY}/perl/bin")
+    endif()
+
+    find_program(OPENSSL_PERL_EXECUTABLE NAMES perl PATHS ${_openssl_native_perl_paths} NO_DEFAULT_PATH)
+    if(NOT OPENSSL_PERL_EXECUTABLE)
+        find_package(Perl REQUIRED)
+        set(OPENSSL_PERL_EXECUTABLE ${PERL_EXECUTABLE})
+    endif()
+
+    set(_conf_cmd ${OPENSSL_PERL_EXECUTABLE} Configure)
     set(_cross_comp_prefix_line "")
     set(_make_cmd nmake)
     set(_install_cmd nmake install_sw )

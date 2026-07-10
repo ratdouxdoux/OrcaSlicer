@@ -18,7 +18,9 @@ std::vector<int> fill_continuous_layer_range(const std::vector<int> &sorted_laye
 
 enum class MixedFilamentColorEngine : uint8_t {
     FilamentMixer = 0,
-    FullSpectrumKSPairResidual = 1
+    FilamentMixerPairResidualDeltaLab = 1,
+    FullSpectrumKSPairResidual = 2,
+    FilamentMixerLabTDRidge = 3
 };
 
 // Represents a virtual "mixed" filament created from physical filaments
@@ -339,8 +341,11 @@ public:
     // m_mixed. Virtual IDs enumerate enabled mixed rows only.
     int mixed_index_from_filament_id(unsigned int filament_id, size_t num_physical) const;
 
-    // Blend N colours using the selected engine. FullSpectrum uses exact calibrated
-    // residuals when available and plain KM/K-S estimated spectra for other valid hex colours.
+    // Blend N colours using the selected engine. The corrected FilamentMixer variants use
+    // FilamentMixer as the baseline and apply either learned pair Delta Lab or Lab/TD Ridge
+    // residual corrections.
+    // FullSpectrum uses exact calibrated residuals when available and plain KM/K-S estimated
+    // spectra for other valid hex colours.
     // color_percents: vector of (hex_color, percent) where percents sum to 100.
     static std::string blend_color_multi(
         const std::vector<std::pair<std::string, int>> &color_percents);

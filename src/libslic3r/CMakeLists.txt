@@ -291,6 +291,7 @@ set(lisbslic3r_sources
     MinimumSpanningTree.hpp
     FullSpectrumKSPairResidual.cpp
     FullSpectrumKSPairResidual.hpp
+    FullSpectrumLabTDRidgeModel.h
     FullSpectrumMaterialDatabaseProfile.h
     FullSpectrumKSPairResidualProfile.h
     MixedFilament.cpp

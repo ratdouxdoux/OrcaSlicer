@@ -983,8 +983,8 @@ struct Sidebar::priv
     wxBoxSizer*         m_sizer_mixed_filaments_content = nullptr; // Content sizer
     ScalableButton*     m_mixed_filaments_icon = nullptr;          // Icon
     wxStaticText*       m_staticText_mixed_filaments = nullptr;    // Title text
-    wxChoice*           m_choice_mixed_color_engine = nullptr;     // FilamentMixer / calibrated predictor
-    wxCheckBox*         m_check_mixed_use_td = nullptr;            // Toggle TD-adjusted KM/K-S preview
+    wxChoice*           m_choice_mixed_color_engine = nullptr;     // FilamentMixer / corrected mixer / calibrated predictor
+    wxCheckBox*         m_check_mixed_use_td = nullptr;            // Toggle TD-adjusted calibrated preview
     wxCheckBox*         m_check_mixed_oracle = nullptr;            // Toggle measured oracle preview for generated swatch plates
     wxButton*           m_btn_load_mixed_oracle = nullptr;         // Load measured swatch JSON for oracle preview
     Button*             m_btn_add_gradient = nullptr;              // Add gradient button
@@ -5933,12 +5933,35 @@ struct CalibrationOracleLab
     double b = 0.0;
 };
 
-static std::optional<CalibrationOracleLab> calibration_oracle_lab_from_json(const nlohmann::json &object)
+static std::optional<CalibrationOracleLab> calibration_oracle_lab_from_json(const nlohmann::json& object)
 {
-    if (!object.is_object() || !object.contains("L") || !object.contains("a") || !object.contains("b") ||
-        !object["L"].is_number() || !object["a"].is_number() || !object["b"].is_number())
+    if (!object.is_object() || !object.contains("L") || !object.contains("a") || !object.contains("b") || !object["L"].is_number() ||
+        !object["a"].is_number() || !object["b"].is_number())
         return std::nullopt;
-    return CalibrationOracleLab { object["L"].get<double>(), object["a"].get<double>(), object["b"].get<double>() };
+    return CalibrationOracleLab{object["L"].get<double>(), object["a"].get<double>(), object["b"].get<double>()};
+}
+
+static std::optional<CalibrationOracleLab> calibration_oracle_average_reading_lab(const nlohmann::json& measured, const char* lab_key)
+{
+    if (!measured.is_object() || !measured.contains("readings") || !measured["readings"].is_array())
+        return std::nullopt;
+
+    CalibrationOracleLab total;
+    size_t               count = 0;
+    for (const nlohmann::json& reading : measured["readings"]) {
+        if (!reading.is_object() || !reading.contains(lab_key))
+            continue;
+        const std::optional<CalibrationOracleLab> lab = calibration_oracle_lab_from_json(reading[lab_key]);
+        if (!lab)
+            continue;
+        total.l += lab->l;
+        total.a += lab->a;
+        total.b += lab->b;
+        ++count;
+    }
+    if (count == 0)
+        return std::nullopt;
+    return CalibrationOracleLab{total.l / double(count), total.a / double(count), total.b / double(count)};
 }
 
 static double calibration_oracle_srgb_channel_from_linear(double value)
@@ -5955,15 +5978,15 @@ static double calibration_oracle_lab_inverse_f(double value)
     return value3 > 0.008856 ? value3 : (value - 16.0 / 116.0) / 7.787;
 }
 
-static std::string calibration_oracle_lab_to_hex(const CalibrationOracleLab &lab)
+static std::string calibration_oracle_lab_to_hex(const CalibrationOracleLab& lab)
 {
     const double y = (lab.l + 16.0) / 116.0;
     const double x = lab.a / 500.0 + y;
     const double z = y - lab.b / 200.0;
 
-    const double X = 95.047 * calibration_oracle_lab_inverse_f(x) / 100.0;
+    const double X = 94.811 * calibration_oracle_lab_inverse_f(x) / 100.0;
     const double Y = 100.000 * calibration_oracle_lab_inverse_f(y) / 100.0;
-    const double Z = 108.883 * calibration_oracle_lab_inverse_f(z) / 100.0;
+    const double Z = 107.304 * calibration_oracle_lab_inverse_f(z) / 100.0;
 
     const double r =  3.2406 * X - 1.5372 * Y - 0.4986 * Z;
     const double g = -0.9689 * X + 1.8758 * Y + 0.0415 * Z;
@@ -6023,15 +6046,31 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
 
     p->m_choice_mixed_color_engine = new wxChoice(p->m_panel_color_mix_title, wxID_ANY);
     p->m_choice_mixed_color_engine->Append(_L("FilamentMixer"));
+    p->m_choice_mixed_color_engine->Append(_L("FilamentMixer + Delta Lab"));
+    p->m_choice_mixed_color_engine->Append(_L("Lab/TD Ridge regression"));
     p->m_choice_mixed_color_engine->Append(_L("KM/K-S learned pair"));
-    p->m_choice_mixed_color_engine->SetSelection(
-        MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual ? 1 : 0);
-    p->m_choice_mixed_color_engine->SetMinSize(wxSize(FromDIP(154), -1));
+    p->m_choice_mixed_color_engine->SetSelection([] {
+        switch (MixedFilamentManager::color_engine()) {
+        case MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab:
+            return 1;
+        case MixedFilamentColorEngine::FilamentMixerLabTDRidge:
+            return 2;
+        case MixedFilamentColorEngine::FullSpectrumKSPairResidual:
+            return 3;
+        case MixedFilamentColorEngine::FilamentMixer:
+        default:
+            return 0;
+        }
+    }());
+    p->m_choice_mixed_color_engine->SetMinSize(wxSize(FromDIP(210), -1));
     p->m_choice_mixed_color_engine->SetToolTip(_L("Color prediction engine used for mixed filament preview colors."));
     p->m_choice_mixed_color_engine->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
         const int selection = p->m_choice_mixed_color_engine ? p->m_choice_mixed_color_engine->GetSelection() : 0;
         const MixedFilamentColorEngine engine =
-            selection == 1 ? MixedFilamentColorEngine::FullSpectrumKSPairResidual : MixedFilamentColorEngine::FilamentMixer;
+            selection == 3 ? MixedFilamentColorEngine::FullSpectrumKSPairResidual :
+            selection == 2 ? MixedFilamentColorEngine::FilamentMixerLabTDRidge :
+            selection == 1 ? MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab :
+                             MixedFilamentColorEngine::FilamentMixer;
 
         MixedFilamentManager::set_color_engine(engine);
         if (wxGetApp().app_config != nullptr) {
@@ -6042,7 +6081,7 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
             wxGetApp().preset_bundle->update_multi_material_filament_presets();
         if (p->m_check_mixed_use_td) {
             p->m_check_mixed_use_td->SetValue(MixedFilamentManager::use_td_for_color_prediction());
-            p->m_check_mixed_use_td->Enable(engine == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+            p->m_check_mixed_use_td->Enable(engine != MixedFilamentColorEngine::FilamentMixer);
         }
         update_mixed_filament_panel(false);
         update_color_mix_panel();
@@ -6051,8 +6090,8 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
 
     p->m_check_mixed_use_td = new wxCheckBox(p->m_panel_color_mix_title, wxID_ANY, _L("Use TD"));
     p->m_check_mixed_use_td->SetValue(MixedFilamentManager::use_td_for_color_prediction());
-    p->m_check_mixed_use_td->Enable(MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
-    p->m_check_mixed_use_td->SetToolTip(_L("Weight KM/K-S color prediction by inverse filament TD."));
+    p->m_check_mixed_use_td->Enable(MixedFilamentManager::color_engine() != MixedFilamentColorEngine::FilamentMixer);
+    p->m_check_mixed_use_td->SetToolTip(_L("Use filament transmission distance in calibrated color prediction."));
     p->m_check_mixed_use_td->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
         const bool enabled = p->m_check_mixed_use_td && p->m_check_mixed_use_td->GetValue();
         MixedFilamentManager::set_use_td_for_color_prediction(enabled);
@@ -6102,7 +6141,7 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
     });
 
     p->m_btn_load_mixed_oracle = new wxButton(p->m_panel_color_mix_title, wxID_ANY, _L("Load Oracle"));
-    p->m_btn_load_mixed_oracle->SetToolTip(_L("Load measured swatch JSON for Measured Oracle Preview."));
+    p->m_btn_load_mixed_oracle->SetToolTip(_L("Load measured swatch JSON for averaged SCE Oracle Preview."));
     p->m_btn_load_mixed_oracle->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         Plater *plater = wxGetApp().plater();
         if (plater == nullptr)
@@ -6244,13 +6283,24 @@ void Sidebar::update_color_mix_panel()
     p->m_panel_color_mix_title->Show(show);
     p->m_scrolled_color_mix->Show(show);
     if (p->m_choice_mixed_color_engine) {
-        p->m_choice_mixed_color_engine->SetSelection(
-            MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual ? 1 : 0);
+        p->m_choice_mixed_color_engine->SetSelection([] {
+            switch (MixedFilamentManager::color_engine()) {
+            case MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab:
+                return 1;
+            case MixedFilamentColorEngine::FilamentMixerLabTDRidge:
+                return 2;
+            case MixedFilamentColorEngine::FullSpectrumKSPairResidual:
+                return 3;
+            case MixedFilamentColorEngine::FilamentMixer:
+            default:
+                return 0;
+            }
+        }());
         p->m_choice_mixed_color_engine->Enable(show);
     }
     if (p->m_check_mixed_use_td) {
         p->m_check_mixed_use_td->SetValue(MixedFilamentManager::use_td_for_color_prediction());
-        p->m_check_mixed_use_td->Enable(show && MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+        p->m_check_mixed_use_td->Enable(show && MixedFilamentManager::color_engine() != MixedFilamentColorEngine::FilamentMixer);
     }
     if (p->m_check_mixed_oracle) {
         p->m_check_mixed_oracle->SetValue(wxGetApp().plater() != nullptr && wxGetApp().plater()->calibration_swatch_oracle_preview_enabled());
@@ -7145,13 +7195,24 @@ void Sidebar::update_mixed_filament_panel(bool sync_manager)
     if (p->m_btn_add_color)
         p->m_btn_add_color->Enable(num_physical >= 2);
     if (p->m_choice_mixed_color_engine) {
-        p->m_choice_mixed_color_engine->SetSelection(
-            MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual ? 1 : 0);
+        p->m_choice_mixed_color_engine->SetSelection([] {
+            switch (MixedFilamentManager::color_engine()) {
+            case MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab:
+                return 1;
+            case MixedFilamentColorEngine::FilamentMixerLabTDRidge:
+                return 2;
+            case MixedFilamentColorEngine::FullSpectrumKSPairResidual:
+                return 3;
+            case MixedFilamentColorEngine::FilamentMixer:
+            default:
+                return 0;
+            }
+        }());
         p->m_choice_mixed_color_engine->Enable(num_physical >= 2);
     }
     if (p->m_check_mixed_use_td) {
         p->m_check_mixed_use_td->SetValue(MixedFilamentManager::use_td_for_color_prediction());
-        p->m_check_mixed_use_td->Enable(num_physical >= 2 && MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+        p->m_check_mixed_use_td->Enable(num_physical >= 2 && MixedFilamentManager::color_engine() != MixedFilamentColorEngine::FilamentMixer);
     }
     if (p->m_check_mixed_oracle) {
         p->m_check_mixed_oracle->SetValue(wxGetApp().plater() != nullptr && wxGetApp().plater()->calibration_swatch_oracle_preview_enabled());
@@ -23132,9 +23193,9 @@ bool Plater::load_calibration_swatch_oracle_measurements(const wxString& path, w
     std::unordered_map<std::string, std::string> by_key;
     std::unordered_map<std::string, std::string> by_id;
 
-    for (const nlohmann::json &record : measurements["records"]) {
-        const nlohmann::json *manifest = record.contains("manifest") && record["manifest"].is_object() ? &record["manifest"] : nullptr;
-        const nlohmann::json *measured = record.contains("measured") && record["measured"].is_object() ? &record["measured"] : &record;
+    for (const nlohmann::json& record : measurements["records"]) {
+        const nlohmann::json* manifest = record.contains("manifest") && record["manifest"].is_object() ? &record["manifest"] : nullptr;
+        const nlohmann::json* measured = record.contains("measured") && record["measured"].is_object() ? &record["measured"] : &record;
 
         std::string swatch_id = calibration_oracle_string_value(record, "swatch_id");
         if (swatch_id.empty() && manifest != nullptr)
@@ -23147,7 +23208,11 @@ bool Plater::load_calibration_swatch_oracle_measurements(const wxString& path, w
             condition = calibration_oracle_string_value(*manifest, "measurement_condition");
         condition = calibration_oracle_canonical_condition(condition);
 
-        std::string hex = calibration_oracle_string_value(*measured, "rgb_hex");
+        std::string hex;
+        if (const std::optional<CalibrationOracleLab> sce = calibration_oracle_average_reading_lab(*measured, "lab_sce"))
+            hex = calibration_oracle_lab_to_hex(*sce);
+        if (hex.empty())
+            hex = calibration_oracle_string_value(*measured, "rgb_hex");
         if (hex.empty())
             hex = calibration_oracle_string_value(*measured, "measured_rgb_hex");
 

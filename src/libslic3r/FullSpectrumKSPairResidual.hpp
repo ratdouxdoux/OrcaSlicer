@@ -13,16 +13,43 @@ struct FullSpectrumKSPairResidualColorInput
     std::string           color_hex;
     int                   percent = 0;
     std::optional<double> td_mm;
+    std::optional<double> layer_height_mm;
+    bool                  use_td = true;
 };
 
-// Spectral sidewall predictor. Exact Panchroma G6/8Y9/7M5/0C6 colors use the embedded
-// 0.08 mm SCE black-backed profile and learned pair residuals. Other valid hex colors
-// are converted to estimated anchor spectra and mixed with plain KM/K-S so changing one
-// filament color does not silently fall back to the legacy RGB mixer.
+struct FullSpectrumColorPredictionResult
+{
+    std::string              color_hex;
+    std::string              prediction_path;
+    double                   confidence = 0.0;
+    std::vector<std::string> missing_data_warnings;
+};
+
+// Spectral sidewall predictor. Colors matching the embedded 0.08 mm SCE
+// black-backed profile use measured anchor spectra and learned pair residuals.
+// Other valid hex colors are converted to estimated anchor spectra and mixed
+// with plain KM/K-S so changing one filament color does not silently fall back
+// to the legacy RGB mixer.
 std::optional<std::string> full_spectrum_ks_blend_color_multi(
     const std::vector<std::pair<std::string, int>> &color_percents);
 
 std::optional<std::string> full_spectrum_ks_blend_color_multi(
+    const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents);
+
+// Applies only the learned pair-residual Delta Lab to an existing base color.
+// Exact profile colors use their matching residuals. Other valid colors are
+// assigned the nearest learned pair residual so FilamentMixer can be nudged
+// without switching to the full spectral prediction.
+std::optional<std::string> full_spectrum_ks_apply_pair_residual_delta_lab(
+    const std::string                                      &base_color_hex,
+    const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents);
+
+std::optional<FullSpectrumColorPredictionResult> full_spectrum_lab_td_ridge_apply_delta_lab_prediction(
+    const std::string                                      &base_color_hex,
+    const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents);
+
+std::optional<std::string> full_spectrum_lab_td_ridge_apply_delta_lab(
+    const std::string                                      &base_color_hex,
     const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents);
 
 std::optional<std::string> full_spectrum_ks_blend_color(const std::string &color_a,
@@ -44,6 +71,10 @@ std::optional<double> full_spectrum_ks_profile_td_mm_for_color(const std::string
 const char* full_spectrum_ks_profile_id();
 const char* full_spectrum_ks_profile_specular_mode();
 const char* full_spectrum_ks_profile_backing_condition();
+const char* full_spectrum_lab_td_ridge_model_id();
+const char* full_spectrum_lab_td_ridge_model_type();
+const char* full_spectrum_lab_td_ridge_target_specular_mode();
+const char* full_spectrum_lab_td_ridge_target_backing_condition();
 
 } // namespace Slic3r
 

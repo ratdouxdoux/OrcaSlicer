@@ -1747,12 +1747,26 @@ MixedFilamentColorEngine MixedFilamentManager::color_engine_from_string(const st
 {
     if (value == "ks_pair_residual" || value == "fullspectrum_ks_pair_residual")
         return MixedFilamentColorEngine::FullSpectrumKSPairResidual;
+    if (value == "lab_td_ridge" || value == "filament_mixer_lab_td_ridge")
+        return MixedFilamentColorEngine::FilamentMixerLabTDRidge;
+    if (value == "filament_mixer_delta_lab" || value == "filament_mixer_pair_residual_delta_lab")
+        return MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab;
     return MixedFilamentColorEngine::FilamentMixer;
 }
 
 const char *MixedFilamentManager::color_engine_to_string(MixedFilamentColorEngine engine)
 {
-    return engine == MixedFilamentColorEngine::FullSpectrumKSPairResidual ? "ks_pair_residual" : "filament_mixer";
+    switch (engine) {
+    case MixedFilamentColorEngine::FullSpectrumKSPairResidual:
+        return "ks_pair_residual";
+    case MixedFilamentColorEngine::FilamentMixerLabTDRidge:
+        return "lab_td_ridge";
+    case MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab:
+        return "filament_mixer_delta_lab";
+    case MixedFilamentColorEngine::FilamentMixer:
+    default:
+        return "filament_mixer";
+    }
 }
 
 void MixedFilamentManager::auto_generate(const std::vector<std::string> &filament_colours)
@@ -2642,39 +2656,28 @@ std::vector<size_t> MixedFilamentManager::mixed_filaments_using_physical(unsigne
             result.push_back(j);
         }
     }
-    
+
     return result;
 }
 
-// Blend N colours using the selected engine. The full-spectrum engine uses exact
-// pair residuals for the embedded profile and estimated anchor spectra for other
-// valid hex colours; FilamentMixer is now only the legacy engine or invalid input fallback.
-std::string MixedFilamentManager::blend_color_multi(
-    const std::vector<std::pair<std::string, int>> &color_percents)
+// Blend N colours using the selected engine. The full-spectrum engine returns
+// its spectral prediction directly. FilamentMixer stays raw; corrected
+// FilamentMixer variants apply either an extrapolated learned pair-residual
+// correction or the generated Lab/TD Ridge residual.
+static std::vector<FullSpectrumKSPairResidualColorInput> full_spectrum_inputs_from_mixed_inputs(
+    const std::vector<MixedFilamentColorInput>& color_percents, bool use_td)
 {
-    std::vector<MixedFilamentColorInput> inputs;
+    std::vector<FullSpectrumKSPairResidualColorInput> inputs;
     inputs.reserve(color_percents.size());
-    for (const auto &[hex, pct] : color_percents)
-        inputs.push_back({hex, pct, std::nullopt});
-    return blend_color_multi(inputs);
+    for (const MixedFilamentColorInput& input : color_percents)
+        inputs.push_back({input.color_hex, input.percent, input.td_mm, std::nullopt, use_td});
+    return inputs;
 }
 
-std::string MixedFilamentManager::blend_color_multi(
-    const std::vector<MixedFilamentColorInput> &color_percents)
+static std::string filament_mixer_blend_color_multi_legacy(const std::vector<MixedFilamentColorInput>& color_percents)
 {
     if (color_percents.empty())
         return "#000000";
-
-    if (color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual) {
-        std::vector<FullSpectrumKSPairResidualColorInput> calibrated_inputs;
-        calibrated_inputs.reserve(color_percents.size());
-        const bool use_td = use_td_for_color_prediction();
-        for (const MixedFilamentColorInput &input : color_percents)
-            calibrated_inputs.push_back({input.color_hex, input.percent, use_td ? input.td_mm : std::nullopt});
-
-        if (const auto calibrated = full_spectrum_ks_blend_color_multi(calibrated_inputs))
-            return *calibrated;
-    }
 
     if (color_percents.size() == 1)
         return color_percents.front().color_hex;
@@ -2720,27 +2723,11 @@ std::string MixedFilamentManager::blend_color_multi(
     return rgb_to_hex({int(r), int(g), int(b)});
 }
 
-std::string MixedFilamentManager::blend_color(const std::string &color_a,
-                                              const std::string &color_b,
-                                              int ratio_a, int ratio_b)
+static std::string filament_mixer_blend_color_pair_legacy(const std::string &color_a,
+                                                          const std::string &color_b,
+                                                          int                ratio_a,
+                                                          int                ratio_b)
 {
-    return blend_color(color_a, color_b, ratio_a, ratio_b, std::nullopt, std::nullopt);
-}
-
-std::string MixedFilamentManager::blend_color(const std::string           &color_a,
-                                              const std::string           &color_b,
-                                              int                          ratio_a,
-                                              int                          ratio_b,
-                                              const std::optional<double> &td_a_mm,
-                                              const std::optional<double> &td_b_mm)
-{
-    if (color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual) {
-        const std::optional<double> active_td_a = use_td_for_color_prediction() ? td_a_mm : std::nullopt;
-        const std::optional<double> active_td_b = use_td_for_color_prediction() ? td_b_mm : std::nullopt;
-        if (const auto calibrated = full_spectrum_ks_blend_color(color_a, color_b, ratio_a, ratio_b, active_td_a, active_td_b))
-            return *calibrated;
-    }
-
     const int safe_a = std::max(0, ratio_a);
     const int safe_b = std::max(0, ratio_b);
     const int total  = safe_a + safe_b;
@@ -2761,6 +2748,89 @@ std::string MixedFilamentManager::blend_color(const std::string           &color
                         t, &out_r, &out_g, &out_b);
 
     return rgb_to_hex({int(out_r), int(out_g), int(out_b)});
+}
+
+std::string MixedFilamentManager::blend_color_multi(
+    const std::vector<std::pair<std::string, int>> &color_percents)
+{
+    std::vector<MixedFilamentColorInput> inputs;
+    inputs.reserve(color_percents.size());
+    for (const auto &[hex, pct] : color_percents)
+        inputs.push_back({hex, pct, std::nullopt});
+    return blend_color_multi(inputs);
+}
+
+std::string MixedFilamentManager::blend_color_multi(
+    const std::vector<MixedFilamentColorInput> &color_percents)
+{
+    if (color_percents.empty())
+        return "#000000";
+
+    const MixedFilamentColorEngine engine = color_engine();
+    const bool use_td = use_td_for_color_prediction();
+
+    if (engine == MixedFilamentColorEngine::FullSpectrumKSPairResidual) {
+        if (const auto calibrated = full_spectrum_ks_blend_color_multi(
+                full_spectrum_inputs_from_mixed_inputs(color_percents, use_td)))
+            return *calibrated;
+    }
+
+    const std::string filament_mixer = filament_mixer_blend_color_multi_legacy(color_percents);
+    if (engine == MixedFilamentColorEngine::FilamentMixerLabTDRidge) {
+        if (const auto corrected = full_spectrum_lab_td_ridge_apply_delta_lab(
+                filament_mixer, full_spectrum_inputs_from_mixed_inputs(color_percents, use_td)))
+            return *corrected;
+    }
+
+    if (engine == MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab) {
+        if (const auto corrected = full_spectrum_ks_apply_pair_residual_delta_lab(
+                filament_mixer, full_spectrum_inputs_from_mixed_inputs(color_percents, use_td)))
+            return *corrected;
+    }
+
+    return filament_mixer;
+}
+
+std::string MixedFilamentManager::blend_color(const std::string &color_a,
+                                              const std::string &color_b,
+                                              int ratio_a, int ratio_b)
+{
+    return blend_color(color_a, color_b, ratio_a, ratio_b, std::nullopt, std::nullopt);
+}
+
+std::string MixedFilamentManager::blend_color(const std::string           &color_a,
+                                              const std::string           &color_b,
+                                              int                          ratio_a,
+                                              int                          ratio_b,
+                                              const std::optional<double> &td_a_mm,
+                                              const std::optional<double> &td_b_mm)
+{
+    const MixedFilamentColorEngine engine = color_engine();
+    const bool use_td = use_td_for_color_prediction();
+    const std::optional<double> active_td_a = use_td ? td_a_mm : std::nullopt;
+    const std::optional<double> active_td_b = use_td ? td_b_mm : std::nullopt;
+
+    if (engine == MixedFilamentColorEngine::FullSpectrumKSPairResidual) {
+        if (const auto calibrated = full_spectrum_ks_blend_color(color_a, color_b, ratio_a, ratio_b, active_td_a, active_td_b))
+            return *calibrated;
+    }
+
+    const std::string filament_mixer = filament_mixer_blend_color_pair_legacy(color_a, color_b, ratio_a, ratio_b);
+    if (engine == MixedFilamentColorEngine::FilamentMixerLabTDRidge) {
+        const std::vector<FullSpectrumKSPairResidualColorInput> inputs = {{color_a, std::max(0, ratio_a), td_a_mm, std::nullopt, use_td},
+                                                                          {color_b, std::max(0, ratio_b), td_b_mm, std::nullopt, use_td}};
+        if (const auto corrected = full_spectrum_lab_td_ridge_apply_delta_lab(filament_mixer, inputs))
+            return *corrected;
+    }
+
+    if (engine == MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab) {
+        const std::vector<FullSpectrumKSPairResidualColorInput> inputs = {{color_a, std::max(0, ratio_a), active_td_a},
+                                                                          {color_b, std::max(0, ratio_b), active_td_b}};
+        if (const auto corrected = full_spectrum_ks_apply_pair_residual_delta_lab(filament_mixer, inputs))
+            return *corrected;
+    }
+
+    return filament_mixer;
 }
 
 float MixedFilamentManager::max_component_surface_offset_mm(float reference_width_mm)

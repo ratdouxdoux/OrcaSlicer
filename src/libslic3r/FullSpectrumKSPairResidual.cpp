@@ -1,11 +1,14 @@
 #include "FullSpectrumKSPairResidual.hpp"
+#include "FullSpectrumLabTDRidgeModel.h"
 #include "FullSpectrumMaterialDatabaseProfile.h"
+#include "filament_mixer.h"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <optional>
 
 namespace Slic3r {
@@ -13,10 +16,14 @@ namespace Slic3r {
 namespace {
 
 namespace MaterialDatabaseData = FullSpectrumMaterialDatabaseProfileData;
+namespace LabTDRidgeData = FullSpectrumLabTDRidgeModelData;
 
 using Spectrum = std::array<double, MaterialDatabaseData::SPECTRUM_SIZE>;
 
 constexpr double EPSILON = 1e-9;
+constexpr double DISPLAY_D65_10_X = 94.811;
+constexpr double DISPLAY_D65_10_Y = 100.0;
+constexpr double DISPLAY_D65_10_Z = 107.304;
 
 struct Lab
 {
@@ -39,11 +46,27 @@ struct LinearRgb
     double b = 0.0;
 };
 
+struct Oklab
+{
+    double L = 0.0;
+    double a = 0.0;
+    double b = 0.0;
+};
+
 struct MaterialKS
 {
     Spectrum              ks {};
     std::optional<size_t> material_index;
+    std::string           normalized_hex;
+    LinearRgb             source_rgb {};
     double                weight = 0.0;
+};
+
+enum class PairResidualMode
+{
+    None,
+    ExactProfilePairs,
+    ExtrapolateAllInputPairs
 };
 
 static double clamp01(double value)
@@ -121,6 +144,29 @@ static std::optional<LinearRgb> linear_rgb_from_hex(const std::string &hex)
     };
 }
 
+static double linear_rgb_distance_squared(const LinearRgb &a, const LinearRgb &b)
+{
+    const double dr = a.r - b.r;
+    const double dg = a.g - b.g;
+    const double db = a.b - b.b;
+    return dr * dr + dg * dg + db * db;
+}
+
+static double material_color_distance_squared(const LinearRgb &rgb, size_t material_index)
+{
+    double best = std::numeric_limits<double>::max();
+    const size_t hex_count = MaterialDatabaseData::MATERIAL_HEX_COUNT[material_index];
+    for (size_t hex_index = 0; hex_index < hex_count; ++hex_index) {
+        const char *hex = MaterialDatabaseData::MATERIAL_HEX[material_index][hex_index];
+        if (hex == nullptr || hex[0] == '\0')
+            continue;
+        const std::optional<LinearRgb> material_rgb = linear_rgb_from_hex(hex);
+        if (material_rgb)
+            best = std::min(best, linear_rgb_distance_squared(rgb, *material_rgb));
+    }
+    return best;
+}
+
 static double gaussian(double wavelength_nm, double center_nm, double sigma_nm)
 {
     const double x = (wavelength_nm - center_nm) / sigma_nm;
@@ -175,11 +221,15 @@ static std::optional<std::vector<MaterialKS>> materials_from_colors(
         if (pct <= 0)
             continue;
 
-        if (!normalize_hex_color(input.color_hex))
+        const std::optional<std::string> normalized_hex = normalize_hex_color(input.color_hex);
+        if (!normalized_hex)
+            return std::nullopt;
+        const std::optional<LinearRgb> source_rgb = linear_rgb_from_hex(*normalized_hex);
+        if (!source_rgb)
             return std::nullopt;
 
         double optical_strength = 1.0;
-        if (input.td_mm && std::isfinite(*input.td_mm) && *input.td_mm > EPSILON) {
+        if (input.use_td && input.td_mm && std::isfinite(*input.td_mm) && *input.td_mm > EPSILON) {
             // Treat TD as an optical strength term: lower TD means the filament
             // reaches visual opacity faster and should contribute more strongly.
             optical_strength = 1.0 / *input.td_mm;
@@ -189,7 +239,9 @@ static std::optional<std::vector<MaterialKS>> materials_from_colors(
         const std::optional<size_t> material_index = material_index_for_color(input.color_hex);
         MaterialKS material;
         material.material_index = material_index;
-        material.weight       = weighted;
+        material.normalized_hex = *normalized_hex;
+        material.source_rgb     = *source_rgb;
+        material.weight         = weighted;
         if (material_index) {
             material.ks = material_ks(*material_index);
         } else {
@@ -217,25 +269,104 @@ static double reflectance_from_ks(double ks)
     return clamp01(1.0 + f - std::sqrt(f * f + 2.0 * f));
 }
 
-template <class PairResiduals>
-static void apply_pair_residuals(const PairResiduals &pair_residuals,
-                                 const std::array<double, MaterialDatabaseData::MATERIAL_COUNT> &composition,
-                                 Spectrum &ks)
+static bool apply_pair_residual_coefficients(const FullSpectrumMaterialDatabaseProfileData::PairResidualCoefficients &pair,
+                                             double pa,
+                                             double pb,
+                                             Spectrum &ks)
 {
+    if (pa <= EPSILON || pb <= EPSILON)
+        return false;
+
+    const double d = (pa - pb) / (pa + pb);
+    const double product = pa * pb;
+    for (size_t wave = 0; wave < ks.size(); ++wave)
+        ks[wave] += product * (pair.b0[wave] + pair.b1[wave] * d + pair.b2[wave] * d * d);
+    return true;
+}
+
+template <class PairResiduals>
+static bool apply_exact_profile_pair_residuals(const PairResiduals &pair_residuals,
+                                               const std::array<double, MaterialDatabaseData::MATERIAL_COUNT> &composition,
+                                               Spectrum &ks)
+{
+    bool applied = false;
     for (const auto &pair : pair_residuals) {
         const double pa = composition[pair.material_a];
         const double pb = composition[pair.material_b];
-        if (pa <= EPSILON || pb <= EPSILON)
+        if (!apply_pair_residual_coefficients(pair, pa, pb, ks))
             continue;
-
-        const double d = (pa - pb) / (pa + pb);
-        const double product = pa * pb;
-        for (size_t wave = 0; wave < ks.size(); ++wave)
-            ks[wave] += product * (pair.b0[wave] + pair.b1[wave] * d + pair.b2[wave] * d * d);
+        applied = true;
     }
+    return applied;
 }
 
-static Spectrum predict_reflectance_spectrum(const std::vector<MaterialKS> &materials)
+struct PairResidualSelection
+{
+    const FullSpectrumMaterialDatabaseProfileData::PairResidualCoefficients *pair = nullptr;
+    bool reversed = false;
+};
+
+static std::optional<PairResidualSelection> nearest_learned_pair_residual(const MaterialKS &a, const MaterialKS &b)
+{
+    double best_distance = std::numeric_limits<double>::max();
+    PairResidualSelection best;
+
+    for (const auto &pair : MaterialDatabaseData::PAIR_RESIDUALS) {
+        const double forward = material_color_distance_squared(a.source_rgb, pair.material_a) +
+                               material_color_distance_squared(b.source_rgb, pair.material_b);
+        if (forward < best_distance) {
+            best_distance = forward;
+            best = {&pair, false};
+        }
+
+        const double reverse = material_color_distance_squared(a.source_rgb, pair.material_b) +
+                               material_color_distance_squared(b.source_rgb, pair.material_a);
+        if (reverse < best_distance) {
+            best_distance = reverse;
+            best = {&pair, true};
+        }
+    }
+
+    if (best.pair == nullptr)
+        return std::nullopt;
+    return best;
+}
+
+static bool apply_extrapolated_pair_residuals(const std::vector<MaterialKS> &materials, Spectrum &ks)
+{
+    bool applied = false;
+
+    for (size_t i = 0; i < materials.size(); ++i) {
+        const MaterialKS &a = materials[i];
+        if (a.weight <= EPSILON)
+            continue;
+
+        for (size_t j = i + 1; j < materials.size(); ++j) {
+            const MaterialKS &b = materials[j];
+            if (b.weight <= EPSILON)
+                continue;
+            if (a.normalized_hex == b.normalized_hex)
+                continue;
+            if (a.material_index && b.material_index && *a.material_index == *b.material_index)
+                continue;
+
+            const std::optional<PairResidualSelection> selection = nearest_learned_pair_residual(a, b);
+            if (!selection)
+                continue;
+
+            const double pa = selection->reversed ? b.weight : a.weight;
+            const double pb = selection->reversed ? a.weight : b.weight;
+            if (apply_pair_residual_coefficients(*selection->pair, pa, pb, ks))
+                applied = true;
+        }
+    }
+
+    return applied;
+}
+
+static Spectrum predict_reflectance_spectrum(const std::vector<MaterialKS> &materials,
+                                             PairResidualMode               residual_mode = PairResidualMode::ExactProfilePairs,
+                                             bool                          *applied_residuals = nullptr)
 {
     Spectrum ks {};
     std::array<double, MaterialDatabaseData::MATERIAL_COUNT> material_composition {};
@@ -249,7 +380,13 @@ static Spectrum predict_reflectance_spectrum(const std::vector<MaterialKS> &mate
             ks[wave] += material.weight * material.ks[wave];
     }
 
-    apply_pair_residuals(MaterialDatabaseData::PAIR_RESIDUALS, material_composition, ks);
+    bool residuals_applied = false;
+    if (residual_mode == PairResidualMode::ExactProfilePairs)
+        residuals_applied = apply_exact_profile_pair_residuals(MaterialDatabaseData::PAIR_RESIDUALS, material_composition, ks);
+    else if (residual_mode == PairResidualMode::ExtrapolateAllInputPairs)
+        residuals_applied = apply_extrapolated_pair_residuals(materials, ks);
+    if (applied_residuals)
+        *applied_residuals = residuals_applied;
 
     Spectrum reflectance {};
     for (size_t wave = 0; wave < reflectance.size(); ++wave)
@@ -299,6 +436,14 @@ static double lab_pivot_xyz(double value)
     return value > delta3 ? std::cbrt(value) : value / (3.0 * delta * delta) + 4.0 / 29.0;
 }
 
+static Lab lab_from_xyz(double x, double y, double z, double white_x, double white_y, double white_z)
+{
+    const double fx = lab_pivot_xyz(x / white_x);
+    const double fy = lab_pivot_xyz(y / white_y);
+    const double fz = lab_pivot_xyz(z / white_z);
+    return {116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)};
+}
+
 static Lab lab_from_reflectance_spectrum(
     const std::array<double, MaterialDatabaseData::SPECTRUM_SIZE> &spectrum)
 {
@@ -332,10 +477,76 @@ static Lab lab_from_reflectance_spectrum(
     y *= k;
     z *= k;
 
-    const double fx = lab_pivot_xyz(x / white_x);
-    const double fy = lab_pivot_xyz(y / white_y);
-    const double fz = lab_pivot_xyz(z / white_z);
-    return {116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)};
+    return lab_from_xyz(x, y, z, white_x, white_y, white_z);
+}
+
+static std::optional<Lab> lab_from_hex_color(const std::string &hex)
+{
+    const std::optional<LinearRgb> rgb = linear_rgb_from_hex(hex);
+    if (!rgb)
+        return std::nullopt;
+
+    const double x = 100.0 * (0.4124564 * rgb->r + 0.3575761 * rgb->g + 0.1804375 * rgb->b);
+    const double y = 100.0 * (0.2126729 * rgb->r + 0.7151522 * rgb->g + 0.0721750 * rgb->b);
+    const double z = 100.0 * (0.0193339 * rgb->r + 0.1191920 * rgb->g + 0.9503041 * rgb->b);
+
+    return lab_from_xyz(x, y, z, DISPLAY_D65_10_X, DISPLAY_D65_10_Y, DISPLAY_D65_10_Z);
+}
+
+static Lab lab_from_linear_rgb(const LinearRgb &rgb)
+{
+    const double x = 100.0 * (0.4124564 * rgb.r + 0.3575761 * rgb.g + 0.1804375 * rgb.b);
+    const double y = 100.0 * (0.2126729 * rgb.r + 0.7151522 * rgb.g + 0.0721750 * rgb.b);
+    const double z = 100.0 * (0.0193339 * rgb.r + 0.1191920 * rgb.g + 0.9503041 * rgb.b);
+
+    return lab_from_xyz(x, y, z, DISPLAY_D65_10_X, DISPLAY_D65_10_Y, DISPLAY_D65_10_Z);
+}
+
+static Oklab oklab_from_linear_rgb(const LinearRgb &rgb)
+{
+    const double l = 0.4122214708 * rgb.r + 0.5363325363 * rgb.g + 0.0514459929 * rgb.b;
+    const double m = 0.2119034982 * rgb.r + 0.6806995451 * rgb.g + 0.1073969566 * rgb.b;
+    const double s = 0.0883024619 * rgb.r + 0.2817188376 * rgb.g + 0.6299787005 * rgb.b;
+
+    const double l_ = std::cbrt(l);
+    const double m_ = std::cbrt(m);
+    const double s_ = std::cbrt(s);
+
+    return {
+        0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+        1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+        0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+    };
+}
+
+static std::optional<Oklab> oklab_from_hex_color(const std::string &hex)
+{
+    const std::optional<LinearRgb> rgb = linear_rgb_from_hex(hex);
+    if (!rgb)
+        return std::nullopt;
+    return oklab_from_linear_rgb(*rgb);
+}
+
+static LinearRgb linear_rgb_from_oklab(const Oklab &oklab)
+{
+    const double l_ = oklab.L + 0.3963377774 * oklab.a + 0.2158037573 * oklab.b;
+    const double m_ = oklab.L - 0.1055613458 * oklab.a - 0.0638541728 * oklab.b;
+    const double s_ = oklab.L - 0.0894841775 * oklab.a - 1.2914855480 * oklab.b;
+
+    const double l = l_ * l_ * l_;
+    const double m = m_ * m_ * m_;
+    const double s = s_ * s_ * s_;
+
+    return {
+        4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+    };
+}
+
+static Lab lab_from_oklab(const Oklab &oklab)
+{
+    return lab_from_linear_rgb(linear_rgb_from_oklab(oklab));
 }
 
 static double pivot_lab_to_xyz(double value)
@@ -351,17 +562,13 @@ static double linear_to_srgb(double value)
 
 static std::string lab_to_hex(const Lab &lab)
 {
-    constexpr double d65_10_x = 94.811;
-    constexpr double d65_10_y = 100.0;
-    constexpr double d65_10_z = 107.304;
-
     const double fy = (lab.L + 16.0) / 116.0;
     const double fx = lab.a / 500.0 + fy;
     const double fz = fy - lab.b / 200.0;
 
-    const double x = d65_10_x * pivot_lab_to_xyz(fx) / 100.0;
-    const double y = d65_10_y * pivot_lab_to_xyz(fy) / 100.0;
-    const double z = d65_10_z * pivot_lab_to_xyz(fz) / 100.0;
+    const double x = DISPLAY_D65_10_X * pivot_lab_to_xyz(fx) / 100.0;
+    const double y = DISPLAY_D65_10_Y * pivot_lab_to_xyz(fy) / 100.0;
+    const double z = DISPLAY_D65_10_Z * pivot_lab_to_xyz(fz) / 100.0;
 
     const double lr = 3.2404542 * x - 1.5371385 * y - 0.4985314 * z;
     const double lg = -0.9692660 * x + 1.8760108 * y + 0.0415560 * z;
@@ -376,8 +583,63 @@ static std::string lab_to_hex(const Lab &lab)
     return std::string(buf);
 }
 
-static std::optional<std::string> blend_from_colors(
-    const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents)
+struct CanonicalFilamentMixerEntry
+{
+    std::string hex;
+    int         percent = 0;
+    double      td_sort = 0.0;
+};
+
+static unsigned char hex_byte(char hi, char lo)
+{
+    const auto nibble = [](char ch) { return ch >= '0' && ch <= '9' ? ch - '0' : 10 + ch - 'A'; };
+    return static_cast<unsigned char>((nibble(hi) << 4) | nibble(lo));
+}
+
+static std::optional<std::string> lab_td_canonical_filament_mixer_hex(const std::vector<FullSpectrumKSPairResidualColorInput>& color_percents)
+{
+    std::vector<CanonicalFilamentMixerEntry> entries;
+    entries.reserve(color_percents.size());
+    for (const FullSpectrumKSPairResidualColorInput& input : color_percents) {
+        if (input.percent <= 0)
+            continue;
+        const std::optional<std::string> hex = normalize_hex_color(input.color_hex);
+        if (!hex)
+            return std::nullopt;
+        const double td_sort = input.td_mm && std::isfinite(*input.td_mm) ? *input.td_mm : 0.0;
+        entries.push_back({*hex, input.percent, td_sort});
+    }
+    if (entries.empty())
+        return std::nullopt;
+
+    std::sort(entries.begin(), entries.end(), [](const CanonicalFilamentMixerEntry& left, const CanonicalFilamentMixerEntry& right) {
+        if (left.hex != right.hex)
+            return left.hex < right.hex;
+        if (left.td_sort != right.td_sort)
+            return left.td_sort < right.td_sort;
+        return left.percent < right.percent;
+    });
+
+    unsigned char r           = hex_byte(entries.front().hex[1], entries.front().hex[2]);
+    unsigned char g           = hex_byte(entries.front().hex[3], entries.front().hex[4]);
+    unsigned char b           = hex_byte(entries.front().hex[5], entries.front().hex[6]);
+    int           accumulated = entries.front().percent;
+    for (size_t index = 1; index < entries.size(); ++index) {
+        const CanonicalFilamentMixerEntry& next  = entries[index];
+        const int                          total = accumulated + next.percent;
+        if (total <= 0)
+            continue;
+        filament_mixer_lerp(r, g, b, hex_byte(next.hex[1], next.hex[2]), hex_byte(next.hex[3], next.hex[4]),
+                            hex_byte(next.hex[5], next.hex[6]), static_cast<float>(next.percent) / static_cast<float>(total), &r, &g, &b);
+        accumulated = total;
+    }
+
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", r, g, b);
+    return std::string(buf);
+}
+
+static std::optional<std::string> blend_from_colors(const std::vector<FullSpectrumKSPairResidualColorInput>& color_percents)
 {
     const auto materials = materials_from_colors(color_percents);
     if (!materials)
@@ -387,14 +649,460 @@ static std::optional<std::string> blend_from_colors(
     return lab_to_hex(lab_from_reflectance_spectrum(spectrum));
 }
 
+static std::optional<std::string> apply_pair_residual_delta_lab(const std::string&                                       base_color_hex,
+                                                                const std::vector<FullSpectrumKSPairResidualColorInput>& color_percents)
+{
+    const auto base_lab = lab_from_hex_color(base_color_hex);
+    if (!base_lab)
+        return std::nullopt;
+
+    const auto materials = materials_from_colors(color_percents);
+    if (!materials)
+        return std::nullopt;
+
+    bool residuals_applied = false;
+    const auto corrected_spectrum = predict_reflectance_spectrum(*materials, PairResidualMode::ExtrapolateAllInputPairs, &residuals_applied);
+    if (!residuals_applied)
+        return std::nullopt;
+
+    const auto plain_spectrum = predict_reflectance_spectrum(*materials, PairResidualMode::None);
+    const Lab  plain_lab      = lab_from_reflectance_spectrum(plain_spectrum);
+    const Lab  corrected_lab  = lab_from_reflectance_spectrum(corrected_spectrum);
+
+    return lab_to_hex({
+        base_lab->L + corrected_lab.L - plain_lab.L,
+        base_lab->a + corrected_lab.a - plain_lab.a,
+        base_lab->b + corrected_lab.b - plain_lab.b
+    });
+}
+
+struct LabTDRidgeMaterial
+{
+    Lab    lab {};
+    Oklab  oklab {};
+    double td_mm = 0.0;
+    double fraction = 0.0;
+};
+
+struct KnownMaterialMatch
+{
+    Lab    lab {};
+    double td_mm = 0.0;
+};
+
+static std::optional<KnownMaterialMatch> lab_td_known_material_match(
+    const std::string &normalized_hex,
+    const std::optional<double> &td_mm)
+{
+    const LabTDRidgeData::KnownMaterialLab *same_hex = nullptr;
+    size_t same_hex_count = 0;
+
+    for (const auto &material : LabTDRidgeData::KNOWN_MATERIALS) {
+        if (normalized_hex != material.hex)
+            continue;
+
+        ++same_hex_count;
+        same_hex = &material;
+        if (td_mm && std::isfinite(*td_mm) && *td_mm > EPSILON && std::abs(*td_mm - material.td_mm) <= 0.15) {
+            return KnownMaterialMatch {
+                {material.lab[0], material.lab[1], material.lab[2]},
+                material.td_mm
+            };
+        }
+    }
+
+    if (same_hex_count == 1 && same_hex != nullptr) {
+        return KnownMaterialMatch{{same_hex->lab[0], same_hex->lab[1], same_hex->lab[2]}, same_hex->td_mm};
+    }
+
+    return std::nullopt;
+}
+
+static std::optional<std::vector<LabTDRidgeMaterial>> lab_td_materials_from_colors(
+    const std::vector<FullSpectrumKSPairResidualColorInput>& color_percents,
+    bool&                                                    used_catalog_hex_lab,
+    bool&                                                    defaulted_td,
+    bool&                                                    td_disabled)
+{
+    std::vector<LabTDRidgeMaterial> materials;
+    materials.reserve(color_percents.size());
+    double total         = 0.0;
+    used_catalog_hex_lab = false;
+    defaulted_td         = false;
+    td_disabled          = false;
+
+    for (const FullSpectrumKSPairResidualColorInput& input : color_percents) {
+        if (input.percent <= 0)
+            continue;
+
+        const std::optional<std::string> normalized_hex = normalize_hex_color(input.color_hex);
+        if (!normalized_hex)
+            return std::nullopt;
+
+        const std::optional<Oklab> oklab = oklab_from_hex_color(*normalized_hex);
+        if (!oklab)
+            return std::nullopt;
+
+        const std::optional<KnownMaterialMatch> known = lab_td_known_material_match(*normalized_hex, input.td_mm);
+        Lab                                     lab{};
+        double                                  td = 6.0;
+
+        if (known) {
+            lab = known->lab;
+        } else {
+            const std::optional<Lab> catalog_lab = lab_from_hex_color(*normalized_hex);
+            if (!catalog_lab)
+                return std::nullopt;
+            lab                  = *catalog_lab;
+            used_catalog_hex_lab = true;
+        }
+
+        if (!input.use_td) {
+            td          = 6.0;
+            td_disabled = true;
+        } else if (input.td_mm && std::isfinite(*input.td_mm) && *input.td_mm > EPSILON) {
+            td = *input.td_mm;
+        } else if (known) {
+            td = known->td_mm;
+        } else {
+            defaulted_td = true;
+        }
+
+        materials.push_back({lab, *oklab, td, double(input.percent)});
+        total += double(input.percent);
+    }
+
+    if (materials.size() < 2 || total <= EPSILON)
+        return std::nullopt;
+
+    for (LabTDRidgeMaterial& material : materials)
+        material.fraction /= total;
+
+    return materials;
+}
+
+static double lab_td_layer_height_mm(const std::vector<FullSpectrumKSPairResidualColorInput>& color_percents)
+{
+    for (const FullSpectrumKSPairResidualColorInput& input : color_percents) {
+        if (input.layer_height_mm && std::isfinite(*input.layer_height_mm) && *input.layer_height_mm > EPSILON)
+            return *input.layer_height_mm;
+    }
+    return 0.08;
+}
+
+static double lab_chroma(const Lab& lab) { return std::hypot(lab.a, lab.b); }
+
+static double lab_hue(const Lab &lab)
+{
+    return std::atan2(lab.b, lab.a);
+}
+
+static double lab_hue_distance(double hue_a, double hue_b)
+{
+    constexpr double PI = 3.1415926535897932384626433832795;
+    const double delta = std::abs(hue_a - hue_b);
+    return std::min(delta, 2.0 * PI - delta) / PI;
+}
+
+static double lab_td_opacity_for_layer(double td_mm, double layer_height_mm)
+{
+    if (td_mm <= EPSILON)
+        return 1.0;
+    return 1.0 - std::exp(-std::log(100.0) * layer_height_mm / td_mm);
+}
+
+static Lab lab_td_weighted_oklab_mix(const std::vector<LabTDRidgeMaterial> &materials, bool td_weighted)
+{
+    double total = 0.0;
+    Oklab out {};
+    for (const LabTDRidgeMaterial &material : materials) {
+        const double strength = td_weighted ? 1.0 / std::max(material.td_mm, EPSILON) : 1.0;
+        const double weight = material.fraction * strength;
+        total += weight;
+        out.L += weight * material.oklab.L;
+        out.a += weight * material.oklab.a;
+        out.b += weight * material.oklab.b;
+    }
+    if (total <= EPSILON)
+        return {};
+    out.L /= total;
+    out.a /= total;
+    out.b /= total;
+    return lab_from_oklab(out);
+}
+
+static std::optional<Lab> lab_td_weighted_linear_rgb_mix(
+    const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents)
+{
+    double total = 0.0;
+    LinearRgb out {};
+    for (const FullSpectrumKSPairResidualColorInput &input : color_percents) {
+        if (input.percent <= 0)
+            continue;
+        const std::optional<LinearRgb> rgb = linear_rgb_from_hex(input.color_hex);
+        if (!rgb)
+            return std::nullopt;
+        const double weight = double(input.percent);
+        total += weight;
+        out.r += weight * rgb->r;
+        out.g += weight * rgb->g;
+        out.b += weight * rgb->b;
+    }
+    if (total <= EPSILON)
+        return std::nullopt;
+    out.r /= total;
+    out.g /= total;
+    out.b /= total;
+    return lab_from_linear_rgb(out);
+}
+
+static std::optional<std::array<double, LabTDRidgeData::FEATURE_COUNT>> lab_td_ridge_features(
+    const std::string&                                       base_color_hex,
+    const std::vector<FullSpectrumKSPairResidualColorInput>& color_percents,
+    const std::vector<LabTDRidgeMaterial>&                   materials,
+    double                                                   layer_height_mm)
+{
+    const std::optional<Lab> base_lab = lab_from_hex_color(base_color_hex);
+    if (!base_lab)
+        return std::nullopt;
+
+    const std::optional<Lab> linear_rgb_lab = lab_td_weighted_linear_rgb_mix(color_percents);
+    if (!linear_rgb_lab)
+        return std::nullopt;
+
+    double max_fraction        = 0.0;
+    double min_fraction        = std::numeric_limits<double>::max();
+    double entropy             = 0.0;
+    double fraction_square_sum = 0.0;
+    for (const LabTDRidgeMaterial& material : materials) {
+        max_fraction = std::max(max_fraction, material.fraction);
+        min_fraction = std::min(min_fraction, material.fraction);
+        fraction_square_sum += material.fraction * material.fraction;
+        entropy += -material.fraction * std::log(std::max(material.fraction, EPSILON));
+    }
+    if (materials.size() > 1)
+        entropy /= std::log(double(materials.size()));
+    else
+        entropy = 0.0;
+
+    std::vector<double> hues;
+    std::vector<double> chromas;
+    std::vector<double> opacities;
+    hues.reserve(materials.size());
+    chromas.reserve(materials.size());
+    opacities.reserve(materials.size());
+    for (const LabTDRidgeMaterial& material : materials) {
+        const double opacity = lab_td_opacity_for_layer(material.td_mm, layer_height_mm);
+        hues.push_back(lab_hue(material.lab));
+        chromas.push_back(lab_chroma(material.lab));
+        opacities.push_back(opacity);
+    }
+
+    double weighted_lab_L      = 0.0;
+    double weighted_lab_a      = 0.0;
+    double weighted_lab_b      = 0.0;
+    double weighted_oklab_L    = 0.0;
+    double weighted_oklab_a    = 0.0;
+    double weighted_oklab_b    = 0.0;
+    double weighted_chroma     = 0.0;
+    double weighted_hue_sin    = 0.0;
+    double weighted_hue_cos    = 0.0;
+    double weighted_td         = 0.0;
+    double weighted_inverse_td = 0.0;
+    double weighted_opacity    = 0.0;
+
+    for (size_t i = 0; i < materials.size(); ++i) {
+        const LabTDRidgeMaterial& material = materials[i];
+        weighted_lab_L += material.fraction * material.lab.L;
+        weighted_lab_a += material.fraction * material.lab.a;
+        weighted_lab_b += material.fraction * material.lab.b;
+        weighted_oklab_L += material.fraction * material.oklab.L;
+        weighted_oklab_a += material.fraction * material.oklab.a;
+        weighted_oklab_b += material.fraction * material.oklab.b;
+        weighted_chroma += material.fraction * chromas[i];
+        weighted_hue_sin += material.fraction * std::sin(hues[i]);
+        weighted_hue_cos += material.fraction * std::cos(hues[i]);
+        weighted_td += material.fraction * material.td_mm;
+        weighted_inverse_td += material.fraction / std::max(material.td_mm, EPSILON);
+        weighted_opacity += material.fraction * opacities[i];
+    }
+
+    double pair_hue_distance         = 0.0;
+    double pair_td_difference        = 0.0;
+    double pair_log_td_ratio_abs     = 0.0;
+    double pair_chroma_difference    = 0.0;
+    double pair_lightness_difference = 0.0;
+    double pair_opacity_interaction  = 0.0;
+    double pair_ratio_asymmetry      = 0.0;
+    double pair_oklab_distance       = 0.0;
+    double pair_lab_delta_e          = 0.0;
+
+    for (size_t i = 0; i < materials.size(); ++i) {
+        const LabTDRidgeMaterial& a = materials[i];
+        for (size_t j = i + 1; j < materials.size(); ++j) {
+            const LabTDRidgeMaterial& b           = materials[j];
+            const double              pair_weight = a.fraction * b.fraction;
+            if (pair_weight <= EPSILON)
+                continue;
+
+            const double td_ratio       = std::max(a.td_mm, EPSILON) / std::max(b.td_mm, EPSILON);
+            const double oklab_distance = std::sqrt((a.oklab.L - b.oklab.L) * (a.oklab.L - b.oklab.L) +
+                                                    (a.oklab.a - b.oklab.a) * (a.oklab.a - b.oklab.a) +
+                                                    (a.oklab.b - b.oklab.b) * (a.oklab.b - b.oklab.b));
+            const double lab_delta_e    = std::sqrt((a.lab.L - b.lab.L) * (a.lab.L - b.lab.L) + (a.lab.a - b.lab.a) * (a.lab.a - b.lab.a) +
+                                                    (a.lab.b - b.lab.b) * (a.lab.b - b.lab.b));
+
+            pair_hue_distance += pair_weight * lab_hue_distance(hues[i], hues[j]);
+            pair_td_difference += pair_weight * std::abs(a.td_mm - b.td_mm);
+            pair_log_td_ratio_abs += pair_weight * std::abs(std::log(td_ratio));
+            pair_chroma_difference += pair_weight * std::abs(chromas[i] - chromas[j]);
+            pair_lightness_difference += pair_weight * std::abs(a.lab.L - b.lab.L);
+            pair_opacity_interaction += pair_weight * opacities[i] * opacities[j];
+            pair_ratio_asymmetry += pair_weight * std::abs(a.fraction - b.fraction) / std::max(a.fraction + b.fraction, EPSILON);
+            pair_oklab_distance += pair_weight * oklab_distance;
+            pair_lab_delta_e += pair_weight * lab_delta_e;
+        }
+    }
+
+    const Lab oklab    = lab_td_weighted_oklab_mix(materials, false);
+    const Lab td_oklab = lab_td_weighted_oklab_mix(materials, true);
+
+    std::array<double, LabTDRidgeData::FEATURE_COUNT> features{};
+    size_t                                            index        = 0;
+    const auto                                        push_feature = [&features, &index](double value) {
+        if (index < features.size())
+            features[index++] = value;
+    };
+
+    push_feature(double(materials.size()));
+    push_feature(max_fraction);
+    push_feature(min_fraction);
+    push_feature(entropy);
+    push_feature(fraction_square_sum);
+    push_feature(weighted_lab_L);
+    push_feature(weighted_lab_a);
+    push_feature(weighted_lab_b);
+    push_feature(weighted_oklab_L);
+    push_feature(weighted_oklab_a);
+    push_feature(weighted_oklab_b);
+    push_feature(weighted_chroma);
+    push_feature(weighted_hue_sin);
+    push_feature(weighted_hue_cos);
+    push_feature(weighted_td);
+    push_feature(weighted_inverse_td);
+    push_feature(weighted_opacity);
+    push_feature(pair_hue_distance);
+    push_feature(pair_td_difference);
+    push_feature(pair_log_td_ratio_abs);
+    push_feature(pair_chroma_difference);
+    push_feature(pair_lightness_difference);
+    push_feature(pair_opacity_interaction);
+    push_feature(pair_ratio_asymmetry);
+    push_feature(pair_oklab_distance);
+    push_feature(pair_lab_delta_e);
+    push_feature(base_lab->L);
+    push_feature(base_lab->a);
+    push_feature(base_lab->b);
+    push_feature(oklab.L);
+    push_feature(oklab.a);
+    push_feature(oklab.b);
+    push_feature(td_oklab.L);
+    push_feature(td_oklab.a);
+    push_feature(td_oklab.b);
+    push_feature(linear_rgb_lab->L);
+    push_feature(linear_rgb_lab->a);
+    push_feature(linear_rgb_lab->b);
+
+    if (index != features.size())
+        return std::nullopt;
+    return features;
+}
+
+static std::optional<FullSpectrumColorPredictionResult> apply_lab_td_ridge_delta_lab(
+    const std::string& base_color_hex, const std::vector<FullSpectrumKSPairResidualColorInput>& color_percents)
+{
+    (void) base_color_hex;
+    bool                                                 used_catalog_hex_lab = false;
+    bool                                                 defaulted_td         = false;
+    bool                                                 td_disabled          = false;
+    const std::optional<std::vector<LabTDRidgeMaterial>> materials = lab_td_materials_from_colors(color_percents, used_catalog_hex_lab,
+                                                                                                  defaulted_td, td_disabled);
+    if (!materials)
+        return std::nullopt;
+
+    const std::optional<std::string> canonical_base_hex = lab_td_canonical_filament_mixer_hex(color_percents);
+    if (!canonical_base_hex)
+        return std::nullopt;
+    const double                                                           layer_height_mm = lab_td_layer_height_mm(color_percents);
+    const std::optional<std::array<double, LabTDRidgeData::FEATURE_COUNT>> features        = lab_td_ridge_features(*canonical_base_hex,
+                                                                                                                   color_percents, *materials,
+                                                                                                                   layer_height_mm);
+    const std::optional<Lab>                                               base_lab        = lab_from_hex_color(*canonical_base_hex);
+    if (!features || !base_lab)
+        return std::nullopt;
+
+    size_t outside_feature_count = 0;
+    Lab    delta{LabTDRidgeData::INTERCEPT[0], LabTDRidgeData::INTERCEPT[1], LabTDRidgeData::INTERCEPT[2]};
+    for (size_t feature = 0; feature < LabTDRidgeData::FEATURE_COUNT; ++feature) {
+        if ((*features)[feature] < LabTDRidgeData::FEATURE_MIN[feature] - EPSILON ||
+            (*features)[feature] > LabTDRidgeData::FEATURE_MAX[feature] + EPSILON)
+            ++outside_feature_count;
+        const double scale = std::abs(LabTDRidgeData::FEATURE_SCALE[feature]) > EPSILON ? LabTDRidgeData::FEATURE_SCALE[feature] : 1.0;
+        const double standardized = ((*features)[feature] - LabTDRidgeData::FEATURE_MEAN[feature]) / scale;
+        delta.L += standardized * LabTDRidgeData::COEFFICIENTS[0][feature];
+        delta.a += standardized * LabTDRidgeData::COEFFICIENTS[1][feature];
+        delta.b += standardized * LabTDRidgeData::COEFFICIENTS[2][feature];
+    }
+
+    double max_fraction = 0.0;
+    for (const LabTDRidgeMaterial& material : *materials)
+        max_fraction = std::max(max_fraction, material.fraction);
+    const double minority_fraction = std::max(0.0, 1.0 - max_fraction);
+    const double gate_x            = std::clamp(minority_fraction / LabTDRidgeData::MIN_FULL_CORRECTION_FRACTION, 0.0, 1.0);
+    const double correction_gate   = gate_x * gate_x * (3.0 - 2.0 * gate_x);
+    delta.L *= correction_gate;
+    delta.a *= correction_gate;
+    delta.b *= correction_gate;
+
+    FullSpectrumColorPredictionResult result;
+    result.color_hex       = lab_to_hex({base_lab->L + delta.L, base_lab->a + delta.a, base_lab->b + delta.b});
+    result.prediction_path = used_catalog_hex_lab ? "CatalogHexTDRegression" : "LabTDRegression";
+    result.confidence      = std::exp(-LabTDRidgeData::VALIDATION_RMSE_DELTA_E76 / 20.0);
+    if (used_catalog_hex_lab)
+        result.confidence *= 0.80;
+    if (defaulted_td) {
+        result.confidence *= 0.70;
+        result.missing_data_warnings.emplace_back("missing_td_defaulted_to_6mm");
+    }
+    if (used_catalog_hex_lab)
+        result.missing_data_warnings.emplace_back("catalog_hex_lab_used_for_unmeasured_material");
+    if (td_disabled) {
+        result.confidence *= 0.90;
+        result.missing_data_warnings.emplace_back("td_disabled_neutralized");
+    }
+    if (correction_gate < 1.0 - EPSILON) {
+        result.confidence *= 0.85;
+        result.missing_data_warnings.emplace_back("minority_fraction_below_training_range");
+    }
+    if (outside_feature_count > 0) {
+        result.confidence *= std::exp(-0.08 * double(outside_feature_count));
+        result.missing_data_warnings.emplace_back("feature_out_of_training_range");
+    }
+    if (std::abs(layer_height_mm - LabTDRidgeData::EXPECTED_LAYER_HEIGHT_MM) > 0.005) {
+        result.confidence *= 0.70;
+        result.missing_data_warnings.emplace_back("layer_height_outside_training_domain");
+    }
+    result.confidence = std::clamp(result.confidence, 0.10, 0.85);
+    return result;
+}
+
 } // namespace
 
-std::optional<std::string> full_spectrum_ks_blend_color_multi(
-    const std::vector<std::pair<std::string, int>> &color_percents)
+std::optional<std::string> full_spectrum_ks_blend_color_multi(const std::vector<std::pair<std::string, int>>& color_percents)
 {
     std::vector<FullSpectrumKSPairResidualColorInput> inputs;
     inputs.reserve(color_percents.size());
-    for (const auto &[hex, pct] : color_percents)
+    for (const auto& [hex, pct] : color_percents)
         inputs.push_back({hex, pct, std::nullopt});
     return blend_from_colors(inputs);
 }
@@ -403,6 +1111,30 @@ std::optional<std::string> full_spectrum_ks_blend_color_multi(
     const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents)
 {
     return blend_from_colors(color_percents);
+}
+
+std::optional<std::string> full_spectrum_ks_apply_pair_residual_delta_lab(
+    const std::string                                      &base_color_hex,
+    const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents)
+{
+    return apply_pair_residual_delta_lab(base_color_hex, color_percents);
+}
+
+std::optional<FullSpectrumColorPredictionResult> full_spectrum_lab_td_ridge_apply_delta_lab_prediction(
+    const std::string                                      &base_color_hex,
+    const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents)
+{
+    return apply_lab_td_ridge_delta_lab(base_color_hex, color_percents);
+}
+
+std::optional<std::string> full_spectrum_lab_td_ridge_apply_delta_lab(
+    const std::string                                      &base_color_hex,
+    const std::vector<FullSpectrumKSPairResidualColorInput> &color_percents)
+{
+    const auto prediction = apply_lab_td_ridge_delta_lab(base_color_hex, color_percents);
+    if (!prediction)
+        return std::nullopt;
+    return prediction->color_hex;
 }
 
 std::optional<std::string> full_spectrum_ks_blend_color(const std::string &color_a,
@@ -452,6 +1184,26 @@ const char* full_spectrum_ks_profile_specular_mode()
 const char* full_spectrum_ks_profile_backing_condition()
 {
     return MaterialDatabaseData::BACKING_CONDITION;
+}
+
+const char* full_spectrum_lab_td_ridge_model_id()
+{
+    return LabTDRidgeData::MODEL_ID;
+}
+
+const char* full_spectrum_lab_td_ridge_model_type()
+{
+    return LabTDRidgeData::MODEL_TYPE;
+}
+
+const char* full_spectrum_lab_td_ridge_target_specular_mode()
+{
+    return LabTDRidgeData::TARGET_SPECULAR_MODE;
+}
+
+const char* full_spectrum_lab_td_ridge_target_backing_condition()
+{
+    return LabTDRidgeData::TARGET_BACKING_CONDITION;
 }
 
 } // namespace Slic3r

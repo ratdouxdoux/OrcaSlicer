@@ -347,16 +347,29 @@ void MixedFilamentDialog::build_ui()
 
         m_color_engine_choice = new wxChoice(engine_outer, wxID_ANY);
         m_color_engine_choice->Append(_L("FilamentMixer"));
+        m_color_engine_choice->Append(_L("FilamentMixer + Delta Lab"));
+        m_color_engine_choice->Append(_L("Lab/TD Ridge regression"));
         m_color_engine_choice->Append(_L("KM/K-S learned pair"));
-        m_color_engine_choice->SetSelection(
-            MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual ? 1 : 0);
+        m_color_engine_choice->SetSelection([] {
+            switch (MixedFilamentManager::color_engine()) {
+            case MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab:
+                return 1;
+            case MixedFilamentColorEngine::FilamentMixerLabTDRidge:
+                return 2;
+            case MixedFilamentColorEngine::FullSpectrumKSPairResidual:
+                return 3;
+            case MixedFilamentColorEngine::FilamentMixer:
+            default:
+                return 0;
+            }
+        }());
         m_color_engine_choice->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { on_color_engine_changed(); });
         engine_sizer->Add(m_color_engine_choice, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(12));
 
         m_use_td_prediction_checkbox = new wxCheckBox(engine_outer, wxID_ANY, _L("Use TD"));
         m_use_td_prediction_checkbox->SetValue(MixedFilamentManager::use_td_for_color_prediction());
-        m_use_td_prediction_checkbox->Enable(MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
-        m_use_td_prediction_checkbox->SetToolTip(_L("Weight KM/K-S color prediction by inverse filament TD."));
+        m_use_td_prediction_checkbox->Enable(MixedFilamentManager::color_engine() != MixedFilamentColorEngine::FilamentMixer);
+        m_use_td_prediction_checkbox->SetToolTip(_L("Use filament transmission distance in calibrated color prediction."));
         m_use_td_prediction_checkbox->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent&) {
             const bool enabled = m_use_td_prediction_checkbox && m_use_td_prediction_checkbox->GetValue();
             MixedFilamentManager::set_use_td_for_color_prediction(enabled);
@@ -3358,7 +3371,10 @@ void MixedFilamentDialog::on_color_engine_changed()
 {
     const int selection = m_color_engine_choice ? m_color_engine_choice->GetSelection() : 0;
     const MixedFilamentColorEngine engine =
-        selection == 1 ? MixedFilamentColorEngine::FullSpectrumKSPairResidual : MixedFilamentColorEngine::FilamentMixer;
+        selection == 3 ? MixedFilamentColorEngine::FullSpectrumKSPairResidual :
+        selection == 2 ? MixedFilamentColorEngine::FilamentMixerLabTDRidge :
+        selection == 1 ? MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab :
+                         MixedFilamentColorEngine::FilamentMixer;
 
     MixedFilamentManager::set_color_engine(engine);
     if (wxGetApp().app_config != nullptr) {
@@ -3373,7 +3389,7 @@ void MixedFilamentDialog::on_color_engine_changed()
     }
     if (m_use_td_prediction_checkbox) {
         m_use_td_prediction_checkbox->SetValue(MixedFilamentManager::use_td_for_color_prediction());
-        m_use_td_prediction_checkbox->Enable(engine == MixedFilamentColorEngine::FullSpectrumKSPairResidual);
+        m_use_td_prediction_checkbox->Enable(engine != MixedFilamentColorEngine::FilamentMixer);
     }
 
     update_preview();

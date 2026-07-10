@@ -51,3 +51,14 @@ endif()
 
 # catch_discover_tests(${_TEST_NAME}_tests TEST_PREFIX "${_TEST_NAME}: ")
 add_test(${_TEST_NAME}_tests ${_TEST_NAME}_tests ${CATCH_EXTRA_ARGS})
+
+add_executable(mixed_filament_color_tests
+    ${_TEST_NAME}_tests.cpp
+    test_mixed_filament.cpp
+)
+target_link_libraries(mixed_filament_color_tests test_common libslic3r OpenSSL::Crypto)
+if (WIN32)
+    target_link_libraries(mixed_filament_color_tests bcrypt.lib)
+endif()
+set_property(TARGET mixed_filament_color_tests PROPERTY FOLDER "tests")
+add_test(mixed_filament_color_tests mixed_filament_color_tests "[MixedFilament][Color]" ${CATCH_EXTRA_ARGS})
