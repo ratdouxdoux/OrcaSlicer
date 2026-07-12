@@ -24,19 +24,23 @@ This engine currently affects mixed-filament preview/display colors. It does not
 The mixed-filament color engine is global runtime state:
 
 - `MixedFilamentColorEngine::FilamentMixer`
+- `MixedFilamentColorEngine::FilamentMixerPairResidualDeltaLab`
 - `MixedFilamentColorEngine::FullSpectrumKSPairResidual`
+- `MixedFilamentColorEngine::FilamentMixerLabTDRidge`
 
 The app config key `mixed_filament_color_engine` stores the selected engine as:
 
 - `filament_mixer`
+- `filament_mixer_delta_lab`
 - `ks_pair_residual`
+- `lab_td_ridge`
 
 The app config key `mixed_filament_use_td_prediction` stores whether TD weighting is enabled. The default app config keeps `filament_mixer` as the default engine and `mixed_filament_use_td_prediction` enabled for when the KM/K-S engine is selected.
 
 Both the sidebar and mixed-filament dialog expose:
 
-- a color engine choice with `FilamentMixer` and `KM/K-S learned pair`
-- a `Use TD` checkbox enabled only when the KM/K-S learned-pair engine is active
+- a color engine choice with all four engines
+- a `Use TD` checkbox enabled for the three calibrated/corrected engines
 
 Changing either option updates the mixed-filament display context and rebuilds preview colors.
 
@@ -50,6 +54,8 @@ struct FullSpectrumKSPairResidualColorInput
     std::string           color_hex;
     int                   percent = 0;
     std::optional<double> td_mm;
+    std::optional<double> layer_height_mm;
+    bool                  use_td = true;
 };
 ```
 
@@ -87,7 +93,16 @@ The current scope recorded in the header is:
 
 The wavelength grid is 400 nm through 700 nm in 10 nm steps, so each spectrum has 31 samples.
 
+The active database is a combined four-profile export containing 16 measured materials and 24 within-profile learned pairs:
+
+- Panchroma Grey-key CMYG
+- Panchroma Snapseed CMYW
+- Panchroma CMY + Trans Black
+- Jayo Red + Flash Blue + Pan Yellow + Snap White
+
 Each material can list one or more accepted display hex values. For example, the same measured material can match both the source color used in older data and the color currently stored in the slicer profile. `material_index_for_color()` normalizes the input hex and searches all accepted hex aliases for each material.
+
+Measured per-lot hex values are the authoritative identities. Shared nominal CMY aliases remain assigned to the original Grey-key profile for backward compatibility; newer lots use their unique measured hex values. In particular, Snapseed `#E4E5E1` and Jayo `#E3E4E0` are separate materials even though the Jayo source filename contains the nominal token `E4E5E1`. Do not assign one ambiguous nominal hex to multiple physical materials without adding an explicit material/profile identifier to the runtime input.
 
 Do not edit the generated profile header by hand. Regenerate it from the accepted measurement/profile pipeline so spectra, material aliases, TD values, and pair residuals stay consistent.
 
@@ -160,10 +175,16 @@ This keeps valid custom colors in the KM/K-S path instead of silently dropping b
 
 ## TD Weighting
 
-TD is treated as an optical-strength term. When TD is present, finite, positive, and the `Use TD` toggle is enabled:
+Pair residuals are trained at each known material's profile TD. When runtime TD is present, finite, positive, and the `Use TD` toggle is enabled, known materials use a profile-relative optical-strength correction:
 
 ```text
-raw_weight = percent / TD
+raw_weight = percent * profile_TD / runtime_TD
+```
+
+At the native profile TD this reduces to `raw_weight = percent`, preserving the exact composition used during training. For an unknown material, the same dimensionless correction uses a neutral 6 mm reference TD:
+
+```text
+raw_weight = percent * 6 mm / runtime_TD
 ```
 
 When TD is missing or disabled:
@@ -178,7 +199,7 @@ All raw weights are then normalized:
 weight_i = raw_weight_i / sum(raw_weight)
 ```
 
-Lower TD means the filament reaches opacity faster, so it contributes more optical strength for the same nominal percentage. The tests intentionally check that the same color pair produces different predictions when TD values change and that disabling the TD toggle returns to the non-TD result.
+Lower runtime TD than the material's reference value means the filament reaches opacity faster, so it contributes more optical strength for the same nominal percentage. Tests require native profile TD to reproduce the trained no-adjustment result, changed TD to change the prediction, and disabling TD to return to the no-adjustment result.
 
 ## Baseline Mixing
 
@@ -316,9 +337,11 @@ When updating the profile:
 1. Generate and measure swatches with stable manifests.
 2. Keep raw spectra and repeated readings.
 3. Accept or reject rows with explicit defect flags.
-4. Train the material K/S spectra and pair residual coefficients.
-5. Regenerate `FullSpectrumMaterialDatabaseProfile.h`.
-6. Run the mixed-filament color tests and update expected colors only when the profile intentionally changes.
+4. Train all accepted profile families into one material database rather than replacing the previous export with the newest source.
+5. Preserve unique measured material identities and apply the documented deterministic alias policy.
+6. Regenerate `FullSpectrumMaterialDatabaseProfile.h`.
+7. Run the mixed-filament color tests and verify all expected material families and pair counts remain present.
+8. Report metrics per source family and mix order as well as the aggregate score; adding a harder profile must not hide a regression in an existing family.
 
 When extending the model, prefer adding explicit profile fields rather than overloading existing meanings. Likely future extensions include:
 

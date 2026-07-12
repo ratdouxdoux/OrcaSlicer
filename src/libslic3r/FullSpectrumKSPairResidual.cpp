@@ -21,6 +21,7 @@ namespace LabTDRidgeData = FullSpectrumLabTDRidgeModelData;
 using Spectrum = std::array<double, MaterialDatabaseData::SPECTRUM_SIZE>;
 
 constexpr double EPSILON = 1e-9;
+constexpr double DEFAULT_REFERENCE_TD_MM = 6.0;
 constexpr double DISPLAY_D65_10_X = 94.811;
 constexpr double DISPLAY_D65_10_Y = 100.0;
 constexpr double DISPLAY_D65_10_Z = 107.304;
@@ -90,20 +91,33 @@ static std::optional<std::string> normalize_hex_color(const std::string &hex)
     return normalized;
 }
 
-static std::optional<size_t> material_index_for_color(const std::string &hex)
+static std::optional<size_t> material_index_for_color(const std::string &hex, const std::optional<double> &td_mm = std::nullopt)
 {
     const std::optional<std::string> normalized = normalize_hex_color(hex);
     if (!normalized)
         return std::nullopt;
 
+    std::optional<size_t> first_match;
+    std::optional<size_t> closest_td_match;
+    double                closest_td_distance = std::numeric_limits<double>::max();
     for (size_t material = 0; material < MaterialDatabaseData::MATERIAL_COUNT; ++material) {
         const size_t hex_count = MaterialDatabaseData::MATERIAL_HEX_COUNT[material];
         for (size_t hex_index = 0; hex_index < hex_count; ++hex_index) {
-            if (*normalized == MaterialDatabaseData::MATERIAL_HEX[material][hex_index])
-                return material;
+            if (*normalized != MaterialDatabaseData::MATERIAL_HEX[material][hex_index])
+                continue;
+
+            if (!first_match)
+                first_match = material;
+            if (td_mm && std::isfinite(*td_mm) && *td_mm > EPSILON) {
+                const double distance = std::abs(*td_mm - MaterialDatabaseData::MATERIAL_TD_MM[material]);
+                if (distance < closest_td_distance) {
+                    closest_td_distance = distance;
+                    closest_td_match    = material;
+                }
+            }
         }
     }
-    return std::nullopt;
+    return closest_td_match ? closest_td_match : first_match;
 }
 
 static const Spectrum& material_ks(size_t material_index)
@@ -228,15 +242,18 @@ static std::optional<std::vector<MaterialKS>> materials_from_colors(
         if (!source_rgb)
             return std::nullopt;
 
+        const std::optional<size_t> material_index = material_index_for_color(input.color_hex, input.td_mm);
+
         double optical_strength = 1.0;
         if (input.use_td && input.td_mm && std::isfinite(*input.td_mm) && *input.td_mm > EPSILON) {
-            // Treat TD as an optical strength term: lower TD means the filament
-            // reaches visual opacity faster and should contribute more strongly.
-            optical_strength = 1.0 / *input.td_mm;
+            // Pair residuals are trained at each material's measured profile TD.
+            // Preserve the printed recipe at that native TD and apply only a
+            // dimensionless relative correction when the runtime TD differs.
+            const double reference_td = material_index ? material_td_mm(*material_index) : DEFAULT_REFERENCE_TD_MM;
+            optical_strength          = reference_td / *input.td_mm;
         }
 
         const double weighted = static_cast<double>(pct) * optical_strength;
-        const std::optional<size_t> material_index = material_index_for_color(input.color_hex);
         MaterialKS material;
         material.material_index = material_index;
         material.normalized_hex = *normalized_hex;
@@ -1174,6 +1191,16 @@ std::optional<double> full_spectrum_ks_profile_td_mm_for_color(const std::string
 const char* full_spectrum_ks_profile_id()
 {
     return MaterialDatabaseData::PROFILE_ID;
+}
+
+size_t full_spectrum_ks_profile_material_count()
+{
+    return MaterialDatabaseData::MATERIAL_COUNT;
+}
+
+size_t full_spectrum_ks_profile_pair_count()
+{
+    return MaterialDatabaseData::PAIR_COUNT;
 }
 
 const char* full_spectrum_ks_profile_specular_mode()

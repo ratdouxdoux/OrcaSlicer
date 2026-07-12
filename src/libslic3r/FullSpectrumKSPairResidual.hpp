@@ -1,6 +1,7 @@
 #ifndef slic3r_FullSpectrumKSPairResidual_hpp_
 #define slic3r_FullSpectrumKSPairResidual_hpp_
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <utility>
@@ -69,6 +70,8 @@ bool full_spectrum_ks_profile_matches_color(const std::string &hex);
 std::optional<double> full_spectrum_ks_profile_td_mm_for_color(const std::string &hex);
 
 const char* full_spectrum_ks_profile_id();
+size_t full_spectrum_ks_profile_material_count();
+size_t full_spectrum_ks_profile_pair_count();
 const char* full_spectrum_ks_profile_specular_mode();
 const char* full_spectrum_ks_profile_backing_condition();
 const char* full_spectrum_lab_td_ridge_model_id();

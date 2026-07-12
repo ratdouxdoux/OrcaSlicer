@@ -60,7 +60,7 @@ At prediction time the engine:
 
 1. Normalizes valid source colors and maps known colors to embedded material spectra.
 2. Estimates a K/S spectrum from hex for valid colors outside the embedded profile.
-3. Weights each input by recipe percentage, optionally adjusted by inverse TD so lower-TD filaments contribute more optical strength.
+3. Weights each input by recipe percentage, optionally adjusted by `profile_TD / runtime_TD` so native profile TD preserves the trained recipe and lower runtime TD contributes more optical strength.
 4. Mixes the material K/S spectra.
 5. Applies learned pair residual coefficients when both materials belong to the embedded profile.
 6. Converts the predicted reflectance spectrum to Lab, then to display hex for preview.

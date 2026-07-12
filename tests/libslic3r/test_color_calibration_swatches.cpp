@@ -31,7 +31,7 @@ static Backing black_backing()
 
 } // namespace
 
-TEST_CASE("Calibration swatch compact IDs and back text match requested defaults", "[ColorCalibrationSwatches]")
+TEST_CASE("Calibration swatch compact IDs match requested defaults", "[ColorCalibrationSwatches]")
 {
     const FilamentSlot f1 = filament(1, "PLA Red", "RED", "#FF0000", 6.0);
     const FilamentSlot f2 = filament(2, "PLA Blue", "BLUE", "#0000FF", 5.5);
@@ -42,39 +42,34 @@ TEST_CASE("Calibration swatch compact IDs and back text match requested defaults
     pair.filaments = { f1, f2 };
     pair.ratios    = { 50, 50 };
     CHECK(make_swatch_id(pair) == "1_2_50_50");
-    CHECK(make_back_text(pair) == "1_2\n50_50\n50_50%");
 
     pair.ratios = { 3, 5 };
-    CHECK(make_back_text(pair) == "1_2\n3_5\n37.5_62.5%");
+    CHECK(make_swatch_id(pair) == "1_2_3_5");
 
     SwatchSpec order = pair;
     order.ratios = { 50, 50 };
     order.type              = SwatchType::PairOrder;
     order.top_material_slot = 1;
     CHECK(make_swatch_id(order) == "1_2_50_50_1TOP");
-    CHECK(make_back_text(order) == "1_2\n50_50\n50_50%\n1TOP");
 
     SwatchSpec ternary;
     ternary.type      = SwatchType::TernaryMix;
     ternary.filaments = { f1, f2, f3 };
     ternary.ratios    = { 33, 33, 34 };
     CHECK(make_swatch_id(ternary) == "1_2_3_33_33_34");
-    CHECK(make_back_text(ternary) == "1_2_3\n33_33_34\n33_33_34%\n16_16_16\n123x16");
 
     SwatchSpec td_ladder;
     td_ladder.type               = SwatchType::TDLadder;
     td_ladder.filaments          = { f1 };
     td_ladder.total_thickness_mm = 0.8;
     CHECK(make_swatch_id(td_ladder) == "1_TD_0p8");
-    CHECK(make_back_text(td_ladder) == "1\nTD 0p8");
 
     td_ladder.total_thickness_mm = 1.2;
     td_ladder.backing            = black_backing();
     CHECK(make_swatch_id(td_ladder) == "1_TD_1p2_BLACK");
-    CHECK(make_back_text(td_ladder) == "1\nTD 1p2\nBLACK");
 }
 
-TEST_CASE("Calibration swatch formatting options can change separator prefix and wrapping", "[ColorCalibrationSwatches]")
+TEST_CASE("Calibration swatch ID options can change separator prefix backing and suffix", "[ColorCalibrationSwatches]")
 {
     SwatchSpec pair;
     pair.type      = SwatchType::PairMix;
@@ -89,14 +84,12 @@ TEST_CASE("Calibration swatch formatting options can change separator prefix and
     id_options.include_swatch_type_prefix = true;
     CHECK(make_swatch_id(pair, id_options) == "P-1-2-75-25");
 
-    BackTextFormatOptions text_options;
-    text_options.separator = "_";
-    text_options.max_chars_per_line = 3;
-    text_options.include_percentages = false;
-    CHECK(make_back_text(pair, text_options, id_options) == "1_2\n75\n25");
+    pair.backing = black_backing();
+    CHECK(make_swatch_id(pair, id_options) == "P-1-2-75-25-BLACK");
 
-    text_options.wrap_lines = false;
-    CHECK(make_back_text(pair, text_options, id_options) == "P-1-2-75-25");
+    id_options.include_backing = false;
+    pair.id_suffix             = "LOT7";
+    CHECK(make_swatch_id(pair, id_options) == "P-1-2-75-25-LOT7");
 }
 
 TEST_CASE("Calibration swatch plan generates anchor TD ladder and pair grids with manifest details", "[ColorCalibrationSwatches]")
@@ -117,13 +110,13 @@ TEST_CASE("Calibration swatch plan generates anchor TD ladder and pair grids wit
     config.local_z_enabled = true;
 
     SwatchPlan plan = generate_swatch_plan(config);
-    REQUIRE(plan.records.size() == 15);
+    REQUIRE(plan.records.size() == 21);
     CHECK(validate_swatch_plan(plan, config).empty());
 
     const nlohmann::json manifest = manifest_json(plan);
     CHECK(manifest["schema"] == "fullspectrum.calibration_swatches.v1");
     CHECK(manifest["title"] == "Test Calibration");
-    CHECK(manifest["count"] == 15);
+    CHECK(manifest["count"] == 21);
     REQUIRE(manifest["primary_filaments"].is_array());
     CHECK(manifest["primary_filaments"].size() == 3);
     CHECK(manifest["primary_filaments"][0]["slot"] == 1);
@@ -132,9 +125,11 @@ TEST_CASE("Calibration swatch plan generates anchor TD ladder and pair grids wit
     CHECK(manifest["primary_td_values"]["1"] == 6.0);
     CHECK(manifest["primary_td_values"]["3"] == 2.0);
     CHECK(manifest["layer_height_mm"] == 0.16);
-    CHECK(manifest["swatch_depth_mm"] == 6.5);
+    CHECK(manifest["swatch_depth_mm"] == 7.0);
     CHECK(manifest["local_z_enabled"] == true);
-    CHECK(manifest["records"].size() == 15);
+    CHECK(manifest["local_z_direct_multicolor"] == false);
+    CHECK(manifest["swatch_reference_start"] == "A");
+    CHECK(manifest["records"].size() == 21);
 
     auto it = std::find_if(plan.records.begin(), plan.records.end(), [](const SwatchRecord &record) {
         return record.swatch_id == "1_2_2_3";
@@ -157,20 +152,29 @@ TEST_CASE("Calibration swatch plan generates anchor TD ladder and pair grids wit
     CHECK(record_json["effective_layer_sequence"][3] == 2);
     CHECK(record_json["effective_layer_sequence"][4] == 2);
     CHECK(record_json["effective_layer_cycle"] == "11222");
-    CHECK(record_json["back_text"] == "1_2\n2_3\n40_60%");
+    CHECK(record_json["printed_reference"] == it->printed_reference);
+    CHECK(record_json["plate_reference"] == it->plate_reference);
+    CHECK(record_json["sample_number"] == it->sample_number);
+    CHECK(it->sample_number == 17);
+    CHECK(it->plate_reference == "A");
+    CHECK(it->printed_reference == "A17");
+    CHECK(it->printed_reference == it->plate_reference + std::to_string(it->sample_number));
     CHECK(record_json["layer_height_mm"] == 0.16);
     CHECK(record_json["measurement_side"] == "side");
     CHECK(record_json["object_name"] == "CS_1_2_2_3");
+    CHECK(std::find(it->volume_names.begin(), it->volume_names.end(), "reference_" + it->printed_reference) != it->volume_names.end());
 
     auto anchor_it = std::find_if(plan.records.begin(), plan.records.end(), [](const SwatchRecord &record) {
-        return record.swatch_id == "1";
+        return record.swatch_id == "1_7MM";
     });
     REQUIRE(anchor_it != plan.records.end());
     CHECK(swatch_record_to_json(*anchor_it)["layer_height_mm"] == 0.16);
 
     const std::string csv = manifest_csv_string(plan);
-    CHECK(csv.find("swatch_id,swatch_type,plate_index") == 0);
-    CHECK(csv.find("1_2_2_3,pair_mix") != std::string::npos);
+    CHECK(csv.find("swatch_id,printed_reference,plate_reference,sample_number,swatch_type,plate_index") == 0);
+    const std::string csv_row_prefix = "1_2_2_3," + it->printed_reference + "," + it->plate_reference + "," +
+                                       std::to_string(it->sample_number) + ",pair_mix";
+    CHECK(csv.find(csv_row_prefix) != std::string::npos);
     CHECK(csv.find(",side,") != std::string::npos);
 }
 
@@ -243,10 +247,11 @@ TEST_CASE("Calibration swatch plate label reserves only the lower-right corner",
         filament(1, "PLA Red", "RED", "#FF0000", 6.0),
         filament(2, "PLA Blue", "BLUE", "#0000FF", 5.0)
     };
-    config.families.reflective_anchor = true;
+    config.families.reflective_anchor = false;
     config.families.td_ladder         = false;
-    config.families.pair_mix          = false;
+    config.families.pair_mix          = true;
     config.families.ternary_mix       = false;
+    config.pair_mix_ratios            = { { 1, 1 }, { 1, 2 } };
     config.layout.chip_width_mm       = 20.0;
     config.layout.chip_depth_mm       = 20.0;
     config.layout.spacing_x_mm        = 0.0;
@@ -265,7 +270,7 @@ TEST_CASE("Calibration swatch plate label reserves only the lower-right corner",
 
     config.plate_label.enabled = true;
     config.plate_label.reserved_height_mm = 22.0;
-    config.plate_label.reserved_width_mm = 22.0;
+    config.plate_label.reserved_width_mm = 20.0;
     SwatchPlan labeled = generate_swatch_plan(config);
     REQUIRE(labeled.records.size() == 2);
     CHECK(labeled.records.front().position.x_mm == Approx(15.0));
@@ -277,13 +282,14 @@ TEST_CASE("Calibration swatch plate label reserves only the lower-right corner",
 TEST_CASE("Calibration swatch layout reserves top-left prime tower space", "[ColorCalibrationSwatches]")
 {
     SwatchGeneratorConfig config;
-    for (unsigned int slot = 1; slot <= 12; ++slot)
+    for (unsigned int slot = 1; slot <= 4; ++slot)
         config.filaments.emplace_back(filament(slot, "PLA", std::to_string(slot).c_str(), "#AAAAAA", 3.0));
 
-    config.families.reflective_anchor = true;
+    config.families.reflective_anchor = false;
     config.families.td_ladder         = false;
-    config.families.pair_mix          = false;
+    config.families.pair_mix          = true;
     config.families.ternary_mix       = false;
+    config.pair_mix_ratios            = { { 1, 1 }, { 1, 2 } };
     config.layout.chip_width_mm       = 20.0;
     config.layout.footprint_depth_mm  = 10.0;
     config.layout.spacing_x_mm        = 0.0;
@@ -330,7 +336,6 @@ TEST_CASE("Calibration swatch ternary ratios auto-generate reduced positive prop
     config.families.pair_order        = false;
     config.families.ternary_mix       = true;
     config.pair_ratio_layer_limit     = 7;
-    config.back_text_format.max_chars_per_line = 64;
 
     SwatchPlan plan = generate_swatch_plan(config);
     REQUIRE(plan.records.size() == 136);
@@ -346,31 +351,31 @@ TEST_CASE("Calibration swatch ternary ratios auto-generate reduced positive prop
     });
     REQUIRE(it != plan.records.end());
     CHECK(it->spec.ratios == std::vector<int>({ 1, 1, 5 }));
-    CHECK(it->back_text.find("1_1_5") != std::string::npos);
-    CHECK(it->back_text.find("14.3_14.3_71.4%") != std::string::npos);
+    CHECK(it->sample_number > 0);
+    CHECK(it->printed_reference == it->plate_reference + std::to_string(it->sample_number));
+    const nlohmann::json record_json = swatch_record_to_json(*it);
+    CHECK(record_json["percentages"][0] == 14.3);
+    CHECK(record_json["percentages"][1] == 14.3);
+    CHECK(record_json["percentages"][2] == 71.4);
 }
 
-TEST_CASE("Calibration swatch validation catches duplicate compact IDs and high TD anchor warnings", "[ColorCalibrationSwatches]")
+TEST_CASE("Calibration swatch validation catches duplicate compact IDs when backing is omitted", "[ColorCalibrationSwatches]")
 {
     SwatchGeneratorConfig config;
     config.filaments = { filament(1, "PLA Clear", "CLR", "#F8FFFF", 6.0) };
     config.families.td_ladder = false;
     config.families.pair_mix  = false;
-    config.anchor_thickness_mm = 1.0;
     config.anchor_backings = { {}, black_backing() };
     config.id_format.include_backing = false;
 
     SwatchPlan plan = generate_swatch_plan(config);
-    REQUIRE(plan.records.size() == 2);
+    REQUIRE(plan.records.size() == 6);
 
     const std::vector<ValidationIssue> issues = validate_swatch_plan(plan, config);
-    CHECK(std::any_of(issues.begin(), issues.end(), [](const ValidationIssue &issue) {
+    const size_t duplicate_count = std::count_if(issues.begin(), issues.end(), [](const ValidationIssue &issue) {
         return issue.severity == ValidationSeverity::Error && issue.message == "duplicate swatch id";
-    }));
-    CHECK(std::any_of(issues.begin(), issues.end(), [](const ValidationIssue &issue) {
-        return issue.severity == ValidationSeverity::Warning &&
-               issue.message.find("not an opaque anchor") != std::string::npos;
-    }));
+    });
+    CHECK(duplicate_count == 3);
 }
 
 TEST_CASE("Calibration swatch disabled families generate zero records for that family", "[ColorCalibrationSwatches]")
