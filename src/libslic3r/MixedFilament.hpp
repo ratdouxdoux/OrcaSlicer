@@ -172,6 +172,12 @@ struct MixedFilamentColorInput
     std::optional<double> td_mm;
 };
 
+struct MixedFilamentResolvedComponent
+{
+    unsigned int physical_filament_id = 0;
+    int          ratio                = 0;
+};
+
 int mixed_filament_effective_local_z_preview_mix_b_percent(const MixedFilament               &mf,
                                                            const MixedFilamentPreviewSettings &preview_settings);
 bool mixed_filament_supports_bias_apparent_color(const MixedFilament               &mf,
@@ -181,6 +187,10 @@ std::pair<int, int> mixed_filament_apparent_pair_percentages(const MixedFilament
                                                              const MixedFilamentPreviewSettings &preview_settings,
                                                              const std::vector<double>          &nozzle_diameters,
                                                              bool                                bias_mode_enabled);
+// Resolve the exact physical-filament proportions represented by the display
+// preview. The result is independent of the globally selected colour engine.
+std::vector<MixedFilamentResolvedComponent> resolve_mixed_filament_display_components(const MixedFilament&               entry,
+                                                                                      const MixedFilamentDisplayContext& context);
 std::string compute_mixed_filament_display_color(const MixedFilament &entry, const MixedFilamentDisplayContext &context);
 
 // ---------------------------------------------------------------------------
@@ -351,6 +361,12 @@ public:
         const std::vector<std::pair<std::string, int>> &color_percents);
     static std::string blend_color_multi(
         const std::vector<MixedFilamentColorInput> &color_percents);
+    // Predict through a specific engine without changing the process-wide
+    // colour-engine or TD settings. Percent values may also be unnormalised
+    // integer ratios.
+    static std::string blend_color_multi_with_engine(const std::vector<MixedFilamentColorInput>& color_percents,
+                                                     MixedFilamentColorEngine                    engine,
+                                                     bool                                        use_td);
 
     const MixedFilament *mixed_filament_from_id(unsigned int filament_id, size_t num_physical) const;
 

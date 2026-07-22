@@ -296,6 +296,8 @@ set(lisbslic3r_sources
     FullSpectrumKSPairResidualProfile.h
     MixedFilament.cpp
     MixedFilament.hpp
+    MixedFilamentExport.cpp
+    MixedFilamentExport.hpp
     filament_mixer.cpp
     filament_mixer.h
     filament_mixer_model.h

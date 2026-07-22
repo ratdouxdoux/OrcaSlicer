@@ -66,6 +66,7 @@
 #include "NetworkTestDialog.hpp"
 #include "ConfigWizard.hpp"
 #include "CalibrationSwatchesDialog.hpp"
+#include "MixedFilamentExportDialog.hpp"
 #include "Widgets/WebView.hpp"
 #include "DailyTips.hpp"
 
@@ -2940,6 +2941,14 @@ void MainFrame::init_menubar_as_editor()
         }, "", nullptr,
         [this]() { return m_plater && m_plater->is_view3D_shown(); }, this);
 
+    append_menu_item(
+        m_topbar->GetCalibMenu(), wxID_ANY, _L("Export mixed filament catalog"), _L("Export mixed filament colors and ratios to XLSX"),
+        [this](wxCommandEvent&) {
+            MixedFilamentExportDialog dlg((wxWindow*)this);
+            dlg.ShowModal();
+        },
+        "", nullptr, [this]() { return m_plater != nullptr; }, this);
+
     // Cornering (with submenu)
     auto cornering_menu = new wxMenu();
     append_menu_item(
@@ -3068,6 +3077,14 @@ void MainFrame::init_menubar_as_editor()
             dlg.ShowModal();
         }, "", nullptr,
         [this]() { return m_plater && m_plater->is_view3D_shown(); }, this);
+
+    append_menu_item(
+        calib_menu, wxID_ANY, _L("Export mixed filament catalog"), _L("Export mixed filament colors and ratios to XLSX"),
+        [this](wxCommandEvent&) {
+            MixedFilamentExportDialog dlg((wxWindow*)this);
+            dlg.ShowModal();
+        },
+        "", nullptr, [this]() { return m_plater != nullptr; }, this);
 
     // Cornering (with submenu)
     auto cornering_menu = new wxMenu();

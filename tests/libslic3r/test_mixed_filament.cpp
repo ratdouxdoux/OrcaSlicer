@@ -2,12 +2,17 @@
 
 #include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/FullSpectrumKSPairResidual.hpp"
+#include "libslic3r/Format/ZipperArchiveImport.hpp"
+#include "libslic3r/MixedFilamentExport.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/filament_mixer.h"
 #include "libslic3r/GCode/ToolOrdering.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/TriangleSelector.hpp"
+
+#include <boost/filesystem.hpp>
+#include <boost/nowide/cstdio.hpp>
 
 #include <algorithm>
 #include <array>
@@ -3256,4 +3261,333 @@ TEST_CASE("Local Z infill subdivision defaults inactive when Subdivide Mix Layer
     full_config.apply(bundle.project_config);
     REQUIRE(full_config.has("dithering_local_z_infill"));
     CHECK_FALSE(full_config.opt_bool("dithering_local_z_infill"));
+}
+
+// ============================================================================
+// [MixedFilament][Export]
+// ============================================================================
+
+TEST_CASE("Mixed filament display component resolution preserves each preview path", "[MixedFilament][Display][Export]")
+{
+    ScopedMixedFilamentColorEngine engine_guard(MixedFilamentColorEngine::FilamentMixer);
+
+    MixedFilamentDisplayContext context;
+    context.num_physical                = 4;
+    context.physical_colors             = {"#0091B8", "#C64D7A", "#F2C94C", "#222222"};
+    context.nozzle_diameters            = {0.4, 0.4, 0.4, 0.4};
+    context.preview_settings.wall_loops = 1;
+    context.component_bias_enabled      = true;
+
+    SECTION("reversed biased pairs retain component A then B order")
+    {
+        MixedFilament mixed;
+        mixed.component_a                = 2;
+        mixed.component_b                = 1;
+        mixed.mix_b_percent              = 50;
+        mixed.distribution_mode          = int(MixedFilament::Simple);
+        mixed.component_a_surface_offset = 0.05f;
+        mixed.component_b_surface_offset = 0.0f;
+
+        const auto [ratio_a, ratio_b] = mixed_filament_apparent_pair_percentages(mixed, context.preview_settings, context.nozzle_diameters,
+                                                                                 true);
+        const std::vector<MixedFilamentResolvedComponent> resolved = resolve_mixed_filament_display_components(mixed, context);
+        REQUIRE(resolved.size() == 2);
+        CHECK(resolved[0].physical_filament_id == 2);
+        CHECK(resolved[0].ratio == ratio_a);
+        CHECK(resolved[1].physical_filament_id == 1);
+        CHECK(resolved[1].ratio == ratio_b);
+        CHECK(compute_mixed_filament_display_color(mixed, context) ==
+              MixedFilamentManager::blend_color(context.physical_colors[1], context.physical_colors[0], ratio_a, ratio_b));
+    }
+
+    SECTION("manual patterns resolve and retain legacy ID-sorted blending")
+    {
+        MixedFilament mixed;
+        mixed.component_a    = 2;
+        mixed.component_b    = 1;
+        mixed.manual_pattern = "1234";
+
+        const std::vector<MixedFilamentResolvedComponent> resolved = resolve_mixed_filament_display_components(mixed, context);
+        REQUIRE(resolved.size() == 4);
+        for (size_t i = 0; i < resolved.size(); ++i) {
+            CHECK(resolved[i].physical_filament_id == i + 1);
+            CHECK(resolved[i].ratio == 1);
+        }
+        const std::vector<MixedFilamentColorInput> expected_inputs = {{context.physical_colors[0], 1, std::nullopt},
+                                                                      {context.physical_colors[1], 1, std::nullopt},
+                                                                      {context.physical_colors[2], 1, std::nullopt},
+                                                                      {context.physical_colors[3], 1, std::nullopt}};
+        CHECK(compute_mixed_filament_display_color(mixed, context) ==
+              MixedFilamentManager::blend_color_multi_with_engine(expected_inputs, MixedFilamentColorEngine::FilamentMixer, false));
+    }
+
+    SECTION("weighted gradients resolve their exact physical counts")
+    {
+        MixedFilament mixed;
+        mixed.distribution_mode          = int(MixedFilament::LayerCycle);
+        mixed.gradient_component_ids     = "3/1/4";
+        mixed.gradient_component_weights = "2/3/5";
+
+        const std::vector<MixedFilamentResolvedComponent> resolved = resolve_mixed_filament_display_components(mixed, context);
+        REQUIRE(resolved.size() == 3);
+        CHECK(resolved[0].physical_filament_id == 1);
+        CHECK(resolved[0].ratio == 3);
+        CHECK(resolved[1].physical_filament_id == 3);
+        CHECK(resolved[1].ratio == 2);
+        CHECK(resolved[2].physical_filament_id == 4);
+        CHECK(resolved[2].ratio == 5);
+        const std::vector<MixedFilamentColorInput> expected_inputs = {{context.physical_colors[0], 3, std::nullopt},
+                                                                      {context.physical_colors[2], 2, std::nullopt},
+                                                                      {context.physical_colors[3], 5, std::nullopt}};
+        CHECK(compute_mixed_filament_display_color(mixed, context) ==
+              MixedFilamentManager::blend_color_multi_with_engine(expected_inputs, MixedFilamentColorEngine::FilamentMixer, false));
+    }
+
+    SECTION("Local-Z previews retain their effective cadence ratios")
+    {
+        context.preview_settings.local_z_mode         = true;
+        context.preview_settings.nominal_layer_height = 0.2;
+        context.preview_settings.mixed_lower_bound    = 0.04;
+        context.preview_settings.mixed_upper_bound    = 0.16;
+        MixedFilament mixed;
+        mixed.component_a       = 2;
+        mixed.component_b       = 1;
+        mixed.mix_b_percent     = 75;
+        mixed.distribution_mode = int(MixedFilament::Simple);
+
+        CHECK(mixed_filament_effective_local_z_preview_mix_b_percent(mixed, context.preview_settings) == 65);
+        const std::vector<MixedFilamentResolvedComponent> resolved = resolve_mixed_filament_display_components(mixed, context);
+        REQUIRE(resolved.size() == 2);
+        CHECK(resolved[0].physical_filament_id == 1);
+        CHECK(resolved[0].ratio == 2);
+        CHECK(resolved[1].physical_filament_id == 2);
+        CHECK(resolved[1].ratio == 1);
+        const std::vector<MixedFilamentColorInput> expected_inputs = {{context.physical_colors[0], 2, std::nullopt},
+                                                                      {context.physical_colors[1], 1, std::nullopt}};
+        CHECK(compute_mixed_filament_display_color(mixed, context) ==
+              MixedFilamentManager::blend_color_multi_with_engine(expected_inputs, MixedFilamentColorEngine::FilamentMixer, false));
+    }
+
+    SECTION("equal physical components retain the two-input mixer path")
+    {
+        context.component_bias_enabled = false;
+        MixedFilament mixed;
+        mixed.component_a       = 1;
+        mixed.component_b       = 1;
+        mixed.mix_b_percent     = 50;
+        mixed.distribution_mode = int(MixedFilament::Simple);
+
+        const std::vector<MixedFilamentResolvedComponent> resolved = resolve_mixed_filament_display_components(mixed, context);
+        REQUIRE(resolved.size() == 2);
+        CHECK(resolved[0].physical_filament_id == 1);
+        CHECK(resolved[0].ratio == 50);
+        CHECK(resolved[1].physical_filament_id == 1);
+        CHECK(resolved[1].ratio == 50);
+        CHECK(compute_mixed_filament_display_color(mixed, context) ==
+              MixedFilamentManager::blend_color(context.physical_colors[0], context.physical_colors[0], 50, 50));
+    }
+}
+
+static std::vector<MixedFilamentExportPhysicalFilament> four_export_physical_filaments()
+{
+    return {{1, "Cyan", "#0091B8", 6.4, true},
+            {2, "Magenta", "#C64D7A", 5.0, true},
+            {3, "Yellow", "#F2C94C", 4.2, true},
+            {4, "Black", "#222222", 1.2, true}};
+}
+
+TEST_CASE("Mixed filament automatic export emits canonical family counts", "[MixedFilament][Export]")
+{
+    const std::vector<MixedFilamentExportPhysicalFilament> physical = four_export_physical_filaments();
+    MixedFilamentAutomaticExportOptions                    options;
+    options.include_two_filament = false;
+
+    SECTION("pair family")
+    {
+        options.include_two_filament = true;
+        CHECK(make_automatic_mixed_filament_export_recipes(physical, options).size() == 54);
+    }
+    SECTION("ternary family")
+    {
+        options.include_three_filament = true;
+        CHECK(make_automatic_mixed_filament_export_recipes(physical, options).size() == 40);
+    }
+    SECTION("quaternary family")
+    {
+        options.include_four_filament = true;
+        CHECK(make_automatic_mixed_filament_export_recipes(physical, options).size() == 79);
+    }
+    SECTION("all families")
+    {
+        options.include_two_filament   = true;
+        options.include_three_filament = true;
+        options.include_four_filament  = true;
+        CHECK(make_automatic_mixed_filament_export_recipes(physical, options).size() == 173);
+    }
+}
+
+TEST_CASE("Mixed filament export predictions select engines without changing global state", "[MixedFilament][Export][Color]")
+{
+    const std::vector<MixedFilamentExportPhysicalFilament> physical = four_export_physical_filaments();
+    ScopedMixedFilamentColorEngine                         engine_guard(MixedFilamentColorEngine::FilamentMixerLabTDRidge);
+    ScopedMixedFilamentUseTdPrediction                     td_guard(false);
+
+    MixedFilamentAutomaticExportOptions options;
+    options.include_two_filament                         = true;
+    options.prediction.include_km_ks                     = true;
+    options.prediction.use_td                            = true;
+    const std::vector<MixedFilamentExportRecipe> recipes = make_automatic_mixed_filament_export_recipes(physical, options);
+
+    REQUIRE(recipes.size() == 54);
+    CHECK(std::all_of(recipes.begin(), recipes.end(), [](const MixedFilamentExportRecipe& recipe) {
+        return !recipe.filament_mixer_hex.empty() && recipe.km_ks_hex.has_value() && !recipe.km_ks_hex->empty();
+    }));
+    CHECK(MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FilamentMixerLabTDRidge);
+    CHECK_FALSE(MixedFilamentManager::use_td_for_color_prediction());
+
+    const MixedFilamentExportRecipe&           first  = recipes.front();
+    const std::vector<MixedFilamentColorInput> inputs = {{physical[0].color_hex, 1, physical[0].td_mm},
+                                                         {physical[1].color_hex, 1, physical[1].td_mm}};
+    CHECK(first.filament_mixer_hex ==
+          MixedFilamentManager::blend_color_multi_with_engine(inputs, MixedFilamentColorEngine::FilamentMixer, true));
+    CHECK(first.km_ks_hex ==
+          MixedFilamentManager::blend_color_multi_with_engine(inputs, MixedFilamentColorEngine::FullSpectrumKSPairResidual, true));
+
+    const std::string km_without_td =
+        MixedFilamentManager::blend_color_multi_with_engine(inputs, MixedFilamentColorEngine::FullSpectrumKSPairResidual, false);
+    CHECK(MixedFilamentManager::color_engine() == MixedFilamentColorEngine::FilamentMixerLabTDRidge);
+    CHECK_FALSE(MixedFilamentManager::use_td_for_color_prediction());
+    CHECK(!km_without_td.empty());
+
+    const std::vector<FullSpectrumKSPairResidualColorInput> expected_with_td = {{physical[0].color_hex, 1, physical[0].td_mm, std::nullopt,
+                                                                                 true},
+                                                                                {physical[1].color_hex, 1, physical[1].td_mm, std::nullopt,
+                                                                                 true}};
+    const std::vector<FullSpectrumKSPairResidualColorInput> expected_without_td = {{physical[0].color_hex, 1, physical[0].td_mm,
+                                                                                    std::nullopt, false},
+                                                                                   {physical[1].color_hex, 1, physical[1].td_mm,
+                                                                                    std::nullopt, false}};
+    const std::string raw = MixedFilamentManager::blend_color_multi_with_engine(inputs, MixedFilamentColorEngine::FilamentMixer, false);
+    CHECK(first.km_ks_hex == full_spectrum_ks_blend_color_multi(expected_with_td).value_or(raw));
+    CHECK(km_without_td == full_spectrum_ks_blend_color_multi(expected_without_td).value_or(raw));
+    CHECK(MixedFilamentManager::blend_color_multi_with_engine(inputs, MixedFilamentColorEngine::FilamentMixer, true) == raw);
+}
+
+TEST_CASE("Mixed filament current export uses effective ratios and skips hidden rows", "[MixedFilament][Export]")
+{
+    const std::vector<MixedFilamentExportPhysicalFilament> physical = four_export_physical_filaments();
+    MixedFilamentDisplayContext                            context;
+    context.num_physical                = physical.size();
+    context.preview_settings.wall_loops = 1;
+    for (const MixedFilamentExportPhysicalFilament& filament : physical) {
+        context.physical_colors.push_back(filament.color_hex);
+        context.physical_tds.push_back(*filament.td_mm);
+        context.nozzle_diameters.push_back(0.4);
+    }
+
+    MixedFilament active;
+    active.distribution_mode          = int(MixedFilament::LayerCycle);
+    active.gradient_component_ids     = "3/1/4";
+    active.gradient_component_weights = "2/3/5";
+    MixedFilament disabled            = active;
+    disabled.enabled                  = false;
+    MixedFilament deleted             = active;
+    deleted.deleted                   = true;
+
+    MixedFilamentExportPredictionOptions prediction;
+    prediction.include_km_ks                             = true;
+    prediction.use_td                                    = false;
+    const std::vector<MixedFilamentExportRecipe> recipes = make_current_mixed_filament_export_recipes(physical, {active, disabled, deleted},
+                                                                                                      context, prediction);
+
+    REQUIRE(recipes.size() == 1);
+    REQUIRE(recipes.front().components.size() == 3);
+    CHECK(recipes.front().components[0].physical_filament_id == 1);
+    CHECK(recipes.front().components[0].ratio == 3);
+    CHECK(recipes.front().components[1].physical_filament_id == 3);
+    CHECK(recipes.front().components[1].ratio == 2);
+    CHECK(recipes.front().components[2].physical_filament_id == 4);
+    CHECK(recipes.front().components[2].ratio == 5);
+    CHECK_FALSE(recipes.front().filament_mixer_hex.empty());
+    CHECK(recipes.front().km_ks_hex.has_value());
+}
+
+TEST_CASE("Mixed filament XLSX export writes styled OpenXML workbook parts", "[MixedFilament][Export][XLSX]")
+{
+    const std::vector<MixedFilamentExportPhysicalFilament> physical = four_export_physical_filaments();
+    MixedFilamentAutomaticExportOptions                    options;
+    options.include_two_filament                         = true;
+    options.prediction.include_km_ks                     = true;
+    std::vector<MixedFilamentExportRecipe> recipes = make_automatic_mixed_filament_export_recipes(physical, options);
+    for (unsigned int i = 0; i < 300; ++i) {
+        char mixer_hex[8] = {};
+        char km_ks_hex[8] = {};
+        std::snprintf(mixer_hex, sizeof(mixer_hex), "#%06X", (i * 7919u) & 0xFFFFFFu);
+        std::snprintf(km_ks_hex, sizeof(km_ks_hex), "#%06X", (i * 104729u + 17u) & 0xFFFFFFu);
+
+        MixedFilamentExportRecipe recipe;
+        recipe.recipe_id          = "STYLE-" + std::to_string(i + 1);
+        recipe.name               = "Style palette guard";
+        recipe.components         = {{1, 1}, {2, 1}};
+        recipe.filament_mixer_hex = mixer_hex;
+        recipe.km_ks_hex          = km_ks_hex;
+        recipes.push_back(std::move(recipe));
+    }
+
+    const boost::filesystem::path output = boost::filesystem::temp_directory_path() /
+                                           boost::filesystem::unique_path("mixed-filament-%%%%-%%%%.xlsx");
+    struct RemoveOutput
+    {
+        std::string path;
+        ~RemoveOutput() { boost::nowide::remove(path.c_str()); }
+    } remove_output{output.string()};
+
+    const MixedFilamentXlsxWriteResult result = write_mixed_filament_xlsx(output.string(), physical, recipes);
+    REQUIRE(result.success);
+    CHECK(result.error.empty());
+
+    const MixedFilamentXlsxWriteResult replacement = write_mixed_filament_xlsx(output.string(), physical, recipes);
+    REQUIRE(replacement.success);
+    CHECK(replacement.error.empty());
+
+    const ZipperArchive archive    = read_zipper_archive(output.string(), {"xml"}, {});
+    auto                entry_text = [&archive](const std::string& name) {
+        const auto it = std::find_if(archive.entries.begin(), archive.entries.end(),
+                                                    [&name](const EntryBuffer& entry) { return entry.fname == name; });
+        REQUIRE(it != archive.entries.end());
+        return std::string(it->buf.begin(), it->buf.end());
+    };
+
+    CHECK(entry_text("[content_types].xml").find("spreadsheetml.sheet.main+xml") != std::string::npos);
+    const std::string workbook = entry_text("xl/workbook.xml");
+    CHECK(workbook.find("Mixed Filaments") != std::string::npos);
+    CHECK(workbook.find("Recipe Components") != std::string::npos);
+    CHECK(workbook.find("Physical Filaments") != std::string::npos);
+
+    const std::string mixed_sheet = entry_text("xl/worksheets/sheet1.xml");
+    CHECK(mixed_sheet.find("state=\"frozen\"") != std::string::npos);
+    CHECK(mixed_sheet.find("<autoFilter") != std::string::npos);
+    CHECK(mixed_sheet.find("Filament Slots") != std::string::npos);
+    CHECK(mixed_sheet.find("Percentages") != std::string::npos);
+    CHECK(mixed_sheet.find("KM/K-S Hex") != std::string::npos);
+
+    const std::string component_sheet = entry_text("xl/worksheets/sheet2.xml");
+    CHECK(component_sheet.find("Base Hex") != std::string::npos);
+    CHECK(component_sheet.find("Percentage") != std::string::npos);
+    CHECK(component_sheet.find(" s=\"5\"") != std::string::npos);
+    CHECK(component_sheet.find("<v>0.5</v>") != std::string::npos);
+
+    const std::string styles = entry_text("xl/styles.xml");
+    CHECK(styles.find("fonts count=\"3\"") != std::string::npos);
+    CHECK(styles.find("patternType=\"solid\"") != std::string::npos);
+    CHECK(styles.find("numFmtId=\"10\"") != std::string::npos);
+    CHECK(styles.find("fontId=\"2\"") != std::string::npos);
+    CHECK(styles.find("theme=\"") == std::string::npos);
+
+    const std::string fills_prefix = "<fills count=\"";
+    const size_t      fills_begin  = styles.find(fills_prefix);
+    REQUIRE(fills_begin != std::string::npos);
+    const size_t fills_end = styles.find('"', fills_begin + fills_prefix.size());
+    REQUIRE(fills_end != std::string::npos);
+    CHECK(std::stoul(styles.substr(fills_begin + fills_prefix.size(), fills_end - fills_begin - fills_prefix.size())) <= 219);
 }
