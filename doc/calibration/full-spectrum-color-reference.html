@@ -203,6 +203,7 @@ p { margin: 0; color: var(--muted); line-height: 1.6; }
   color: var(--ink);
   cursor: default;
   isolation: isolate;
+  scroll-margin-top: 16px;
   user-select: text;
 }
 .swatch::after { content: ""; position: absolute; z-index: 0; right: 0; bottom: 0; left: 0; height: 72px; background: rgba(255, 255, 255, .96); border-top: 1px solid rgba(19, 35, 30, .12); pointer-events: none; }
@@ -221,14 +222,19 @@ p { margin: 0; color: var(--muted); line-height: 1.6; }
   background: rgba(255, 255, 255, .92);
   box-shadow: 0 3px 9px rgba(19, 35, 30, .14);
   color: #14231e;
+  cursor: pointer;
   font-size: 10px;
   font-weight: 900;
   line-height: 1.1;
+  text-decoration: none;
   text-align: center;
 }
+.swatch .num:hover,
+.swatch .num:focus-visible { background: #fff; box-shadow: 0 0 0 3px rgba(37, 125, 94, .22), 0 3px 9px rgba(19, 35, 30, .14); }
 .swatch span:last-child { color: var(--ink); cursor: text; font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 700; line-height: 1.4; overflow: visible; text-overflow: clip; user-select: text; white-space: normal; }
 .swatch.reference,
 .swatch.additional { outline: 0; }
+.swatch:target { outline: 3px solid rgba(37, 125, 94, .62); outline-offset: 2px; }
 @media (max-width: 1180px) {
   .guide-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .guide-steps li { min-height: 130px; }
@@ -299,7 +305,7 @@ p { margin: 0; color: var(--muted); line-height: 1.6; }
       <div class="hero-copy">
         <p class="eyebrow">Snorca color mixing companion</p>
         <h1>Full Spectrum Color Reference</h1>
-        <p class="lede">Choose a swatch by appearance, then copy its filament percentages into Snorca.</p>
+        <p class="lede">Follow each recipe group's continuous perceptual color path, choose a swatch by appearance, then copy its filament percentages into Snorca.</p>
       </div>
       <div class="badges">
         <span class="badge">321 color recipes</span>
@@ -340,362 +346,362 @@ p { margin: 0; color: var(--muted); line-height: 1.6; }
         </div>
         <a class="guide-link" href="full-spectrum-color-reference.md">Open the detailed guide (Markdown)</a>
       </div>
-      <div class="guide-callout"><strong>Choose by appearance, then copy the recipe.</strong> The tile is the visual reference; enter only its F1-F4 labels and percentages in Color Mixing.</div>
+      <div class="guide-callout"><strong>Choose by appearance, then copy the recipe.</strong> Each A-number links directly to that color reference; enter only its F1-F4 labels and percentages in Color Mixing.</div>
       <ol class="guide-steps" role="list">
         <li><strong>Set the input colors</strong>Configure F1 Cyan, F2 Magenta, F3 Yellow, and F4 Grey in this exact slot order.</li>
         <li><strong>Choose a tile visually</strong>Browse the reference and additional color recipes, then read the participating F-slots and percentage recipe.</li>
         <li><strong>Create the recipe</strong>Click <b>+</b> beside <b>Color Mixing</b>. Use <b>Ratio</b> for two- or three-filament colors and <b>Cycle</b> for four-filament colors.</li>
         <li><strong>Apply and check</strong>Click <b>OK</b>, assign the new color mix, slice, use the preview to confirm its assignment, and make a small test print before a production part.</li>
       </ol>
-      <div class="guide-example"><strong>Example - tile 5:</strong> select F1 and F2 in Ratio mode and set both to 50%.</div>
-      <p class="guide-scope">This catalog is a visual planning reference. Filament, print settings, part geometry, lighting, and the display can all affect the final appearance.</p>
+      <div class="guide-example"><strong>Example - reference A5:</strong> select F1 and F2 in Ratio mode and set both to 50%.</div>
+      <p class="guide-scope">Within each recipe group, swatches follow a continuous perceptual color path that minimizes visible jumps between neighbors. This catalog is a visual planning reference; filament, print settings, part geometry, lighting, and the display can all affect the final appearance.</p>
     </section>
     <div class="key-block" id="reference-recipes">
-  <div class="key-head"><h2>Reference Color Recipes</h2><p>177 recipes grouped by the number of participating filaments.</p></div>
+  <div class="key-head"><h2>Reference Color Recipes</h2><p>177 recipes grouped by participating filaments and arranged as continuous perceptual color paths.</p></div>
   <section class="recipe-section" id="base-recipes" aria-labelledby="base-recipes-title">
   <div class="group-head"><h3 id="base-recipes-title">Base Filament Colors</h3><span>4 input colors</span></div>
-  <div class="swatch-grid"><div class="swatch reference" style="background:#008CB4"><span class="num">1</span><span>F1</span><span>F1 100%</span></div>
-<div class="swatch reference" style="background:#AC4A75"><span class="num">2</span><span>F2</span><span>F2 100%</span></div>
-<div class="swatch reference" style="background:#CCAB00"><span class="num">3</span><span>F3</span><span>F3 100%</span></div>
-<div class="swatch reference" style="background:#7C8081"><span class="num">4</span><span>F4</span><span>F4 100%</span></div></div>
+  <div class="swatch-grid"><div class="swatch reference" style="background:#AC4A75" id="color-a1"><a class="num" href="#color-a1" aria-label="Color reference A1">A1</a><span>F2</span><span>F2 100%</span></div>
+<div class="swatch reference" style="background:#CCAB00" id="color-a2"><a class="num" href="#color-a2" aria-label="Color reference A2">A2</a><span>F3</span><span>F3 100%</span></div>
+<div class="swatch reference" style="background:#008CB4" id="color-a3"><a class="num" href="#color-a3" aria-label="Color reference A3">A3</a><span>F1</span><span>F1 100%</span></div>
+<div class="swatch reference" style="background:#7C8081" id="color-a4"><a class="num" href="#color-a4" aria-label="Color reference A4">A4</a><span>F4</span><span>F4 100%</span></div></div>
   </section>
   <section class="recipe-section" id="reference-two" aria-labelledby="reference-two-title">
   <div class="group-head"><h3 id="reference-two-title">Two-Filament Recipes</h3><span>54 color recipes</span></div>
-  <div class="swatch-grid"><div class="swatch reference" style="background:#5F5585"><span class="num">5</span><span>F1/F2</span><span>F1 50% / F2 50%</span></div>
-<div class="swatch reference" style="background:#6E517F"><span class="num">6</span><span>F1/F2</span><span>F1 33.3% / F2 66.7%</span></div>
-<div class="swatch reference" style="background:#77517C"><span class="num">7</span><span>F1/F2</span><span>F1 25% / F2 75%</span></div>
-<div class="swatch reference" style="background:#7C4F7B"><span class="num">8</span><span>F1/F2</span><span>F1 20% / F2 80%</span></div>
-<div class="swatch reference" style="background:#804F7A"><span class="num">9</span><span>F1/F2</span><span>F1 16.7% / F2 83.3%</span></div>
-<div class="swatch reference" style="background:#515C8C"><span class="num">12</span><span>F1/F2</span><span>F1 66.7% / F2 33.3%</span></div>
-<div class="swatch reference" style="background:#456092"><span class="num">13</span><span>F1/F2</span><span>F1 75% / F2 25%</span></div>
-<div class="swatch reference" style="background:#406595"><span class="num">14</span><span>F1/F2</span><span>F1 80% / F2 20%</span></div>
-<div class="swatch reference" style="background:#386899"><span class="num">15</span><span>F1/F2</span><span>F1 83.3% / F2 16.7%</span></div>
-<div class="swatch reference" style="background:#46863D"><span class="num">18</span><span>F1/F3</span><span>F1 50% / F3 50%</span></div>
-<div class="swatch reference" style="background:#608E33"><span class="num">19</span><span>F1/F3</span><span>F1 33.3% / F3 66.7%</span></div>
-<div class="swatch reference" style="background:#6C902F"><span class="num">20</span><span>F1/F3</span><span>F1 25% / F3 75%</span></div>
-<div class="swatch reference" style="background:#729230"><span class="num">21</span><span>F1/F3</span><span>F1 20% / F3 80%</span></div>
-<div class="swatch reference" style="background:#7A942B"><span class="num">22</span><span>F1/F3</span><span>F1 16.7% / F3 83.3%</span></div>
-<div class="swatch reference" style="background:#338346"><span class="num">25</span><span>F1/F3</span><span>F1 66.7% / F3 33.3%</span></div>
-<div class="swatch reference" style="background:#258450"><span class="num">26</span><span>F1/F3</span><span>F1 75% / F3 25%</span></div>
-<div class="swatch reference" style="background:#158557"><span class="num">27</span><span>F1/F3</span><span>F1 80% / F3 20%</span></div>
-<div class="swatch reference" style="background:#00855E"><span class="num">28</span><span>F1/F3</span><span>F1 83.3% / F3 16.7%</span></div>
-<div class="swatch reference" style="background:#3B8092"><span class="num">31</span><span>F1/F4</span><span>F1 50% / F4 50%</span></div>
-<div class="swatch reference" style="background:#4F7E8B"><span class="num">32</span><span>F1/F4</span><span>F1 33.3% / F4 66.7%</span></div>
-<div class="swatch reference" style="background:#537B85"><span class="num">33</span><span>F1/F4</span><span>F1 25% / F4 75%</span></div>
-<div class="swatch reference" style="background:#5F7F86"><span class="num">34</span><span>F1/F4</span><span>F1 20% / F4 80%</span></div>
-<div class="swatch reference" style="background:#637E85"><span class="num">35</span><span>F1/F4</span><span>F1 16.7% / F4 83.3%</span></div>
-<div class="swatch reference" style="background:#18839B"><span class="num">38</span><span>F1/F4</span><span>F1 66.7% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#00839F"><span class="num">39</span><span>F1/F4</span><span>F1 75% / F4 25%</span></div>
-<div class="swatch reference" style="background:#0083A0"><span class="num">40</span><span>F1/F4</span><span>F1 80% / F4 20%</span></div>
-<div class="swatch reference" style="background:#0084A4"><span class="num">41</span><span>F1/F4</span><span>F1 83.3% / F4 16.7%</span></div>
-<div class="swatch reference" style="background:#B05546"><span class="num">44</span><span>F2/F3</span><span>F2 50% / F3 50%</span></div>
-<div class="swatch reference" style="background:#B45D3F"><span class="num">45</span><span>F2/F3</span><span>F2 33.3% / F3 66.7%</span></div>
-<div class="swatch reference" style="background:#B7663A"><span class="num">46</span><span>F2/F3</span><span>F2 25% / F3 75%</span></div>
-<div class="swatch reference" style="background:#B66A38"><span class="num">47</span><span>F2/F3</span><span>F2 20% / F3 80%</span></div>
-<div class="swatch reference" style="background:#B96F37"><span class="num">48</span><span>F2/F3</span><span>F2 16.7% / F3 83.3%</span></div>
-<div class="swatch reference" style="background:#AE514E"><span class="num">51</span><span>F2/F3</span><span>F2 66.7% / F3 33.3%</span></div>
-<div class="swatch reference" style="background:#AD4F53"><span class="num">52</span><span>F2/F3</span><span>F2 75% / F3 25%</span></div>
-<div class="swatch reference" style="background:#AA4C56"><span class="num">53</span><span>F2/F3</span><span>F2 80% / F3 20%</span></div>
-<div class="swatch reference" style="background:#AD4D5A"><span class="num">54</span><span>F2/F3</span><span>F2 83.3% / F3 16.7%</span></div>
-<div class="swatch reference" style="background:#905679"><span class="num">57</span><span>F2/F4</span><span>F2 50% / F4 50%</span></div>
-<div class="swatch reference" style="background:#855C7A"><span class="num">58</span><span>F2/F4</span><span>F2 33.3% / F4 66.7%</span></div>
-<div class="swatch reference" style="background:#83627B"><span class="num">59</span><span>F2/F4</span><span>F2 25% / F4 75%</span></div>
-<div class="swatch reference" style="background:#81657D"><span class="num">60</span><span>F2/F4</span><span>F2 20% / F4 80%</span></div>
-<div class="swatch reference" style="background:#7F687C"><span class="num">61</span><span>F2/F4</span><span>F2 16.7% / F4 83.3%</span></div>
-<div class="swatch reference" style="background:#955178"><span class="num">64</span><span>F2/F4</span><span>F2 66.7% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#9B4F77"><span class="num">65</span><span>F2/F4</span><span>F2 75% / F4 25%</span></div>
-<div class="swatch reference" style="background:#A04F78"><span class="num">66</span><span>F2/F4</span><span>F2 80% / F4 20%</span></div>
-<div class="swatch reference" style="background:#A24F78"><span class="num">67</span><span>F2/F4</span><span>F2 83.3% / F4 16.7%</span></div>
-<div class="swatch reference" style="background:#93893A"><span class="num">70</span><span>F3/F4</span><span>F3 50% / F4 50%</span></div>
-<div class="swatch reference" style="background:#8C8645"><span class="num">71</span><span>F3/F4</span><span>F3 33.3% / F4 66.7%</span></div>
-<div class="swatch reference" style="background:#85814C"><span class="num">72</span><span>F3/F4</span><span>F3 25% / F4 75%</span></div>
-<div class="swatch reference" style="background:#848152"><span class="num">73</span><span>F3/F4</span><span>F3 20% / F4 80%</span></div>
-<div class="swatch reference" style="background:#817F58"><span class="num">74</span><span>F3/F4</span><span>F3 16.7% / F4 83.3%</span></div>
-<div class="swatch reference" style="background:#A39231"><span class="num">77</span><span>F3/F4</span><span>F3 66.7% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#A4932E"><span class="num">78</span><span>F3/F4</span><span>F3 75% / F4 25%</span></div>
-<div class="swatch reference" style="background:#AE9A27"><span class="num">79</span><span>F3/F4</span><span>F3 80% / F4 20%</span></div>
-<div class="swatch reference" style="background:#B19B23"><span class="num">80</span><span>F3/F4</span><span>F3 83.3% / F4 16.7%</span></div></div>
+  <div class="swatch-grid"><div class="swatch reference" style="background:#B96F37" id="color-a5"><a class="num" href="#color-a5" aria-label="Color reference A5">A5</a><span>F2/F3</span><span>F2 16.7% / F3 83.3%</span></div>
+<div class="swatch reference" style="background:#B66A38" id="color-a6"><a class="num" href="#color-a6" aria-label="Color reference A6">A6</a><span>F2/F3</span><span>F2 20% / F3 80%</span></div>
+<div class="swatch reference" style="background:#B7663A" id="color-a7"><a class="num" href="#color-a7" aria-label="Color reference A7">A7</a><span>F2/F3</span><span>F2 25% / F3 75%</span></div>
+<div class="swatch reference" style="background:#B45D3F" id="color-a8"><a class="num" href="#color-a8" aria-label="Color reference A8">A8</a><span>F2/F3</span><span>F2 33.3% / F3 66.7%</span></div>
+<div class="swatch reference" style="background:#B05546" id="color-a9"><a class="num" href="#color-a9" aria-label="Color reference A9">A9</a><span>F2/F3</span><span>F2 50% / F3 50%</span></div>
+<div class="swatch reference" style="background:#AE514E" id="color-a10"><a class="num" href="#color-a10" aria-label="Color reference A10">A10</a><span>F2/F3</span><span>F2 66.7% / F3 33.3%</span></div>
+<div class="swatch reference" style="background:#AD4F53" id="color-a11"><a class="num" href="#color-a11" aria-label="Color reference A11">A11</a><span>F2/F3</span><span>F2 75% / F3 25%</span></div>
+<div class="swatch reference" style="background:#AA4C56" id="color-a12"><a class="num" href="#color-a12" aria-label="Color reference A12">A12</a><span>F2/F3</span><span>F2 80% / F3 20%</span></div>
+<div class="swatch reference" style="background:#AD4D5A" id="color-a13"><a class="num" href="#color-a13" aria-label="Color reference A13">A13</a><span>F2/F3</span><span>F2 83.3% / F3 16.7%</span></div>
+<div class="swatch reference" style="background:#A24F78" id="color-a14"><a class="num" href="#color-a14" aria-label="Color reference A14">A14</a><span>F2/F4</span><span>F2 83.3% / F4 16.7%</span></div>
+<div class="swatch reference" style="background:#A04F78" id="color-a15"><a class="num" href="#color-a15" aria-label="Color reference A15">A15</a><span>F2/F4</span><span>F2 80% / F4 20%</span></div>
+<div class="swatch reference" style="background:#9B4F77" id="color-a16"><a class="num" href="#color-a16" aria-label="Color reference A16">A16</a><span>F2/F4</span><span>F2 75% / F4 25%</span></div>
+<div class="swatch reference" style="background:#955178" id="color-a17"><a class="num" href="#color-a17" aria-label="Color reference A17">A17</a><span>F2/F4</span><span>F2 66.7% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#905679" id="color-a18"><a class="num" href="#color-a18" aria-label="Color reference A18">A18</a><span>F2/F4</span><span>F2 50% / F4 50%</span></div>
+<div class="swatch reference" style="background:#7F687C" id="color-a19"><a class="num" href="#color-a19" aria-label="Color reference A19">A19</a><span>F2/F4</span><span>F2 16.7% / F4 83.3%</span></div>
+<div class="swatch reference" style="background:#81657D" id="color-a20"><a class="num" href="#color-a20" aria-label="Color reference A20">A20</a><span>F2/F4</span><span>F2 20% / F4 80%</span></div>
+<div class="swatch reference" style="background:#83627B" id="color-a21"><a class="num" href="#color-a21" aria-label="Color reference A21">A21</a><span>F2/F4</span><span>F2 25% / F4 75%</span></div>
+<div class="swatch reference" style="background:#855C7A" id="color-a22"><a class="num" href="#color-a22" aria-label="Color reference A22">A22</a><span>F2/F4</span><span>F2 33.3% / F4 66.7%</span></div>
+<div class="swatch reference" style="background:#804F7A" id="color-a23"><a class="num" href="#color-a23" aria-label="Color reference A23">A23</a><span>F1/F2</span><span>F1 16.7% / F2 83.3%</span></div>
+<div class="swatch reference" style="background:#7C4F7B" id="color-a24"><a class="num" href="#color-a24" aria-label="Color reference A24">A24</a><span>F1/F2</span><span>F1 20% / F2 80%</span></div>
+<div class="swatch reference" style="background:#77517C" id="color-a25"><a class="num" href="#color-a25" aria-label="Color reference A25">A25</a><span>F1/F2</span><span>F1 25% / F2 75%</span></div>
+<div class="swatch reference" style="background:#6E517F" id="color-a26"><a class="num" href="#color-a26" aria-label="Color reference A26">A26</a><span>F1/F2</span><span>F1 33.3% / F2 66.7%</span></div>
+<div class="swatch reference" style="background:#5F5585" id="color-a27"><a class="num" href="#color-a27" aria-label="Color reference A27">A27</a><span>F1/F2</span><span>F1 50% / F2 50%</span></div>
+<div class="swatch reference" style="background:#515C8C" id="color-a28"><a class="num" href="#color-a28" aria-label="Color reference A28">A28</a><span>F1/F2</span><span>F1 66.7% / F2 33.3%</span></div>
+<div class="swatch reference" style="background:#456092" id="color-a29"><a class="num" href="#color-a29" aria-label="Color reference A29">A29</a><span>F1/F2</span><span>F1 75% / F2 25%</span></div>
+<div class="swatch reference" style="background:#406595" id="color-a30"><a class="num" href="#color-a30" aria-label="Color reference A30">A30</a><span>F1/F2</span><span>F1 80% / F2 20%</span></div>
+<div class="swatch reference" style="background:#386899" id="color-a31"><a class="num" href="#color-a31" aria-label="Color reference A31">A31</a><span>F1/F2</span><span>F1 83.3% / F2 16.7%</span></div>
+<div class="swatch reference" style="background:#0084A4" id="color-a32"><a class="num" href="#color-a32" aria-label="Color reference A32">A32</a><span>F1/F4</span><span>F1 83.3% / F4 16.7%</span></div>
+<div class="swatch reference" style="background:#0083A0" id="color-a33"><a class="num" href="#color-a33" aria-label="Color reference A33">A33</a><span>F1/F4</span><span>F1 80% / F4 20%</span></div>
+<div class="swatch reference" style="background:#00839F" id="color-a34"><a class="num" href="#color-a34" aria-label="Color reference A34">A34</a><span>F1/F4</span><span>F1 75% / F4 25%</span></div>
+<div class="swatch reference" style="background:#18839B" id="color-a35"><a class="num" href="#color-a35" aria-label="Color reference A35">A35</a><span>F1/F4</span><span>F1 66.7% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#3B8092" id="color-a36"><a class="num" href="#color-a36" aria-label="Color reference A36">A36</a><span>F1/F4</span><span>F1 50% / F4 50%</span></div>
+<div class="swatch reference" style="background:#4F7E8B" id="color-a37"><a class="num" href="#color-a37" aria-label="Color reference A37">A37</a><span>F1/F4</span><span>F1 33.3% / F4 66.7%</span></div>
+<div class="swatch reference" style="background:#537B85" id="color-a38"><a class="num" href="#color-a38" aria-label="Color reference A38">A38</a><span>F1/F4</span><span>F1 25% / F4 75%</span></div>
+<div class="swatch reference" style="background:#5F7F86" id="color-a39"><a class="num" href="#color-a39" aria-label="Color reference A39">A39</a><span>F1/F4</span><span>F1 20% / F4 80%</span></div>
+<div class="swatch reference" style="background:#637E85" id="color-a40"><a class="num" href="#color-a40" aria-label="Color reference A40">A40</a><span>F1/F4</span><span>F1 16.7% / F4 83.3%</span></div>
+<div class="swatch reference" style="background:#817F58" id="color-a41"><a class="num" href="#color-a41" aria-label="Color reference A41">A41</a><span>F3/F4</span><span>F3 16.7% / F4 83.3%</span></div>
+<div class="swatch reference" style="background:#848152" id="color-a42"><a class="num" href="#color-a42" aria-label="Color reference A42">A42</a><span>F3/F4</span><span>F3 20% / F4 80%</span></div>
+<div class="swatch reference" style="background:#85814C" id="color-a43"><a class="num" href="#color-a43" aria-label="Color reference A43">A43</a><span>F3/F4</span><span>F3 25% / F4 75%</span></div>
+<div class="swatch reference" style="background:#8C8645" id="color-a44"><a class="num" href="#color-a44" aria-label="Color reference A44">A44</a><span>F3/F4</span><span>F3 33.3% / F4 66.7%</span></div>
+<div class="swatch reference" style="background:#93893A" id="color-a45"><a class="num" href="#color-a45" aria-label="Color reference A45">A45</a><span>F3/F4</span><span>F3 50% / F4 50%</span></div>
+<div class="swatch reference" style="background:#A39231" id="color-a46"><a class="num" href="#color-a46" aria-label="Color reference A46">A46</a><span>F3/F4</span><span>F3 66.7% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#A4932E" id="color-a47"><a class="num" href="#color-a47" aria-label="Color reference A47">A47</a><span>F3/F4</span><span>F3 75% / F4 25%</span></div>
+<div class="swatch reference" style="background:#AE9A27" id="color-a48"><a class="num" href="#color-a48" aria-label="Color reference A48">A48</a><span>F3/F4</span><span>F3 80% / F4 20%</span></div>
+<div class="swatch reference" style="background:#B19B23" id="color-a49"><a class="num" href="#color-a49" aria-label="Color reference A49">A49</a><span>F3/F4</span><span>F3 83.3% / F4 16.7%</span></div>
+<div class="swatch reference" style="background:#7A942B" id="color-a50"><a class="num" href="#color-a50" aria-label="Color reference A50">A50</a><span>F1/F3</span><span>F1 16.7% / F3 83.3%</span></div>
+<div class="swatch reference" style="background:#729230" id="color-a51"><a class="num" href="#color-a51" aria-label="Color reference A51">A51</a><span>F1/F3</span><span>F1 20% / F3 80%</span></div>
+<div class="swatch reference" style="background:#6C902F" id="color-a52"><a class="num" href="#color-a52" aria-label="Color reference A52">A52</a><span>F1/F3</span><span>F1 25% / F3 75%</span></div>
+<div class="swatch reference" style="background:#608E33" id="color-a53"><a class="num" href="#color-a53" aria-label="Color reference A53">A53</a><span>F1/F3</span><span>F1 33.3% / F3 66.7%</span></div>
+<div class="swatch reference" style="background:#46863D" id="color-a54"><a class="num" href="#color-a54" aria-label="Color reference A54">A54</a><span>F1/F3</span><span>F1 50% / F3 50%</span></div>
+<div class="swatch reference" style="background:#338346" id="color-a55"><a class="num" href="#color-a55" aria-label="Color reference A55">A55</a><span>F1/F3</span><span>F1 66.7% / F3 33.3%</span></div>
+<div class="swatch reference" style="background:#258450" id="color-a56"><a class="num" href="#color-a56" aria-label="Color reference A56">A56</a><span>F1/F3</span><span>F1 75% / F3 25%</span></div>
+<div class="swatch reference" style="background:#158557" id="color-a57"><a class="num" href="#color-a57" aria-label="Color reference A57">A57</a><span>F1/F3</span><span>F1 80% / F3 20%</span></div>
+<div class="swatch reference" style="background:#00855E" id="color-a58"><a class="num" href="#color-a58" aria-label="Color reference A58">A58</a><span>F1/F3</span><span>F1 83.3% / F3 16.7%</span></div></div>
   </section>
   <section class="recipe-section" id="reference-three" aria-labelledby="reference-three-title">
   <div class="group-head"><h3 id="reference-three-title">Three-Filament Recipes</h3><span>40 color recipes</span></div>
-  <div class="swatch-grid"><div class="swatch reference" style="background:#685D4D"><span class="num">83</span><span>F1/F2/F3</span><span>F1 33.3% / F2 33.3% / F3 33.3%</span></div>
-<div class="swatch reference" style="background:#6F6345"><span class="num">84</span><span>F1/F2/F3</span><span>F1 25% / F2 25% / F3 50%</span></div>
-<div class="swatch reference" style="background:#765855"><span class="num">85</span><span>F1/F2/F3</span><span>F1 25% / F2 50% / F3 25%</span></div>
-<div class="swatch reference" style="background:#5A6155"><span class="num">86</span><span>F1/F2/F3</span><span>F1 50% / F2 25% / F3 25%</span></div>
-<div class="swatch reference" style="background:#776641"><span class="num">87</span><span>F1/F2/F3</span><span>F1 20% / F2 20% / F3 60%</span></div>
-<div class="swatch reference" style="background:#7B5A4C"><span class="num">88</span><span>F1/F2/F3</span><span>F1 20% / F2 40% / F3 40%</span></div>
-<div class="swatch reference" style="background:#7B535B"><span class="num">89</span><span>F1/F2/F3</span><span>F1 20% / F2 60% / F3 20%</span></div>
-<div class="swatch reference" style="background:#5F6448"><span class="num">90</span><span>F1/F2/F3</span><span>F1 40% / F2 20% / F3 40%</span></div>
-<div class="swatch reference" style="background:#655959"><span class="num">91</span><span>F1/F2/F3</span><span>F1 40% / F2 40% / F3 20%</span></div>
-<div class="swatch reference" style="background:#4D655A"><span class="num">92</span><span>F1/F2/F3</span><span>F1 60% / F2 20% / F3 20%</span></div>
-<div class="swatch reference" style="background:#625B82"><span class="num">93</span><span>F1/F2/F4</span><span>F1 33.3% / F2 33.3% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#656080"><span class="num">94</span><span>F1/F2/F4</span><span>F1 25% / F2 25% / F4 50%</span></div>
-<div class="swatch reference" style="background:#6E567F"><span class="num">95</span><span>F1/F2/F4</span><span>F1 25% / F2 50% / F4 25%</span></div>
-<div class="swatch reference" style="background:#55618A"><span class="num">96</span><span>F1/F2/F4</span><span>F1 50% / F2 25% / F4 25%</span></div>
-<div class="swatch reference" style="background:#696582"><span class="num">97</span><span>F1/F2/F4</span><span>F1 20% / F2 20% / F4 60%</span></div>
-<div class="swatch reference" style="background:#6F5A80"><span class="num">98</span><span>F1/F2/F4</span><span>F1 20% / F2 40% / F4 40%</span></div>
-<div class="swatch reference" style="background:#75527C"><span class="num">99</span><span>F1/F2/F4</span><span>F1 20% / F2 60% / F4 20%</span></div>
-<div class="swatch reference" style="background:#586687"><span class="num">100</span><span>F1/F2/F4</span><span>F1 40% / F2 20% / F4 40%</span></div>
-<div class="swatch reference" style="background:#5F5883"><span class="num">101</span><span>F1/F2/F4</span><span>F1 40% / F2 40% / F4 20%</span></div>
-<div class="swatch reference" style="background:#4D668E"><span class="num">102</span><span>F1/F2/F4</span><span>F1 60% / F2 20% / F4 20%</span></div>
-<div class="swatch reference" style="background:#5B844A"><span class="num">103</span><span>F1/F3/F4</span><span>F1 33.3% / F3 33.3% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#5F7F4E"><span class="num">104</span><span>F1/F3/F4</span><span>F1 25% / F3 25% / F4 50%</span></div>
-<div class="swatch reference" style="background:#67873E"><span class="num">105</span><span>F1/F3/F4</span><span>F1 25% / F3 50% / F4 25%</span></div>
-<div class="swatch reference" style="background:#448150"><span class="num">106</span><span>F1/F3/F4</span><span>F1 50% / F3 25% / F4 25%</span></div>
-<div class="swatch reference" style="background:#647F55"><span class="num">107</span><span>F1/F3/F4</span><span>F1 20% / F3 20% / F4 60%</span></div>
-<div class="swatch reference" style="background:#6B8542"><span class="num">108</span><span>F1/F3/F4</span><span>F1 20% / F3 40% / F4 40%</span></div>
-<div class="swatch reference" style="background:#728C37"><span class="num">109</span><span>F1/F3/F4</span><span>F1 20% / F3 60% / F4 20%</span></div>
-<div class="swatch reference" style="background:#4C7F55"><span class="num">110</span><span>F1/F3/F4</span><span>F1 40% / F3 20% / F4 40%</span></div>
-<div class="swatch reference" style="background:#558643"><span class="num">111</span><span>F1/F3/F4</span><span>F1 40% / F3 40% / F4 20%</span></div>
-<div class="swatch reference" style="background:#367F57"><span class="num">112</span><span>F1/F3/F4</span><span>F1 60% / F3 20% / F4 20%</span></div>
-<div class="swatch reference" style="background:#965F4D"><span class="num">113</span><span>F2/F3/F4</span><span>F2 33.3% / F3 33.3% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#8E6352"><span class="num">114</span><span>F2/F3/F4</span><span>F2 25% / F3 25% / F4 50%</span></div>
-<div class="swatch reference" style="background:#9D6345"><span class="num">115</span><span>F2/F3/F4</span><span>F2 25% / F3 50% / F4 25%</span></div>
-<div class="swatch reference" style="background:#9C5753"><span class="num">116</span><span>F2/F3/F4</span><span>F2 50% / F3 25% / F4 25%</span></div>
-<div class="swatch reference" style="background:#8B6756"><span class="num">117</span><span>F2/F3/F4</span><span>F2 20% / F3 20% / F4 60%</span></div>
-<div class="swatch reference" style="background:#946747"><span class="num">118</span><span>F2/F3/F4</span><span>F2 20% / F3 40% / F4 40%</span></div>
-<div class="swatch reference" style="background:#A2693F"><span class="num">119</span><span>F2/F3/F4</span><span>F2 20% / F3 60% / F4 20%</span></div>
-<div class="swatch reference" style="background:#935A57"><span class="num">120</span><span>F2/F3/F4</span><span>F2 40% / F3 20% / F4 40%</span></div>
-<div class="swatch reference" style="background:#9E5A4A"><span class="num">121</span><span>F2/F3/F4</span><span>F2 40% / F3 40% / F4 20%</span></div>
-<div class="swatch reference" style="background:#9D5356"><span class="num">122</span><span>F2/F3/F4</span><span>F2 60% / F3 20% / F4 20%</span></div></div>
+  <div class="swatch-grid"><div class="swatch reference" style="background:#75527C" id="color-a59"><a class="num" href="#color-a59" aria-label="Color reference A59">A59</a><span>F1/F2/F4</span><span>F1 20% / F2 60% / F4 20%</span></div>
+<div class="swatch reference" style="background:#6E567F" id="color-a60"><a class="num" href="#color-a60" aria-label="Color reference A60">A60</a><span>F1/F2/F4</span><span>F1 25% / F2 50% / F4 25%</span></div>
+<div class="swatch reference" style="background:#6F5A80" id="color-a61"><a class="num" href="#color-a61" aria-label="Color reference A61">A61</a><span>F1/F2/F4</span><span>F1 20% / F2 40% / F4 40%</span></div>
+<div class="swatch reference" style="background:#625B82" id="color-a62"><a class="num" href="#color-a62" aria-label="Color reference A62">A62</a><span>F1/F2/F4</span><span>F1 33.3% / F2 33.3% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#5F5883" id="color-a63"><a class="num" href="#color-a63" aria-label="Color reference A63">A63</a><span>F1/F2/F4</span><span>F1 40% / F2 40% / F4 20%</span></div>
+<div class="swatch reference" style="background:#55618A" id="color-a64"><a class="num" href="#color-a64" aria-label="Color reference A64">A64</a><span>F1/F2/F4</span><span>F1 50% / F2 25% / F4 25%</span></div>
+<div class="swatch reference" style="background:#4D668E" id="color-a65"><a class="num" href="#color-a65" aria-label="Color reference A65">A65</a><span>F1/F2/F4</span><span>F1 60% / F2 20% / F4 20%</span></div>
+<div class="swatch reference" style="background:#586687" id="color-a66"><a class="num" href="#color-a66" aria-label="Color reference A66">A66</a><span>F1/F2/F4</span><span>F1 40% / F2 20% / F4 40%</span></div>
+<div class="swatch reference" style="background:#696582" id="color-a67"><a class="num" href="#color-a67" aria-label="Color reference A67">A67</a><span>F1/F2/F4</span><span>F1 20% / F2 20% / F4 60%</span></div>
+<div class="swatch reference" style="background:#656080" id="color-a68"><a class="num" href="#color-a68" aria-label="Color reference A68">A68</a><span>F1/F2/F4</span><span>F1 25% / F2 25% / F4 50%</span></div>
+<div class="swatch reference" style="background:#655959" id="color-a69"><a class="num" href="#color-a69" aria-label="Color reference A69">A69</a><span>F1/F2/F3</span><span>F1 40% / F2 40% / F3 20%</span></div>
+<div class="swatch reference" style="background:#685D4D" id="color-a70"><a class="num" href="#color-a70" aria-label="Color reference A70">A70</a><span>F1/F2/F3</span><span>F1 33.3% / F2 33.3% / F3 33.3%</span></div>
+<div class="swatch reference" style="background:#5A6155" id="color-a71"><a class="num" href="#color-a71" aria-label="Color reference A71">A71</a><span>F1/F2/F3</span><span>F1 50% / F2 25% / F3 25%</span></div>
+<div class="swatch reference" style="background:#4D655A" id="color-a72"><a class="num" href="#color-a72" aria-label="Color reference A72">A72</a><span>F1/F2/F3</span><span>F1 60% / F2 20% / F3 20%</span></div>
+<div class="swatch reference" style="background:#5F6448" id="color-a73"><a class="num" href="#color-a73" aria-label="Color reference A73">A73</a><span>F1/F2/F3</span><span>F1 40% / F2 20% / F3 40%</span></div>
+<div class="swatch reference" style="background:#6F6345" id="color-a74"><a class="num" href="#color-a74" aria-label="Color reference A74">A74</a><span>F1/F2/F3</span><span>F1 25% / F2 25% / F3 50%</span></div>
+<div class="swatch reference" style="background:#776641" id="color-a75"><a class="num" href="#color-a75" aria-label="Color reference A75">A75</a><span>F1/F2/F3</span><span>F1 20% / F2 20% / F3 60%</span></div>
+<div class="swatch reference" style="background:#7B5A4C" id="color-a76"><a class="num" href="#color-a76" aria-label="Color reference A76">A76</a><span>F1/F2/F3</span><span>F1 20% / F2 40% / F3 40%</span></div>
+<div class="swatch reference" style="background:#765855" id="color-a77"><a class="num" href="#color-a77" aria-label="Color reference A77">A77</a><span>F1/F2/F3</span><span>F1 25% / F2 50% / F3 25%</span></div>
+<div class="swatch reference" style="background:#7B535B" id="color-a78"><a class="num" href="#color-a78" aria-label="Color reference A78">A78</a><span>F1/F2/F3</span><span>F1 20% / F2 60% / F3 20%</span></div>
+<div class="swatch reference" style="background:#935A57" id="color-a79"><a class="num" href="#color-a79" aria-label="Color reference A79">A79</a><span>F2/F3/F4</span><span>F2 40% / F3 20% / F4 40%</span></div>
+<div class="swatch reference" style="background:#9D5356" id="color-a80"><a class="num" href="#color-a80" aria-label="Color reference A80">A80</a><span>F2/F3/F4</span><span>F2 60% / F3 20% / F4 20%</span></div>
+<div class="swatch reference" style="background:#9C5753" id="color-a81"><a class="num" href="#color-a81" aria-label="Color reference A81">A81</a><span>F2/F3/F4</span><span>F2 50% / F3 25% / F4 25%</span></div>
+<div class="swatch reference" style="background:#9E5A4A" id="color-a82"><a class="num" href="#color-a82" aria-label="Color reference A82">A82</a><span>F2/F3/F4</span><span>F2 40% / F3 40% / F4 20%</span></div>
+<div class="swatch reference" style="background:#965F4D" id="color-a83"><a class="num" href="#color-a83" aria-label="Color reference A83">A83</a><span>F2/F3/F4</span><span>F2 33.3% / F3 33.3% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#8E6352" id="color-a84"><a class="num" href="#color-a84" aria-label="Color reference A84">A84</a><span>F2/F3/F4</span><span>F2 25% / F3 25% / F4 50%</span></div>
+<div class="swatch reference" style="background:#8B6756" id="color-a85"><a class="num" href="#color-a85" aria-label="Color reference A85">A85</a><span>F2/F3/F4</span><span>F2 20% / F3 20% / F4 60%</span></div>
+<div class="swatch reference" style="background:#946747" id="color-a86"><a class="num" href="#color-a86" aria-label="Color reference A86">A86</a><span>F2/F3/F4</span><span>F2 20% / F3 40% / F4 40%</span></div>
+<div class="swatch reference" style="background:#9D6345" id="color-a87"><a class="num" href="#color-a87" aria-label="Color reference A87">A87</a><span>F2/F3/F4</span><span>F2 25% / F3 50% / F4 25%</span></div>
+<div class="swatch reference" style="background:#A2693F" id="color-a88"><a class="num" href="#color-a88" aria-label="Color reference A88">A88</a><span>F2/F3/F4</span><span>F2 20% / F3 60% / F4 20%</span></div>
+<div class="swatch reference" style="background:#728C37" id="color-a89"><a class="num" href="#color-a89" aria-label="Color reference A89">A89</a><span>F1/F3/F4</span><span>F1 20% / F3 60% / F4 20%</span></div>
+<div class="swatch reference" style="background:#67873E" id="color-a90"><a class="num" href="#color-a90" aria-label="Color reference A90">A90</a><span>F1/F3/F4</span><span>F1 25% / F3 50% / F4 25%</span></div>
+<div class="swatch reference" style="background:#6B8542" id="color-a91"><a class="num" href="#color-a91" aria-label="Color reference A91">A91</a><span>F1/F3/F4</span><span>F1 20% / F3 40% / F4 40%</span></div>
+<div class="swatch reference" style="background:#647F55" id="color-a92"><a class="num" href="#color-a92" aria-label="Color reference A92">A92</a><span>F1/F3/F4</span><span>F1 20% / F3 20% / F4 60%</span></div>
+<div class="swatch reference" style="background:#5F7F4E" id="color-a93"><a class="num" href="#color-a93" aria-label="Color reference A93">A93</a><span>F1/F3/F4</span><span>F1 25% / F3 25% / F4 50%</span></div>
+<div class="swatch reference" style="background:#5B844A" id="color-a94"><a class="num" href="#color-a94" aria-label="Color reference A94">A94</a><span>F1/F3/F4</span><span>F1 33.3% / F3 33.3% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#558643" id="color-a95"><a class="num" href="#color-a95" aria-label="Color reference A95">A95</a><span>F1/F3/F4</span><span>F1 40% / F3 40% / F4 20%</span></div>
+<div class="swatch reference" style="background:#448150" id="color-a96"><a class="num" href="#color-a96" aria-label="Color reference A96">A96</a><span>F1/F3/F4</span><span>F1 50% / F3 25% / F4 25%</span></div>
+<div class="swatch reference" style="background:#4C7F55" id="color-a97"><a class="num" href="#color-a97" aria-label="Color reference A97">A97</a><span>F1/F3/F4</span><span>F1 40% / F3 20% / F4 40%</span></div>
+<div class="swatch reference" style="background:#367F57" id="color-a98"><a class="num" href="#color-a98" aria-label="Color reference A98">A98</a><span>F1/F3/F4</span><span>F1 60% / F3 20% / F4 20%</span></div></div>
   </section>
   <section class="recipe-section" id="reference-four" aria-labelledby="reference-four-title">
   <div class="group-head"><h3 id="reference-four-title">Four-Filament Recipes</h3><span>79 color recipes</span></div>
-  <div class="swatch-grid"><div class="swatch reference" style="background:#6C6154"><span class="num">123</span><span>F1/F2/F3/F4</span><span>F1 25% / F2 25% / F3 25% / F4 25%</span></div>
-<div class="swatch reference" style="background:#6C6558"><span class="num">124</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 20% / F4 40%</span></div>
-<div class="swatch reference" style="background:#70695C"><span class="num">125</span><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 16.7% / F3 16.7% / F4 50%</span></div>
-<div class="swatch reference" style="background:#746749"><span class="num">126</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 40% / F4 20%</span></div>
-<div class="swatch reference" style="background:#73694D"><span class="num">127</span><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 16.7% / F3 33.3% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#746B50"><span class="num">128</span><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 14.3% / F3 28.6% / F4 42.9%</span></div>
-<div class="swatch reference" style="background:#796B44"><span class="num">129</span><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 16.7% / F3 50% / F4 16.7%</span></div>
-<div class="swatch reference" style="background:#786C47"><span class="num">130</span><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 14.3% / F3 42.9% / F4 28.6%</span></div>
-<div class="swatch reference" style="background:#786D49"><span class="num">131</span><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 12.5% / F3 37.5% / F4 37.5%</span></div>
-<div class="swatch reference" style="background:#745B59"><span class="num">132</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 40% / F3 20% / F4 20%</span></div>
-<div class="swatch reference" style="background:#755E5D"><span class="num">133</span><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 33.3% / F3 16.7% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#76615F"><span class="num">134</span><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 28.6% / F3 14.3% / F4 42.9%</span></div>
-<div class="swatch reference" style="background:#795E4E"><span class="num">135</span><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 33.3% / F3 33.3% / F4 16.7%</span></div>
-<div class="swatch reference" style="background:#7A6050"><span class="num">136</span><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 28.6% / F3 28.6% / F4 28.6%</span></div>
-<div class="swatch reference" style="background:#7A6253"><span class="num">137</span><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 25% / F3 25% / F4 37.5%</span></div>
-<div class="swatch reference" style="background:#7C5F4A"><span class="num">138</span><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 28.6% / F3 42.9% / F4 14.3%</span></div>
-<div class="swatch reference" style="background:#7D624C"><span class="num">139</span><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 25% / F3 37.5% / F4 25%</span></div>
-<div class="swatch reference" style="background:#7E644C"><span class="num">140</span><span>F1/F2/F3/F4</span><span>F1 11.1% / F2 22.2% / F3 33.3% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#7A565C"><span class="num">141</span><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 50% / F3 16.7% / F4 16.7%</span></div>
-<div class="swatch reference" style="background:#79595F"><span class="num">142</span><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 42.9% / F3 14.3% / F4 28.6%</span></div>
-<div class="swatch reference" style="background:#7B5B61"><span class="num">143</span><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 37.5% / F3 12.5% / F4 37.5%</span></div>
-<div class="swatch reference" style="background:#7C5852"><span class="num">144</span><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 42.9% / F3 28.6% / F4 14.3%</span></div>
-<div class="swatch reference" style="background:#7E5C54"><span class="num">145</span><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 37.5% / F3 25% / F4 25%</span></div>
-<div class="swatch reference" style="background:#7D5D54"><span class="num">146</span><span>F1/F2/F3/F4</span><span>F1 11.1% / F2 33.3% / F3 22.2% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#7F5A4E"><span class="num">147</span><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 37.5% / F3 37.5% / F4 12.5%</span></div>
-<div class="swatch reference" style="background:#825D4E"><span class="num">148</span><span>F1/F2/F3/F4</span><span>F1 11.1% / F2 33.3% / F3 33.3% / F4 22.2%</span></div>
-<div class="swatch reference" style="background:#80604F"><span class="num">149</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 30% / F4 30%</span></div>
-<div class="swatch reference" style="background:#5D655B"><span class="num">150</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 20% / F3 20% / F4 20%</span></div>
-<div class="swatch reference" style="background:#5F695D"><span class="num">151</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 16.7% / F3 16.7% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#61695F"><span class="num">152</span><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 14.3% / F3 14.3% / F4 42.9%</span></div>
-<div class="swatch reference" style="background:#61684D"><span class="num">153</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 16.7% / F3 33.3% / F4 16.7%</span></div>
-<div class="swatch reference" style="background:#666C4F"><span class="num">154</span><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 14.3% / F3 28.6% / F4 28.6%</span></div>
-<div class="swatch reference" style="background:#686D53"><span class="num">155</span><span>F1/F2/F3/F4</span><span>F1 25% / F2 12.5% / F3 25% / F4 37.5%</span></div>
-<div class="swatch reference" style="background:#676B46"><span class="num">156</span><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 14.3% / F3 42.9% / F4 14.3%</span></div>
-<div class="swatch reference" style="background:#686D4A"><span class="num">157</span><span>F1/F2/F3/F4</span><span>F1 25% / F2 12.5% / F3 37.5% / F4 25%</span></div>
-<div class="swatch reference" style="background:#6B714C"><span class="num">158</span><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 11.1% / F3 33.3% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#655B5C"><span class="num">159</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 33.3% / F3 16.7% / F4 16.7%</span></div>
-<div class="swatch reference" style="background:#665F5F"><span class="num">160</span><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 28.6% / F3 14.3% / F4 28.6%</span></div>
-<div class="swatch reference" style="background:#6A6263"><span class="num">161</span><span>F1/F2/F3/F4</span><span>F1 25% / F2 25% / F3 12.5% / F4 37.5%</span></div>
-<div class="swatch reference" style="background:#6B5F52"><span class="num">162</span><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 28.6% / F3 28.6% / F4 14.3%</span></div>
-<div class="swatch reference" style="background:#6B6255"><span class="num">163</span><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 22.2% / F3 22.2% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#6D614C"><span class="num">164</span><span>F1/F2/F3/F4</span><span>F1 25% / F2 25% / F3 37.5% / F4 12.5%</span></div>
-<div class="swatch reference" style="background:#6E624F"><span class="num">165</span><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 22.2% / F3 33.3% / F4 22.2%</span></div>
-<div class="swatch reference" style="background:#706652"><span class="num">166</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 30% / F4 30%</span></div>
-<div class="swatch reference" style="background:#6C5960"><span class="num">167</span><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 42.9% / F3 14.3% / F4 14.3%</span></div>
-<div class="swatch reference" style="background:#6D5B61"><span class="num">168</span><span>F1/F2/F3/F4</span><span>F1 25% / F2 37.5% / F3 12.5% / F4 25%</span></div>
-<div class="swatch reference" style="background:#6E5E66"><span class="num">169</span><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 33.3% / F3 11.1% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#705B55"><span class="num">170</span><span>F1/F2/F3/F4</span><span>F1 25% / F2 37.5% / F3 25% / F4 12.5%</span></div>
-<div class="swatch reference" style="background:#6F5E56"><span class="num">171</span><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 33.3% / F3 22.2% / F4 22.2%</span></div>
-<div class="swatch reference" style="background:#6E5D58"><span class="num">172</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 30% / F3 20% / F4 30%</span></div>
-<div class="swatch reference" style="background:#725C4F"><span class="num">173</span><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 33.3% / F3 33.3% / F4 11.1%</span></div>
-<div class="swatch reference" style="background:#725E50"><span class="num">174</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 30% / F3 30% / F4 20%</span></div>
-<div class="swatch reference" style="background:#726052"><span class="num">175</span><span>F1/F2/F3/F4</span><span>F1 18.2% / F2 27.3% / F3 27.3% / F4 27.3%</span></div>
-<div class="swatch reference" style="background:#53675E"><span class="num">176</span><span>F1/F2/F3/F4</span><span>F1 50% / F2 16.7% / F3 16.7% / F4 16.7%</span></div>
-<div class="swatch reference" style="background:#566960"><span class="num">177</span><span>F1/F2/F3/F4</span><span>F1 42.9% / F2 14.3% / F3 14.3% / F4 28.6%</span></div>
-<div class="swatch reference" style="background:#566B62"><span class="num">178</span><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 12.5% / F3 12.5% / F4 37.5%</span></div>
-<div class="swatch reference" style="background:#596A52"><span class="num">179</span><span>F1/F2/F3/F4</span><span>F1 42.9% / F2 14.3% / F3 28.6% / F4 14.3%</span></div>
-<div class="swatch reference" style="background:#5B6C53"><span class="num">180</span><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 12.5% / F3 25% / F4 25%</span></div>
-<div class="swatch reference" style="background:#5D6E54"><span class="num">181</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 11.1% / F3 22.2% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#5C6D49"><span class="num">182</span><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 12.5% / F3 37.5% / F4 12.5%</span></div>
-<div class="swatch reference" style="background:#5C6F4C"><span class="num">183</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 11.1% / F3 33.3% / F4 22.2%</span></div>
-<div class="swatch reference" style="background:#5F704E"><span class="num">184</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 30% / F4 30%</span></div>
-<div class="swatch reference" style="background:#5C5E60"><span class="num">185</span><span>F1/F2/F3/F4</span><span>F1 42.9% / F2 28.6% / F3 14.3% / F4 14.3%</span></div>
-<div class="swatch reference" style="background:#5F6064"><span class="num">186</span><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 25% / F3 12.5% / F4 25%</span></div>
-<div class="swatch reference" style="background:#5E6267"><span class="num">187</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 22.2% / F3 11.1% / F4 33.3%</span></div>
-<div class="swatch reference" style="background:#5D5E53"><span class="num">188</span><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 25% / F3 25% / F4 12.5%</span></div>
-<div class="swatch reference" style="background:#636256"><span class="num">189</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 22.2% / F3 22.2% / F4 22.2%</span></div>
-<div class="swatch reference" style="background:#626558"><span class="num">190</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 20% / F3 20% / F4 30%</span></div>
-<div class="swatch reference" style="background:#65624E"><span class="num">191</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 22.2% / F3 33.3% / F4 11.1%</span></div>
-<div class="swatch reference" style="background:#63644F"><span class="num">192</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 20% / F3 30% / F4 20%</span></div>
-<div class="swatch reference" style="background:#656651"><span class="num">193</span><span>F1/F2/F3/F4</span><span>F1 27.3% / F2 18.2% / F3 27.3% / F4 27.3%</span></div>
-<div class="swatch reference" style="background:#635A63"><span class="num">194</span><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 37.5% / F3 12.5% / F4 12.5%</span></div>
-<div class="swatch reference" style="background:#625A65"><span class="num">195</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 33.3% / F3 11.1% / F4 22.2%</span></div>
-<div class="swatch reference" style="background:#655E67"><span class="num">196</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 30% / F3 10% / F4 30%</span></div>
-<div class="swatch reference" style="background:#675C56"><span class="num">197</span><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 33.3% / F3 22.2% / F4 11.1%</span></div>
-<div class="swatch reference" style="background:#685F59"><span class="num">198</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 30% / F3 20% / F4 20%</span></div>
-<div class="swatch reference" style="background:#675F5A"><span class="num">199</span><span>F1/F2/F3/F4</span><span>F1 27.3% / F2 27.3% / F3 18.2% / F4 27.3%</span></div>
-<div class="swatch reference" style="background:#685D50"><span class="num">200</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 30% / F3 30% / F4 10%</span></div>
-<div class="swatch reference" style="background:#675E51"><span class="num">201</span><span>F1/F2/F3/F4</span><span>F1 27.3% / F2 27.3% / F3 27.3% / F4 18.2%</span></div></div>
+  <div class="swatch-grid"><div class="swatch reference" style="background:#686D53" id="color-a99"><a class="num" href="#color-a99" aria-label="Color reference A99">A99</a><span>F1/F2/F3/F4</span><span>F1 25% / F2 12.5% / F3 25% / F4 37.5%</span></div>
+<div class="swatch reference" style="background:#666C4F" id="color-a100"><a class="num" href="#color-a100" aria-label="Color reference A100">A100</a><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 14.3% / F3 28.6% / F4 28.6%</span></div>
+<div class="swatch reference" style="background:#676B46" id="color-a101"><a class="num" href="#color-a101" aria-label="Color reference A101">A101</a><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 14.3% / F3 42.9% / F4 14.3%</span></div>
+<div class="swatch reference" style="background:#686D4A" id="color-a102"><a class="num" href="#color-a102" aria-label="Color reference A102">A102</a><span>F1/F2/F3/F4</span><span>F1 25% / F2 12.5% / F3 37.5% / F4 25%</span></div>
+<div class="swatch reference" style="background:#6B714C" id="color-a103"><a class="num" href="#color-a103" aria-label="Color reference A103">A103</a><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 11.1% / F3 33.3% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#786D49" id="color-a104"><a class="num" href="#color-a104" aria-label="Color reference A104">A104</a><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 12.5% / F3 37.5% / F4 37.5%</span></div>
+<div class="swatch reference" style="background:#786C47" id="color-a105"><a class="num" href="#color-a105" aria-label="Color reference A105">A105</a><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 14.3% / F3 42.9% / F4 28.6%</span></div>
+<div class="swatch reference" style="background:#796B44" id="color-a106"><a class="num" href="#color-a106" aria-label="Color reference A106">A106</a><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 16.7% / F3 50% / F4 16.7%</span></div>
+<div class="swatch reference" style="background:#746749" id="color-a107"><a class="num" href="#color-a107" aria-label="Color reference A107">A107</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 40% / F4 20%</span></div>
+<div class="swatch reference" style="background:#73694D" id="color-a108"><a class="num" href="#color-a108" aria-label="Color reference A108">A108</a><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 16.7% / F3 33.3% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#746B50" id="color-a109"><a class="num" href="#color-a109" aria-label="Color reference A109">A109</a><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 14.3% / F3 28.6% / F4 42.9%</span></div>
+<div class="swatch reference" style="background:#70695C" id="color-a110"><a class="num" href="#color-a110" aria-label="Color reference A110">A110</a><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 16.7% / F3 16.7% / F4 50%</span></div>
+<div class="swatch reference" style="background:#6C6558" id="color-a111"><a class="num" href="#color-a111" aria-label="Color reference A111">A111</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 20% / F4 40%</span></div>
+<div class="swatch reference" style="background:#706652" id="color-a112"><a class="num" href="#color-a112" aria-label="Color reference A112">A112</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 30% / F4 30%</span></div>
+<div class="swatch reference" style="background:#6E624F" id="color-a113"><a class="num" href="#color-a113" aria-label="Color reference A113">A113</a><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 22.2% / F3 33.3% / F4 22.2%</span></div>
+<div class="swatch reference" style="background:#6D614C" id="color-a114"><a class="num" href="#color-a114" aria-label="Color reference A114">A114</a><span>F1/F2/F3/F4</span><span>F1 25% / F2 25% / F3 37.5% / F4 12.5%</span></div>
+<div class="swatch reference" style="background:#726052" id="color-a115"><a class="num" href="#color-a115" aria-label="Color reference A115">A115</a><span>F1/F2/F3/F4</span><span>F1 18.2% / F2 27.3% / F3 27.3% / F4 27.3%</span></div>
+<div class="swatch reference" style="background:#725E50" id="color-a116"><a class="num" href="#color-a116" aria-label="Color reference A116">A116</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 30% / F3 30% / F4 20%</span></div>
+<div class="swatch reference" style="background:#725C4F" id="color-a117"><a class="num" href="#color-a117" aria-label="Color reference A117">A117</a><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 33.3% / F3 33.3% / F4 11.1%</span></div>
+<div class="swatch reference" style="background:#6F5E56" id="color-a118"><a class="num" href="#color-a118" aria-label="Color reference A118">A118</a><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 33.3% / F3 22.2% / F4 22.2%</span></div>
+<div class="swatch reference" style="background:#6E5D58" id="color-a119"><a class="num" href="#color-a119" aria-label="Color reference A119">A119</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 30% / F3 20% / F4 30%</span></div>
+<div class="swatch reference" style="background:#705B55" id="color-a120"><a class="num" href="#color-a120" aria-label="Color reference A120">A120</a><span>F1/F2/F3/F4</span><span>F1 25% / F2 37.5% / F3 25% / F4 12.5%</span></div>
+<div class="swatch reference" style="background:#745B59" id="color-a121"><a class="num" href="#color-a121" aria-label="Color reference A121">A121</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 40% / F3 20% / F4 20%</span></div>
+<div class="swatch reference" style="background:#755E5D" id="color-a122"><a class="num" href="#color-a122" aria-label="Color reference A122">A122</a><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 33.3% / F3 16.7% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#76615F" id="color-a123"><a class="num" href="#color-a123" aria-label="Color reference A123">A123</a><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 28.6% / F3 14.3% / F4 42.9%</span></div>
+<div class="swatch reference" style="background:#7E5C54" id="color-a124"><a class="num" href="#color-a124" aria-label="Color reference A124">A124</a><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 37.5% / F3 25% / F4 25%</span></div>
+<div class="swatch reference" style="background:#7D5D54" id="color-a125"><a class="num" href="#color-a125" aria-label="Color reference A125">A125</a><span>F1/F2/F3/F4</span><span>F1 11.1% / F2 33.3% / F3 22.2% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#795E4E" id="color-a126"><a class="num" href="#color-a126" aria-label="Color reference A126">A126</a><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 33.3% / F3 33.3% / F4 16.7%</span></div>
+<div class="swatch reference" style="background:#7C5F4A" id="color-a127"><a class="num" href="#color-a127" aria-label="Color reference A127">A127</a><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 28.6% / F3 42.9% / F4 14.3%</span></div>
+<div class="swatch reference" style="background:#7A6050" id="color-a128"><a class="num" href="#color-a128" aria-label="Color reference A128">A128</a><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 28.6% / F3 28.6% / F4 28.6%</span></div>
+<div class="swatch reference" style="background:#7A6253" id="color-a129"><a class="num" href="#color-a129" aria-label="Color reference A129">A129</a><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 25% / F3 25% / F4 37.5%</span></div>
+<div class="swatch reference" style="background:#7E644C" id="color-a130"><a class="num" href="#color-a130" aria-label="Color reference A130">A130</a><span>F1/F2/F3/F4</span><span>F1 11.1% / F2 22.2% / F3 33.3% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#7D624C" id="color-a131"><a class="num" href="#color-a131" aria-label="Color reference A131">A131</a><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 25% / F3 37.5% / F4 25%</span></div>
+<div class="swatch reference" style="background:#80604F" id="color-a132"><a class="num" href="#color-a132" aria-label="Color reference A132">A132</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 30% / F4 30%</span></div>
+<div class="swatch reference" style="background:#825D4E" id="color-a133"><a class="num" href="#color-a133" aria-label="Color reference A133">A133</a><span>F1/F2/F3/F4</span><span>F1 11.1% / F2 33.3% / F3 33.3% / F4 22.2%</span></div>
+<div class="swatch reference" style="background:#7F5A4E" id="color-a134"><a class="num" href="#color-a134" aria-label="Color reference A134">A134</a><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 37.5% / F3 37.5% / F4 12.5%</span></div>
+<div class="swatch reference" style="background:#7C5852" id="color-a135"><a class="num" href="#color-a135" aria-label="Color reference A135">A135</a><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 42.9% / F3 28.6% / F4 14.3%</span></div>
+<div class="swatch reference" style="background:#7A565C" id="color-a136"><a class="num" href="#color-a136" aria-label="Color reference A136">A136</a><span>F1/F2/F3/F4</span><span>F1 16.7% / F2 50% / F3 16.7% / F4 16.7%</span></div>
+<div class="swatch reference" style="background:#79595F" id="color-a137"><a class="num" href="#color-a137" aria-label="Color reference A137">A137</a><span>F1/F2/F3/F4</span><span>F1 14.3% / F2 42.9% / F3 14.3% / F4 28.6%</span></div>
+<div class="swatch reference" style="background:#7B5B61" id="color-a138"><a class="num" href="#color-a138" aria-label="Color reference A138">A138</a><span>F1/F2/F3/F4</span><span>F1 12.5% / F2 37.5% / F3 12.5% / F4 37.5%</span></div>
+<div class="swatch reference" style="background:#6E5E66" id="color-a139"><a class="num" href="#color-a139" aria-label="Color reference A139">A139</a><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 33.3% / F3 11.1% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#6D5B61" id="color-a140"><a class="num" href="#color-a140" aria-label="Color reference A140">A140</a><span>F1/F2/F3/F4</span><span>F1 25% / F2 37.5% / F3 12.5% / F4 25%</span></div>
+<div class="swatch reference" style="background:#6C5960" id="color-a141"><a class="num" href="#color-a141" aria-label="Color reference A141">A141</a><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 42.9% / F3 14.3% / F4 14.3%</span></div>
+<div class="swatch reference" style="background:#635A63" id="color-a142"><a class="num" href="#color-a142" aria-label="Color reference A142">A142</a><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 37.5% / F3 12.5% / F4 12.5%</span></div>
+<div class="swatch reference" style="background:#625A65" id="color-a143"><a class="num" href="#color-a143" aria-label="Color reference A143">A143</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 33.3% / F3 11.1% / F4 22.2%</span></div>
+<div class="swatch reference" style="background:#655E67" id="color-a144"><a class="num" href="#color-a144" aria-label="Color reference A144">A144</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 30% / F3 10% / F4 30%</span></div>
+<div class="swatch reference" style="background:#5E6267" id="color-a145"><a class="num" href="#color-a145" aria-label="Color reference A145">A145</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 22.2% / F3 11.1% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#5F6064" id="color-a146"><a class="num" href="#color-a146" aria-label="Color reference A146">A146</a><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 25% / F3 12.5% / F4 25%</span></div>
+<div class="swatch reference" style="background:#5C5E60" id="color-a147"><a class="num" href="#color-a147" aria-label="Color reference A147">A147</a><span>F1/F2/F3/F4</span><span>F1 42.9% / F2 28.6% / F3 14.3% / F4 14.3%</span></div>
+<div class="swatch reference" style="background:#655B5C" id="color-a148"><a class="num" href="#color-a148" aria-label="Color reference A148">A148</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 33.3% / F3 16.7% / F4 16.7%</span></div>
+<div class="swatch reference" style="background:#675C56" id="color-a149"><a class="num" href="#color-a149" aria-label="Color reference A149">A149</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 33.3% / F3 22.2% / F4 11.1%</span></div>
+<div class="swatch reference" style="background:#685F59" id="color-a150"><a class="num" href="#color-a150" aria-label="Color reference A150">A150</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 30% / F3 20% / F4 20%</span></div>
+<div class="swatch reference" style="background:#675F5A" id="color-a151"><a class="num" href="#color-a151" aria-label="Color reference A151">A151</a><span>F1/F2/F3/F4</span><span>F1 27.3% / F2 27.3% / F3 18.2% / F4 27.3%</span></div>
+<div class="swatch reference" style="background:#665F5F" id="color-a152"><a class="num" href="#color-a152" aria-label="Color reference A152">A152</a><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 28.6% / F3 14.3% / F4 28.6%</span></div>
+<div class="swatch reference" style="background:#6A6263" id="color-a153"><a class="num" href="#color-a153" aria-label="Color reference A153">A153</a><span>F1/F2/F3/F4</span><span>F1 25% / F2 25% / F3 12.5% / F4 37.5%</span></div>
+<div class="swatch reference" style="background:#6B6255" id="color-a154"><a class="num" href="#color-a154" aria-label="Color reference A154">A154</a><span>F1/F2/F3/F4</span><span>F1 22.2% / F2 22.2% / F3 22.2% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#6C6154" id="color-a155"><a class="num" href="#color-a155" aria-label="Color reference A155">A155</a><span>F1/F2/F3/F4</span><span>F1 25% / F2 25% / F3 25% / F4 25%</span></div>
+<div class="swatch reference" style="background:#6B5F52" id="color-a156"><a class="num" href="#color-a156" aria-label="Color reference A156">A156</a><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 28.6% / F3 28.6% / F4 14.3%</span></div>
+<div class="swatch reference" style="background:#685D50" id="color-a157"><a class="num" href="#color-a157" aria-label="Color reference A157">A157</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 30% / F3 30% / F4 10%</span></div>
+<div class="swatch reference" style="background:#675E51" id="color-a158"><a class="num" href="#color-a158" aria-label="Color reference A158">A158</a><span>F1/F2/F3/F4</span><span>F1 27.3% / F2 27.3% / F3 27.3% / F4 18.2%</span></div>
+<div class="swatch reference" style="background:#5D5E53" id="color-a159"><a class="num" href="#color-a159" aria-label="Color reference A159">A159</a><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 25% / F3 25% / F4 12.5%</span></div>
+<div class="swatch reference" style="background:#53675E" id="color-a160"><a class="num" href="#color-a160" aria-label="Color reference A160">A160</a><span>F1/F2/F3/F4</span><span>F1 50% / F2 16.7% / F3 16.7% / F4 16.7%</span></div>
+<div class="swatch reference" style="background:#566960" id="color-a161"><a class="num" href="#color-a161" aria-label="Color reference A161">A161</a><span>F1/F2/F3/F4</span><span>F1 42.9% / F2 14.3% / F3 14.3% / F4 28.6%</span></div>
+<div class="swatch reference" style="background:#566B62" id="color-a162"><a class="num" href="#color-a162" aria-label="Color reference A162">A162</a><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 12.5% / F3 12.5% / F4 37.5%</span></div>
+<div class="swatch reference" style="background:#5F695D" id="color-a163"><a class="num" href="#color-a163" aria-label="Color reference A163">A163</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 16.7% / F3 16.7% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#61695F" id="color-a164"><a class="num" href="#color-a164" aria-label="Color reference A164">A164</a><span>F1/F2/F3/F4</span><span>F1 28.6% / F2 14.3% / F3 14.3% / F4 42.9%</span></div>
+<div class="swatch reference" style="background:#5D655B" id="color-a165"><a class="num" href="#color-a165" aria-label="Color reference A165">A165</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 20% / F3 20% / F4 20%</span></div>
+<div class="swatch reference" style="background:#626558" id="color-a166"><a class="num" href="#color-a166" aria-label="Color reference A166">A166</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 20% / F3 20% / F4 30%</span></div>
+<div class="swatch reference" style="background:#636256" id="color-a167"><a class="num" href="#color-a167" aria-label="Color reference A167">A167</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 22.2% / F3 22.2% / F4 22.2%</span></div>
+<div class="swatch reference" style="background:#65624E" id="color-a168"><a class="num" href="#color-a168" aria-label="Color reference A168">A168</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 22.2% / F3 33.3% / F4 11.1%</span></div>
+<div class="swatch reference" style="background:#63644F" id="color-a169"><a class="num" href="#color-a169" aria-label="Color reference A169">A169</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 20% / F3 30% / F4 20%</span></div>
+<div class="swatch reference" style="background:#656651" id="color-a170"><a class="num" href="#color-a170" aria-label="Color reference A170">A170</a><span>F1/F2/F3/F4</span><span>F1 27.3% / F2 18.2% / F3 27.3% / F4 27.3%</span></div>
+<div class="swatch reference" style="background:#61684D" id="color-a171"><a class="num" href="#color-a171" aria-label="Color reference A171">A171</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 16.7% / F3 33.3% / F4 16.7%</span></div>
+<div class="swatch reference" style="background:#596A52" id="color-a172"><a class="num" href="#color-a172" aria-label="Color reference A172">A172</a><span>F1/F2/F3/F4</span><span>F1 42.9% / F2 14.3% / F3 28.6% / F4 14.3%</span></div>
+<div class="swatch reference" style="background:#5B6C53" id="color-a173"><a class="num" href="#color-a173" aria-label="Color reference A173">A173</a><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 12.5% / F3 25% / F4 25%</span></div>
+<div class="swatch reference" style="background:#5D6E54" id="color-a174"><a class="num" href="#color-a174" aria-label="Color reference A174">A174</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 11.1% / F3 22.2% / F4 33.3%</span></div>
+<div class="swatch reference" style="background:#5F704E" id="color-a175"><a class="num" href="#color-a175" aria-label="Color reference A175">A175</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 30% / F4 30%</span></div>
+<div class="swatch reference" style="background:#5C6F4C" id="color-a176"><a class="num" href="#color-a176" aria-label="Color reference A176">A176</a><span>F1/F2/F3/F4</span><span>F1 33.3% / F2 11.1% / F3 33.3% / F4 22.2%</span></div>
+<div class="swatch reference" style="background:#5C6D49" id="color-a177"><a class="num" href="#color-a177" aria-label="Color reference A177">A177</a><span>F1/F2/F3/F4</span><span>F1 37.5% / F2 12.5% / F3 37.5% / F4 12.5%</span></div></div>
   </section>
     </div>
     <div class="key-block" id="additional-recipes">
-  <div class="key-head"><h2>Additional Reference Colors</h2><p>144 extra recipe choices grouped by recipe size.</p></div>
+  <div class="key-head"><h2>Additional Reference Colors</h2><p>144 extra recipe choices grouped by recipe size and arranged as continuous perceptual color paths.</p></div>
   <section class="recipe-section" id="additional-two" aria-labelledby="additional-two-title">
   <div class="group-head"><h3 id="additional-two-title">Two-Filament Recipes</h3><span>42 color recipes</span></div>
-  <div class="swatch-grid"><div class="swatch additional" style="background:#9B4C76"><span class="num">202</span><span>F1/F2</span><span>F1 5% / F2 95%</span></div>
-<div class="swatch additional" style="background:#904D77"><span class="num">203</span><span>F1/F2</span><span>F1 10% / F2 90%</span></div>
-<div class="swatch additional" style="background:#76507C"><span class="num">204</span><span>F1/F2</span><span>F1 30% / F2 70%</span></div>
-<div class="swatch additional" style="background:#6D527E"><span class="num">205</span><span>F1/F2</span><span>F1 40% / F2 60%</span></div>
-<div class="swatch additional" style="background:#5C5685"><span class="num">206</span><span>F1/F2</span><span>F1 60% / F2 40%</span></div>
-<div class="swatch additional" style="background:#535A8A"><span class="num">207</span><span>F1/F2</span><span>F1 70% / F2 30%</span></div>
-<div class="swatch additional" style="background:#2F6E9D"><span class="num">208</span><span>F1/F2</span><span>F1 90% / F2 10%</span></div>
-<div class="swatch additional" style="background:#989E20"><span class="num">209</span><span>F1/F3</span><span>F1 5% / F3 95%</span></div>
-<div class="swatch additional" style="background:#819729"><span class="num">210</span><span>F1/F3</span><span>F1 10% / F3 90%</span></div>
-<div class="swatch additional" style="background:#558A36"><span class="num">211</span><span>F1/F3</span><span>F1 30% / F3 70%</span></div>
-<div class="swatch additional" style="background:#47873B"><span class="num">212</span><span>F1/F3</span><span>F1 40% / F3 60%</span></div>
-<div class="swatch additional" style="background:#2D8449"><span class="num">213</span><span>F1/F3</span><span>F1 60% / F3 40%</span></div>
-<div class="swatch additional" style="background:#1C8453"><span class="num">214</span><span>F1/F3</span><span>F1 70% / F3 30%</span></div>
-<div class="swatch additional" style="background:#008879"><span class="num">215</span><span>F1/F3</span><span>F1 90% / F3 10%</span></div>
-<div class="swatch additional" style="background:#717E81"><span class="num">216</span><span>F1/F4</span><span>F1 5% / F4 95%</span></div>
-<div class="swatch additional" style="background:#687D82"><span class="num">217</span><span>F1/F4</span><span>F1 10% / F4 90%</span></div>
-<div class="swatch additional" style="background:#517E88"><span class="num">218</span><span>F1/F4</span><span>F1 30% / F4 70%</span></div>
-<div class="swatch additional" style="background:#467F8D"><span class="num">219</span><span>F1/F4</span><span>F1 40% / F4 60%</span></div>
-<div class="swatch additional" style="background:#288196"><span class="num">220</span><span>F1/F4</span><span>F1 60% / F4 40%</span></div>
-<div class="swatch additional" style="background:#0A829B"><span class="num">221</span><span>F1/F4</span><span>F1 70% / F4 30%</span></div>
-<div class="swatch additional" style="background:#0087A8"><span class="num">222</span><span>F1/F4</span><span>F1 90% / F4 10%</span></div>
-<div class="swatch additional" style="background:#BD7E2E"><span class="num">223</span><span>F2/F3</span><span>F2 5% / F3 95%</span></div>
-<div class="swatch additional" style="background:#B86E36"><span class="num">224</span><span>F2/F3</span><span>F2 10% / F3 90%</span></div>
-<div class="swatch additional" style="background:#B15843"><span class="num">225</span><span>F2/F3</span><span>F2 30% / F3 70%</span></div>
-<div class="swatch additional" style="background:#AF5348"><span class="num">226</span><span>F2/F3</span><span>F2 40% / F3 60%</span></div>
-<div class="swatch additional" style="background:#AC4F52"><span class="num">227</span><span>F2/F3</span><span>F2 60% / F3 40%</span></div>
-<div class="swatch additional" style="background:#AB4E58"><span class="num">228</span><span>F2/F3</span><span>F2 70% / F3 30%</span></div>
-<div class="swatch additional" style="background:#AB4B69"><span class="num">229</span><span>F2/F3</span><span>F2 90% / F3 10%</span></div>
-<div class="swatch additional" style="background:#7D747E"><span class="num">230</span><span>F2/F4</span><span>F2 5% / F4 95%</span></div>
-<div class="swatch additional" style="background:#7E6C7D"><span class="num">231</span><span>F2/F4</span><span>F2 10% / F4 90%</span></div>
-<div class="swatch additional" style="background:#885B79"><span class="num">232</span><span>F2/F4</span><span>F2 30% / F4 70%</span></div>
-<div class="swatch additional" style="background:#8D5778"><span class="num">233</span><span>F2/F4</span><span>F2 40% / F4 60%</span></div>
-<div class="swatch additional" style="background:#985277"><span class="num">234</span><span>F2/F4</span><span>F2 60% / F4 40%</span></div>
-<div class="swatch additional" style="background:#9D5077"><span class="num">235</span><span>F2/F4</span><span>F2 70% / F4 30%</span></div>
-<div class="swatch additional" style="background:#A64C76"><span class="num">236</span><span>F2/F4</span><span>F2 90% / F4 10%</span></div>
-<div class="swatch additional" style="background:#7D8071"><span class="num">237</span><span>F3/F4</span><span>F3 5% / F4 95%</span></div>
-<div class="swatch additional" style="background:#7E8067"><span class="num">238</span><span>F3/F4</span><span>F3 10% / F4 90%</span></div>
-<div class="swatch additional" style="background:#84824E"><span class="num">239</span><span>F3/F4</span><span>F3 30% / F4 70%</span></div>
-<div class="swatch additional" style="background:#898446"><span class="num">240</span><span>F3/F4</span><span>F3 40% / F4 60%</span></div>
-<div class="swatch additional" style="background:#958B39"><span class="num">241</span><span>F3/F4</span><span>F3 60% / F4 40%</span></div>
-<div class="swatch additional" style="background:#9D8F32"><span class="num">242</span><span>F3/F4</span><span>F3 70% / F4 30%</span></div>
-<div class="swatch additional" style="background:#B39D21"><span class="num">243</span><span>F3/F4</span><span>F3 90% / F4 10%</span></div></div>
+  <div class="swatch-grid"><div class="swatch additional" style="background:#76507C" id="color-a178"><a class="num" href="#color-a178" aria-label="Color reference A178">A178</a><span>F1/F2</span><span>F1 30% / F2 70%</span></div>
+<div class="swatch additional" style="background:#6D527E" id="color-a179"><a class="num" href="#color-a179" aria-label="Color reference A179">A179</a><span>F1/F2</span><span>F1 40% / F2 60%</span></div>
+<div class="swatch additional" style="background:#5C5685" id="color-a180"><a class="num" href="#color-a180" aria-label="Color reference A180">A180</a><span>F1/F2</span><span>F1 60% / F2 40%</span></div>
+<div class="swatch additional" style="background:#535A8A" id="color-a181"><a class="num" href="#color-a181" aria-label="Color reference A181">A181</a><span>F1/F2</span><span>F1 70% / F2 30%</span></div>
+<div class="swatch additional" style="background:#2F6E9D" id="color-a182"><a class="num" href="#color-a182" aria-label="Color reference A182">A182</a><span>F1/F2</span><span>F1 90% / F2 10%</span></div>
+<div class="swatch additional" style="background:#0087A8" id="color-a183"><a class="num" href="#color-a183" aria-label="Color reference A183">A183</a><span>F1/F4</span><span>F1 90% / F4 10%</span></div>
+<div class="swatch additional" style="background:#0A829B" id="color-a184"><a class="num" href="#color-a184" aria-label="Color reference A184">A184</a><span>F1/F4</span><span>F1 70% / F4 30%</span></div>
+<div class="swatch additional" style="background:#288196" id="color-a185"><a class="num" href="#color-a185" aria-label="Color reference A185">A185</a><span>F1/F4</span><span>F1 60% / F4 40%</span></div>
+<div class="swatch additional" style="background:#467F8D" id="color-a186"><a class="num" href="#color-a186" aria-label="Color reference A186">A186</a><span>F1/F4</span><span>F1 40% / F4 60%</span></div>
+<div class="swatch additional" style="background:#517E88" id="color-a187"><a class="num" href="#color-a187" aria-label="Color reference A187">A187</a><span>F1/F4</span><span>F1 30% / F4 70%</span></div>
+<div class="swatch additional" style="background:#687D82" id="color-a188"><a class="num" href="#color-a188" aria-label="Color reference A188">A188</a><span>F1/F4</span><span>F1 10% / F4 90%</span></div>
+<div class="swatch additional" style="background:#717E81" id="color-a189"><a class="num" href="#color-a189" aria-label="Color reference A189">A189</a><span>F1/F4</span><span>F1 5% / F4 95%</span></div>
+<div class="swatch additional" style="background:#7D747E" id="color-a190"><a class="num" href="#color-a190" aria-label="Color reference A190">A190</a><span>F2/F4</span><span>F2 5% / F4 95%</span></div>
+<div class="swatch additional" style="background:#7E6C7D" id="color-a191"><a class="num" href="#color-a191" aria-label="Color reference A191">A191</a><span>F2/F4</span><span>F2 10% / F4 90%</span></div>
+<div class="swatch additional" style="background:#885B79" id="color-a192"><a class="num" href="#color-a192" aria-label="Color reference A192">A192</a><span>F2/F4</span><span>F2 30% / F4 70%</span></div>
+<div class="swatch additional" style="background:#8D5778" id="color-a193"><a class="num" href="#color-a193" aria-label="Color reference A193">A193</a><span>F2/F4</span><span>F2 40% / F4 60%</span></div>
+<div class="swatch additional" style="background:#904D77" id="color-a194"><a class="num" href="#color-a194" aria-label="Color reference A194">A194</a><span>F1/F2</span><span>F1 10% / F2 90%</span></div>
+<div class="swatch additional" style="background:#985277" id="color-a195"><a class="num" href="#color-a195" aria-label="Color reference A195">A195</a><span>F2/F4</span><span>F2 60% / F4 40%</span></div>
+<div class="swatch additional" style="background:#9D5077" id="color-a196"><a class="num" href="#color-a196" aria-label="Color reference A196">A196</a><span>F2/F4</span><span>F2 70% / F4 30%</span></div>
+<div class="swatch additional" style="background:#9B4C76" id="color-a197"><a class="num" href="#color-a197" aria-label="Color reference A197">A197</a><span>F1/F2</span><span>F1 5% / F2 95%</span></div>
+<div class="swatch additional" style="background:#A64C76" id="color-a198"><a class="num" href="#color-a198" aria-label="Color reference A198">A198</a><span>F2/F4</span><span>F2 90% / F4 10%</span></div>
+<div class="swatch additional" style="background:#AB4B69" id="color-a199"><a class="num" href="#color-a199" aria-label="Color reference A199">A199</a><span>F2/F3</span><span>F2 90% / F3 10%</span></div>
+<div class="swatch additional" style="background:#AB4E58" id="color-a200"><a class="num" href="#color-a200" aria-label="Color reference A200">A200</a><span>F2/F3</span><span>F2 70% / F3 30%</span></div>
+<div class="swatch additional" style="background:#AC4F52" id="color-a201"><a class="num" href="#color-a201" aria-label="Color reference A201">A201</a><span>F2/F3</span><span>F2 60% / F3 40%</span></div>
+<div class="swatch additional" style="background:#AF5348" id="color-a202"><a class="num" href="#color-a202" aria-label="Color reference A202">A202</a><span>F2/F3</span><span>F2 40% / F3 60%</span></div>
+<div class="swatch additional" style="background:#B15843" id="color-a203"><a class="num" href="#color-a203" aria-label="Color reference A203">A203</a><span>F2/F3</span><span>F2 30% / F3 70%</span></div>
+<div class="swatch additional" style="background:#B86E36" id="color-a204"><a class="num" href="#color-a204" aria-label="Color reference A204">A204</a><span>F2/F3</span><span>F2 10% / F3 90%</span></div>
+<div class="swatch additional" style="background:#BD7E2E" id="color-a205"><a class="num" href="#color-a205" aria-label="Color reference A205">A205</a><span>F2/F3</span><span>F2 5% / F3 95%</span></div>
+<div class="swatch additional" style="background:#9D8F32" id="color-a206"><a class="num" href="#color-a206" aria-label="Color reference A206">A206</a><span>F3/F4</span><span>F3 70% / F4 30%</span></div>
+<div class="swatch additional" style="background:#958B39" id="color-a207"><a class="num" href="#color-a207" aria-label="Color reference A207">A207</a><span>F3/F4</span><span>F3 60% / F4 40%</span></div>
+<div class="swatch additional" style="background:#898446" id="color-a208"><a class="num" href="#color-a208" aria-label="Color reference A208">A208</a><span>F3/F4</span><span>F3 40% / F4 60%</span></div>
+<div class="swatch additional" style="background:#84824E" id="color-a209"><a class="num" href="#color-a209" aria-label="Color reference A209">A209</a><span>F3/F4</span><span>F3 30% / F4 70%</span></div>
+<div class="swatch additional" style="background:#7E8067" id="color-a210"><a class="num" href="#color-a210" aria-label="Color reference A210">A210</a><span>F3/F4</span><span>F3 10% / F4 90%</span></div>
+<div class="swatch additional" style="background:#7D8071" id="color-a211"><a class="num" href="#color-a211" aria-label="Color reference A211">A211</a><span>F3/F4</span><span>F3 5% / F4 95%</span></div>
+<div class="swatch additional" style="background:#008879" id="color-a212"><a class="num" href="#color-a212" aria-label="Color reference A212">A212</a><span>F1/F3</span><span>F1 90% / F3 10%</span></div>
+<div class="swatch additional" style="background:#1C8453" id="color-a213"><a class="num" href="#color-a213" aria-label="Color reference A213">A213</a><span>F1/F3</span><span>F1 70% / F3 30%</span></div>
+<div class="swatch additional" style="background:#2D8449" id="color-a214"><a class="num" href="#color-a214" aria-label="Color reference A214">A214</a><span>F1/F3</span><span>F1 60% / F3 40%</span></div>
+<div class="swatch additional" style="background:#47873B" id="color-a215"><a class="num" href="#color-a215" aria-label="Color reference A215">A215</a><span>F1/F3</span><span>F1 40% / F3 60%</span></div>
+<div class="swatch additional" style="background:#558A36" id="color-a216"><a class="num" href="#color-a216" aria-label="Color reference A216">A216</a><span>F1/F3</span><span>F1 30% / F3 70%</span></div>
+<div class="swatch additional" style="background:#819729" id="color-a217"><a class="num" href="#color-a217" aria-label="Color reference A217">A217</a><span>F1/F3</span><span>F1 10% / F3 90%</span></div>
+<div class="swatch additional" style="background:#989E20" id="color-a218"><a class="num" href="#color-a218" aria-label="Color reference A218">A218</a><span>F1/F3</span><span>F1 5% / F3 95%</span></div>
+<div class="swatch additional" style="background:#B39D21" id="color-a219"><a class="num" href="#color-a219" aria-label="Color reference A219">A219</a><span>F3/F4</span><span>F3 90% / F4 10%</span></div></div>
   </section>
   <section class="recipe-section" id="additional-three" aria-labelledby="additional-three-title">
   <div class="group-head"><h3 id="additional-three-title">Three-Filament Recipes</h3><span>36 color recipes</span></div>
-  <div class="swatch-grid"><div class="swatch additional" style="background:#856043"><span class="num">244</span><span>F1/F2/F3</span><span>F1 10% / F2 20% / F3 70%</span></div>
-<div class="swatch additional" style="background:#89564D"><span class="num">245</span><span>F1/F2/F3</span><span>F1 10% / F2 40% / F3 50%</span></div>
-<div class="swatch additional" style="background:#8A5453"><span class="num">246</span><span>F1/F2/F3</span><span>F1 10% / F2 50% / F3 40%</span></div>
-<div class="swatch additional" style="background:#685955"><span class="num">247</span><span>F1/F2/F3</span><span>F1 34% / F2 33% / F3 33%</span></div>
-<div class="swatch additional" style="background:#566A47"><span class="num">248</span><span>F1/F2/F3</span><span>F1 40% / F2 10% / F3 50%</span></div>
-<div class="swatch additional" style="background:#69546D"><span class="num">249</span><span>F1/F2/F3</span><span>F1 40% / F2 50% / F3 10%</span></div>
-<div class="swatch additional" style="background:#4D6A4D"><span class="num">250</span><span>F1/F2/F3</span><span>F1 50% / F2 10% / F3 40%</span></div>
-<div class="swatch additional" style="background:#60576E"><span class="num">251</span><span>F1/F2/F3</span><span>F1 50% / F2 40% / F3 10%</span></div>
-<div class="swatch additional" style="background:#496171"><span class="num">252</span><span>F1/F2/F3</span><span>F1 70% / F2 20% / F3 10%</span></div>
-<div class="swatch additional" style="background:#73617C"><span class="num">253</span><span>F1/F2/F4</span><span>F1 10% / F2 20% / F4 70%</span></div>
-<div class="swatch additional" style="background:#7D577A"><span class="num">254</span><span>F1/F2/F4</span><span>F1 10% / F2 40% / F4 50%</span></div>
-<div class="swatch additional" style="background:#82557A"><span class="num">255</span><span>F1/F2/F4</span><span>F1 10% / F2 50% / F4 40%</span></div>
-<div class="swatch additional" style="background:#675A81"><span class="num">256</span><span>F1/F2/F4</span><span>F1 34% / F2 33% / F4 33%</span></div>
-<div class="swatch additional" style="background:#546B87"><span class="num">257</span><span>F1/F2/F4</span><span>F1 40% / F2 10% / F4 50%</span></div>
-<div class="swatch additional" style="background:#695480"><span class="num">258</span><span>F1/F2/F4</span><span>F1 40% / F2 50% / F4 10%</span></div>
-<div class="swatch additional" style="background:#4B6B8B"><span class="num">259</span><span>F1/F2/F4</span><span>F1 50% / F2 10% / F4 40%</span></div>
-<div class="swatch additional" style="background:#5F5783"><span class="num">260</span><span>F1/F2/F4</span><span>F1 50% / F2 40% / F4 10%</span></div>
-<div class="swatch additional" style="background:#48618E"><span class="num">261</span><span>F1/F2/F4</span><span>F1 70% / F2 20% / F4 10%</span></div>
-<div class="swatch additional" style="background:#6C7E5A"><span class="num">262</span><span>F1/F3/F4</span><span>F1 10% / F3 20% / F4 70%</span></div>
-<div class="swatch additional" style="background:#728248"><span class="num">263</span><span>F1/F3/F4</span><span>F1 10% / F3 40% / F4 50%</span></div>
-<div class="swatch additional" style="background:#758442"><span class="num">264</span><span>F1/F3/F4</span><span>F1 10% / F3 50% / F4 40%</span></div>
-<div class="swatch additional" style="background:#4F814F"><span class="num">265</span><span>F1/F3/F4</span><span>F1 34% / F3 33% / F4 33%</span></div>
-<div class="swatch additional" style="background:#477F6E"><span class="num">266</span><span>F1/F3/F4</span><span>F1 40% / F3 10% / F4 50%</span></div>
-<div class="swatch additional" style="background:#468342"><span class="num">267</span><span>F1/F3/F4</span><span>F1 40% / F3 50% / F4 10%</span></div>
-<div class="swatch additional" style="background:#3A8070"><span class="num">268</span><span>F1/F3/F4</span><span>F1 50% / F3 10% / F4 40%</span></div>
-<div class="swatch additional" style="background:#39824A"><span class="num">269</span><span>F1/F3/F4</span><span>F1 50% / F3 40% / F4 10%</span></div>
-<div class="swatch additional" style="background:#188261"><span class="num">270</span><span>F1/F3/F4</span><span>F1 70% / F3 20% / F4 10%</span></div>
-<div class="swatch additional" style="background:#836B5B"><span class="num">271</span><span>F2/F3/F4</span><span>F2 10% / F3 20% / F4 70%</span></div>
-<div class="swatch additional" style="background:#8B6C4C"><span class="num">272</span><span>F2/F3/F4</span><span>F2 10% / F3 40% / F4 50%</span></div>
-<div class="swatch additional" style="background:#916C47"><span class="num">273</span><span>F2/F3/F4</span><span>F2 10% / F3 50% / F4 40%</span></div>
-<div class="swatch additional" style="background:#975954"><span class="num">274</span><span>F2/F3/F4</span><span>F2 34% / F3 33% / F4 33%</span></div>
-<div class="swatch additional" style="background:#905768"><span class="num">275</span><span>F2/F3/F4</span><span>F2 40% / F3 10% / F4 50%</span></div>
-<div class="swatch additional" style="background:#A6554C"><span class="num">276</span><span>F2/F3/F4</span><span>F2 40% / F3 50% / F4 10%</span></div>
-<div class="swatch additional" style="background:#955469"><span class="num">277</span><span>F2/F3/F4</span><span>F2 50% / F3 10% / F4 40%</span></div>
-<div class="swatch additional" style="background:#A55352"><span class="num">278</span><span>F2/F3/F4</span><span>F2 50% / F3 40% / F4 10%</span></div>
-<div class="swatch additional" style="background:#A54F60"><span class="num">279</span><span>F2/F3/F4</span><span>F2 70% / F3 20% / F4 10%</span></div></div>
+  <div class="swatch-grid"><div class="swatch additional" style="background:#916C47" id="color-a220"><a class="num" href="#color-a220" aria-label="Color reference A220">A220</a><span>F2/F3/F4</span><span>F2 10% / F3 50% / F4 40%</span></div>
+<div class="swatch additional" style="background:#8B6C4C" id="color-a221"><a class="num" href="#color-a221" aria-label="Color reference A221">A221</a><span>F2/F3/F4</span><span>F2 10% / F3 40% / F4 50%</span></div>
+<div class="swatch additional" style="background:#836B5B" id="color-a222"><a class="num" href="#color-a222" aria-label="Color reference A222">A222</a><span>F2/F3/F4</span><span>F2 10% / F3 20% / F4 70%</span></div>
+<div class="swatch additional" style="background:#856043" id="color-a223"><a class="num" href="#color-a223" aria-label="Color reference A223">A223</a><span>F1/F2/F3</span><span>F1 10% / F2 20% / F3 70%</span></div>
+<div class="swatch additional" style="background:#89564D" id="color-a224"><a class="num" href="#color-a224" aria-label="Color reference A224">A224</a><span>F1/F2/F3</span><span>F1 10% / F2 40% / F3 50%</span></div>
+<div class="swatch additional" style="background:#8A5453" id="color-a225"><a class="num" href="#color-a225" aria-label="Color reference A225">A225</a><span>F1/F2/F3</span><span>F1 10% / F2 50% / F3 40%</span></div>
+<div class="swatch additional" style="background:#975954" id="color-a226"><a class="num" href="#color-a226" aria-label="Color reference A226">A226</a><span>F2/F3/F4</span><span>F2 34% / F3 33% / F4 33%</span></div>
+<div class="swatch additional" style="background:#A6554C" id="color-a227"><a class="num" href="#color-a227" aria-label="Color reference A227">A227</a><span>F2/F3/F4</span><span>F2 40% / F3 50% / F4 10%</span></div>
+<div class="swatch additional" style="background:#A55352" id="color-a228"><a class="num" href="#color-a228" aria-label="Color reference A228">A228</a><span>F2/F3/F4</span><span>F2 50% / F3 40% / F4 10%</span></div>
+<div class="swatch additional" style="background:#A54F60" id="color-a229"><a class="num" href="#color-a229" aria-label="Color reference A229">A229</a><span>F2/F3/F4</span><span>F2 70% / F3 20% / F4 10%</span></div>
+<div class="swatch additional" style="background:#955469" id="color-a230"><a class="num" href="#color-a230" aria-label="Color reference A230">A230</a><span>F2/F3/F4</span><span>F2 50% / F3 10% / F4 40%</span></div>
+<div class="swatch additional" style="background:#905768" id="color-a231"><a class="num" href="#color-a231" aria-label="Color reference A231">A231</a><span>F2/F3/F4</span><span>F2 40% / F3 10% / F4 50%</span></div>
+<div class="swatch additional" style="background:#82557A" id="color-a232"><a class="num" href="#color-a232" aria-label="Color reference A232">A232</a><span>F1/F2/F4</span><span>F1 10% / F2 50% / F4 40%</span></div>
+<div class="swatch additional" style="background:#7D577A" id="color-a233"><a class="num" href="#color-a233" aria-label="Color reference A233">A233</a><span>F1/F2/F4</span><span>F1 10% / F2 40% / F4 50%</span></div>
+<div class="swatch additional" style="background:#73617C" id="color-a234"><a class="num" href="#color-a234" aria-label="Color reference A234">A234</a><span>F1/F2/F4</span><span>F1 10% / F2 20% / F4 70%</span></div>
+<div class="swatch additional" style="background:#546B87" id="color-a235"><a class="num" href="#color-a235" aria-label="Color reference A235">A235</a><span>F1/F2/F4</span><span>F1 40% / F2 10% / F4 50%</span></div>
+<div class="swatch additional" style="background:#4B6B8B" id="color-a236"><a class="num" href="#color-a236" aria-label="Color reference A236">A236</a><span>F1/F2/F4</span><span>F1 50% / F2 10% / F4 40%</span></div>
+<div class="swatch additional" style="background:#48618E" id="color-a237"><a class="num" href="#color-a237" aria-label="Color reference A237">A237</a><span>F1/F2/F4</span><span>F1 70% / F2 20% / F4 10%</span></div>
+<div class="swatch additional" style="background:#5F5783" id="color-a238"><a class="num" href="#color-a238" aria-label="Color reference A238">A238</a><span>F1/F2/F4</span><span>F1 50% / F2 40% / F4 10%</span></div>
+<div class="swatch additional" style="background:#675A81" id="color-a239"><a class="num" href="#color-a239" aria-label="Color reference A239">A239</a><span>F1/F2/F4</span><span>F1 34% / F2 33% / F4 33%</span></div>
+<div class="swatch additional" style="background:#695480" id="color-a240"><a class="num" href="#color-a240" aria-label="Color reference A240">A240</a><span>F1/F2/F4</span><span>F1 40% / F2 50% / F4 10%</span></div>
+<div class="swatch additional" style="background:#69546D" id="color-a241"><a class="num" href="#color-a241" aria-label="Color reference A241">A241</a><span>F1/F2/F3</span><span>F1 40% / F2 50% / F3 10%</span></div>
+<div class="swatch additional" style="background:#60576E" id="color-a242"><a class="num" href="#color-a242" aria-label="Color reference A242">A242</a><span>F1/F2/F3</span><span>F1 50% / F2 40% / F3 10%</span></div>
+<div class="swatch additional" style="background:#496171" id="color-a243"><a class="num" href="#color-a243" aria-label="Color reference A243">A243</a><span>F1/F2/F3</span><span>F1 70% / F2 20% / F3 10%</span></div>
+<div class="swatch additional" style="background:#685955" id="color-a244"><a class="num" href="#color-a244" aria-label="Color reference A244">A244</a><span>F1/F2/F3</span><span>F1 34% / F2 33% / F3 33%</span></div>
+<div class="swatch additional" style="background:#566A47" id="color-a245"><a class="num" href="#color-a245" aria-label="Color reference A245">A245</a><span>F1/F2/F3</span><span>F1 40% / F2 10% / F3 50%</span></div>
+<div class="swatch additional" style="background:#4D6A4D" id="color-a246"><a class="num" href="#color-a246" aria-label="Color reference A246">A246</a><span>F1/F2/F3</span><span>F1 50% / F2 10% / F3 40%</span></div>
+<div class="swatch additional" style="background:#477F6E" id="color-a247"><a class="num" href="#color-a247" aria-label="Color reference A247">A247</a><span>F1/F3/F4</span><span>F1 40% / F3 10% / F4 50%</span></div>
+<div class="swatch additional" style="background:#3A8070" id="color-a248"><a class="num" href="#color-a248" aria-label="Color reference A248">A248</a><span>F1/F3/F4</span><span>F1 50% / F3 10% / F4 40%</span></div>
+<div class="swatch additional" style="background:#188261" id="color-a249"><a class="num" href="#color-a249" aria-label="Color reference A249">A249</a><span>F1/F3/F4</span><span>F1 70% / F3 20% / F4 10%</span></div>
+<div class="swatch additional" style="background:#39824A" id="color-a250"><a class="num" href="#color-a250" aria-label="Color reference A250">A250</a><span>F1/F3/F4</span><span>F1 50% / F3 40% / F4 10%</span></div>
+<div class="swatch additional" style="background:#468342" id="color-a251"><a class="num" href="#color-a251" aria-label="Color reference A251">A251</a><span>F1/F3/F4</span><span>F1 40% / F3 50% / F4 10%</span></div>
+<div class="swatch additional" style="background:#4F814F" id="color-a252"><a class="num" href="#color-a252" aria-label="Color reference A252">A252</a><span>F1/F3/F4</span><span>F1 34% / F3 33% / F4 33%</span></div>
+<div class="swatch additional" style="background:#6C7E5A" id="color-a253"><a class="num" href="#color-a253" aria-label="Color reference A253">A253</a><span>F1/F3/F4</span><span>F1 10% / F3 20% / F4 70%</span></div>
+<div class="swatch additional" style="background:#728248" id="color-a254"><a class="num" href="#color-a254" aria-label="Color reference A254">A254</a><span>F1/F3/F4</span><span>F1 10% / F3 40% / F4 50%</span></div>
+<div class="swatch additional" style="background:#758442" id="color-a255"><a class="num" href="#color-a255" aria-label="Color reference A255">A255</a><span>F1/F3/F4</span><span>F1 10% / F3 50% / F4 40%</span></div></div>
   </section>
   <section class="recipe-section" id="additional-four" aria-labelledby="additional-four-title">
   <div class="group-head"><h3 id="additional-four-title">Four-Filament Recipes</h3><span>66 color recipes</span></div>
-  <div class="swatch-grid"><div class="swatch additional" style="background:#716A5C"><span class="num">280</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 20% / F4 60%</span></div>
-<div class="swatch additional" style="background:#746B54"><span class="num">281</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 30% / F4 50%</span></div>
-<div class="swatch additional" style="background:#776B4E"><span class="num">282</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 40% / F4 40%</span></div>
-<div class="swatch additional" style="background:#7A6B49"><span class="num">283</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 50% / F4 30%</span></div>
-<div class="swatch additional" style="background:#7D6C45"><span class="num">284</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 60% / F4 20%</span></div>
-<div class="swatch additional" style="background:#746169"><span class="num">285</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 10% / F4 60%</span></div>
-<div class="swatch additional" style="background:#77615D"><span class="num">286</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 20% / F4 50%</span></div>
-<div class="swatch additional" style="background:#7A6156"><span class="num">287</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 30% / F4 40%</span></div>
-<div class="swatch additional" style="background:#7D6150"><span class="num">288</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 40% / F4 30%</span></div>
-<div class="swatch additional" style="background:#80614B"><span class="num">289</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 50% / F4 20%</span></div>
-<div class="swatch additional" style="background:#826147"><span class="num">290</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 60% / F4 10%</span></div>
-<div class="swatch additional" style="background:#7A5B69"><span class="num">291</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 10% / F4 50%</span></div>
-<div class="swatch additional" style="background:#7C5C5E"><span class="num">292</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 20% / F4 40%</span></div>
-<div class="swatch additional" style="background:#825B51"><span class="num">293</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 40% / F4 20%</span></div>
-<div class="swatch additional" style="background:#845B4D"><span class="num">294</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 50% / F4 10%</span></div>
-<div class="swatch additional" style="background:#7F586A"><span class="num">295</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 40% / F3 10% / F4 40%</span></div>
-<div class="swatch additional" style="background:#81585F"><span class="num">296</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 40% / F3 20% / F4 30%</span></div>
-<div class="swatch additional" style="background:#845858"><span class="num">297</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 40% / F3 30% / F4 20%</span></div>
-<div class="swatch additional" style="background:#865752"><span class="num">298</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 40% / F3 40% / F4 10%</span></div>
-<div class="swatch additional" style="background:#83556A"><span class="num">299</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 50% / F3 10% / F4 30%</span></div>
-<div class="swatch additional" style="background:#855560"><span class="num">300</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 50% / F3 20% / F4 20%</span></div>
-<div class="swatch additional" style="background:#885559"><span class="num">301</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 50% / F3 30% / F4 10%</span></div>
-<div class="swatch additional" style="background:#87536A"><span class="num">302</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 60% / F3 10% / F4 20%</span></div>
-<div class="swatch additional" style="background:#895361"><span class="num">303</span><span>F1/F2/F3/F4</span><span>F1 10% / F2 60% / F3 20% / F4 10%</span></div>
-<div class="swatch additional" style="background:#656A6A"><span class="num">304</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 10% / F4 60%</span></div>
-<div class="swatch additional" style="background:#676A5D"><span class="num">305</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 20% / F4 50%</span></div>
-<div class="swatch additional" style="background:#696A54"><span class="num">306</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 30% / F4 40%</span></div>
-<div class="swatch additional" style="background:#6A6B4E"><span class="num">307</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 40% / F4 30%</span></div>
-<div class="swatch additional" style="background:#6C6B49"><span class="num">308</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 50% / F4 20%</span></div>
-<div class="swatch additional" style="background:#6D6B44"><span class="num">309</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 60% / F4 10%</span></div>
-<div class="swatch additional" style="background:#6B616A"><span class="num">310</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 10% / F4 50%</span></div>
-<div class="swatch additional" style="background:#71604B"><span class="num">311</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 50% / F4 10%</span></div>
-<div class="swatch additional" style="background:#705C6B"><span class="num">312</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 30% / F3 10% / F4 40%</span></div>
-<div class="swatch additional" style="background:#745B51"><span class="num">313</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 30% / F3 40% / F4 10%</span></div>
-<div class="swatch additional" style="background:#74586B"><span class="num">314</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 40% / F3 10% / F4 30%</span></div>
-<div class="swatch additional" style="background:#765858"><span class="num">315</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 40% / F3 30% / F4 10%</span></div>
-<div class="swatch additional" style="background:#78556B"><span class="num">316</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 50% / F3 10% / F4 20%</span></div>
-<div class="swatch additional" style="background:#795561"><span class="num">317</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 50% / F3 20% / F4 10%</span></div>
-<div class="swatch additional" style="background:#7B536B"><span class="num">318</span><span>F1/F2/F3/F4</span><span>F1 20% / F2 60% / F3 10% / F4 10%</span></div>
-<div class="swatch additional" style="background:#5C6B6C"><span class="num">319</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 10% / F4 50%</span></div>
-<div class="swatch additional" style="background:#5D6A5E"><span class="num">320</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 20% / F4 40%</span></div>
-<div class="swatch additional" style="background:#5F6A4E"><span class="num">321</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 40% / F4 20%</span></div>
-<div class="swatch additional" style="background:#5F6A48"><span class="num">322</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 50% / F4 10%</span></div>
-<div class="swatch additional" style="background:#63616C"><span class="num">323</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 20% / F3 10% / F4 40%</span></div>
-<div class="swatch additional" style="background:#656050"><span class="num">324</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 20% / F3 40% / F4 10%</span></div>
-<div class="swatch additional" style="background:#6B586C"><span class="num">325</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 40% / F3 10% / F4 20%</span></div>
-<div class="swatch additional" style="background:#6C5861"><span class="num">326</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 40% / F3 20% / F4 10%</span></div>
-<div class="swatch additional" style="background:#6F556C"><span class="num">327</span><span>F1/F2/F3/F4</span><span>F1 30% / F2 50% / F3 10% / F4 10%</span></div>
-<div class="swatch additional" style="background:#536B6E"><span class="num">328</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 10% / F3 10% / F4 40%</span></div>
-<div class="swatch additional" style="background:#546B5F"><span class="num">329</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 10% / F3 20% / F4 30%</span></div>
-<div class="swatch additional" style="background:#546A55"><span class="num">330</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 10% / F3 30% / F4 20%</span></div>
-<div class="swatch additional" style="background:#546A4E"><span class="num">331</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 10% / F3 40% / F4 10%</span></div>
-<div class="swatch additional" style="background:#5B616D"><span class="num">332</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 20% / F3 10% / F4 30%</span></div>
-<div class="swatch additional" style="background:#5B6057"><span class="num">333</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 20% / F3 30% / F4 10%</span></div>
-<div class="swatch additional" style="background:#605B6D"><span class="num">334</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 30% / F3 10% / F4 20%</span></div>
-<div class="swatch additional" style="background:#605B60"><span class="num">335</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 30% / F3 20% / F4 10%</span></div>
-<div class="swatch additional" style="background:#64576D"><span class="num">336</span><span>F1/F2/F3/F4</span><span>F1 40% / F2 40% / F3 10% / F4 10%</span></div>
-<div class="swatch additional" style="background:#4A6B6F"><span class="num">337</span><span>F1/F2/F3/F4</span><span>F1 50% / F2 10% / F3 10% / F4 30%</span></div>
-<div class="swatch additional" style="background:#4A6B60"><span class="num">338</span><span>F1/F2/F3/F4</span><span>F1 50% / F2 10% / F3 20% / F4 20%</span></div>
-<div class="swatch additional" style="background:#4B6A56"><span class="num">339</span><span>F1/F2/F3/F4</span><span>F1 50% / F2 10% / F3 30% / F4 10%</span></div>
-<div class="swatch additional" style="background:#53616F"><span class="num">340</span><span>F1/F2/F3/F4</span><span>F1 50% / F2 20% / F3 10% / F4 20%</span></div>
-<div class="swatch additional" style="background:#536161"><span class="num">341</span><span>F1/F2/F3/F4</span><span>F1 50% / F2 20% / F3 20% / F4 10%</span></div>
-<div class="swatch additional" style="background:#595B6E"><span class="num">342</span><span>F1/F2/F3/F4</span><span>F1 50% / F2 30% / F3 10% / F4 10%</span></div>
-<div class="swatch additional" style="background:#426B71"><span class="num">343</span><span>F1/F2/F3/F4</span><span>F1 60% / F2 10% / F3 10% / F4 20%</span></div>
-<div class="swatch additional" style="background:#436B61"><span class="num">344</span><span>F1/F2/F3/F4</span><span>F1 60% / F2 10% / F3 20% / F4 10%</span></div>
-<div class="swatch additional" style="background:#4D6170"><span class="num">345</span><span>F1/F2/F3/F4</span><span>F1 60% / F2 20% / F3 10% / F4 10%</span></div></div>
+  <div class="swatch-grid"><div class="swatch additional" style="background:#7B536B" id="color-a256"><a class="num" href="#color-a256" aria-label="Color reference A256">A256</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 60% / F3 10% / F4 10%</span></div>
+<div class="swatch additional" style="background:#78556B" id="color-a257"><a class="num" href="#color-a257" aria-label="Color reference A257">A257</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 50% / F3 10% / F4 20%</span></div>
+<div class="swatch additional" style="background:#74586B" id="color-a258"><a class="num" href="#color-a258" aria-label="Color reference A258">A258</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 40% / F3 10% / F4 30%</span></div>
+<div class="swatch additional" style="background:#6F556C" id="color-a259"><a class="num" href="#color-a259" aria-label="Color reference A259">A259</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 50% / F3 10% / F4 10%</span></div>
+<div class="swatch additional" style="background:#6B586C" id="color-a260"><a class="num" href="#color-a260" aria-label="Color reference A260">A260</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 40% / F3 10% / F4 20%</span></div>
+<div class="swatch additional" style="background:#64576D" id="color-a261"><a class="num" href="#color-a261" aria-label="Color reference A261">A261</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 40% / F3 10% / F4 10%</span></div>
+<div class="swatch additional" style="background:#605B6D" id="color-a262"><a class="num" href="#color-a262" aria-label="Color reference A262">A262</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 30% / F3 10% / F4 20%</span></div>
+<div class="swatch additional" style="background:#595B6E" id="color-a263"><a class="num" href="#color-a263" aria-label="Color reference A263">A263</a><span>F1/F2/F3/F4</span><span>F1 50% / F2 30% / F3 10% / F4 10%</span></div>
+<div class="swatch additional" style="background:#605B60" id="color-a264"><a class="num" href="#color-a264" aria-label="Color reference A264">A264</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 30% / F3 20% / F4 10%</span></div>
+<div class="swatch additional" style="background:#536161" id="color-a265"><a class="num" href="#color-a265" aria-label="Color reference A265">A265</a><span>F1/F2/F3/F4</span><span>F1 50% / F2 20% / F3 20% / F4 10%</span></div>
+<div class="swatch additional" style="background:#5B6057" id="color-a266"><a class="num" href="#color-a266" aria-label="Color reference A266">A266</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 20% / F3 30% / F4 10%</span></div>
+<div class="swatch additional" style="background:#656050" id="color-a267"><a class="num" href="#color-a267" aria-label="Color reference A267">A267</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 20% / F3 40% / F4 10%</span></div>
+<div class="swatch additional" style="background:#71604B" id="color-a268"><a class="num" href="#color-a268" aria-label="Color reference A268">A268</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 50% / F4 10%</span></div>
+<div class="swatch additional" style="background:#745B51" id="color-a269"><a class="num" href="#color-a269" aria-label="Color reference A269">A269</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 30% / F3 40% / F4 10%</span></div>
+<div class="swatch additional" style="background:#765858" id="color-a270"><a class="num" href="#color-a270" aria-label="Color reference A270">A270</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 40% / F3 30% / F4 10%</span></div>
+<div class="swatch additional" style="background:#7C5C5E" id="color-a271"><a class="num" href="#color-a271" aria-label="Color reference A271">A271</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 20% / F4 40%</span></div>
+<div class="swatch additional" style="background:#77615D" id="color-a272"><a class="num" href="#color-a272" aria-label="Color reference A272">A272</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 20% / F4 50%</span></div>
+<div class="swatch additional" style="background:#7A6156" id="color-a273"><a class="num" href="#color-a273" aria-label="Color reference A273">A273</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 30% / F4 40%</span></div>
+<div class="swatch additional" style="background:#7D6150" id="color-a274"><a class="num" href="#color-a274" aria-label="Color reference A274">A274</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 40% / F4 30%</span></div>
+<div class="swatch additional" style="background:#80614B" id="color-a275"><a class="num" href="#color-a275" aria-label="Color reference A275">A275</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 50% / F4 20%</span></div>
+<div class="swatch additional" style="background:#826147" id="color-a276"><a class="num" href="#color-a276" aria-label="Color reference A276">A276</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 60% / F4 10%</span></div>
+<div class="swatch additional" style="background:#845B4D" id="color-a277"><a class="num" href="#color-a277" aria-label="Color reference A277">A277</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 50% / F4 10%</span></div>
+<div class="swatch additional" style="background:#825B51" id="color-a278"><a class="num" href="#color-a278" aria-label="Color reference A278">A278</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 40% / F4 20%</span></div>
+<div class="swatch additional" style="background:#865752" id="color-a279"><a class="num" href="#color-a279" aria-label="Color reference A279">A279</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 40% / F3 40% / F4 10%</span></div>
+<div class="swatch additional" style="background:#845858" id="color-a280"><a class="num" href="#color-a280" aria-label="Color reference A280">A280</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 40% / F3 30% / F4 20%</span></div>
+<div class="swatch additional" style="background:#885559" id="color-a281"><a class="num" href="#color-a281" aria-label="Color reference A281">A281</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 50% / F3 30% / F4 10%</span></div>
+<div class="swatch additional" style="background:#81585F" id="color-a282"><a class="num" href="#color-a282" aria-label="Color reference A282">A282</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 40% / F3 20% / F4 30%</span></div>
+<div class="swatch additional" style="background:#855560" id="color-a283"><a class="num" href="#color-a283" aria-label="Color reference A283">A283</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 50% / F3 20% / F4 20%</span></div>
+<div class="swatch additional" style="background:#895361" id="color-a284"><a class="num" href="#color-a284" aria-label="Color reference A284">A284</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 60% / F3 20% / F4 10%</span></div>
+<div class="swatch additional" style="background:#87536A" id="color-a285"><a class="num" href="#color-a285" aria-label="Color reference A285">A285</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 60% / F3 10% / F4 20%</span></div>
+<div class="swatch additional" style="background:#83556A" id="color-a286"><a class="num" href="#color-a286" aria-label="Color reference A286">A286</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 50% / F3 10% / F4 30%</span></div>
+<div class="swatch additional" style="background:#7F586A" id="color-a287"><a class="num" href="#color-a287" aria-label="Color reference A287">A287</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 40% / F3 10% / F4 40%</span></div>
+<div class="swatch additional" style="background:#7A5B69" id="color-a288"><a class="num" href="#color-a288" aria-label="Color reference A288">A288</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 30% / F3 10% / F4 50%</span></div>
+<div class="swatch additional" style="background:#795561" id="color-a289"><a class="num" href="#color-a289" aria-label="Color reference A289">A289</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 50% / F3 20% / F4 10%</span></div>
+<div class="swatch additional" style="background:#6C5861" id="color-a290"><a class="num" href="#color-a290" aria-label="Color reference A290">A290</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 40% / F3 20% / F4 10%</span></div>
+<div class="swatch additional" style="background:#705C6B" id="color-a291"><a class="num" href="#color-a291" aria-label="Color reference A291">A291</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 30% / F3 10% / F4 40%</span></div>
+<div class="swatch additional" style="background:#746169" id="color-a292"><a class="num" href="#color-a292" aria-label="Color reference A292">A292</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 20% / F3 10% / F4 60%</span></div>
+<div class="swatch additional" style="background:#6B616A" id="color-a293"><a class="num" href="#color-a293" aria-label="Color reference A293">A293</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 20% / F3 10% / F4 50%</span></div>
+<div class="swatch additional" style="background:#63616C" id="color-a294"><a class="num" href="#color-a294" aria-label="Color reference A294">A294</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 20% / F3 10% / F4 40%</span></div>
+<div class="swatch additional" style="background:#5B616D" id="color-a295"><a class="num" href="#color-a295" aria-label="Color reference A295">A295</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 20% / F3 10% / F4 30%</span></div>
+<div class="swatch additional" style="background:#53616F" id="color-a296"><a class="num" href="#color-a296" aria-label="Color reference A296">A296</a><span>F1/F2/F3/F4</span><span>F1 50% / F2 20% / F3 10% / F4 20%</span></div>
+<div class="swatch additional" style="background:#4D6170" id="color-a297"><a class="num" href="#color-a297" aria-label="Color reference A297">A297</a><span>F1/F2/F3/F4</span><span>F1 60% / F2 20% / F3 10% / F4 10%</span></div>
+<div class="swatch additional" style="background:#426B71" id="color-a298"><a class="num" href="#color-a298" aria-label="Color reference A298">A298</a><span>F1/F2/F3/F4</span><span>F1 60% / F2 10% / F3 10% / F4 20%</span></div>
+<div class="swatch additional" style="background:#4A6B6F" id="color-a299"><a class="num" href="#color-a299" aria-label="Color reference A299">A299</a><span>F1/F2/F3/F4</span><span>F1 50% / F2 10% / F3 10% / F4 30%</span></div>
+<div class="swatch additional" style="background:#536B6E" id="color-a300"><a class="num" href="#color-a300" aria-label="Color reference A300">A300</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 10% / F3 10% / F4 40%</span></div>
+<div class="swatch additional" style="background:#5C6B6C" id="color-a301"><a class="num" href="#color-a301" aria-label="Color reference A301">A301</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 10% / F4 50%</span></div>
+<div class="swatch additional" style="background:#656A6A" id="color-a302"><a class="num" href="#color-a302" aria-label="Color reference A302">A302</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 10% / F4 60%</span></div>
+<div class="swatch additional" style="background:#716A5C" id="color-a303"><a class="num" href="#color-a303" aria-label="Color reference A303">A303</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 20% / F4 60%</span></div>
+<div class="swatch additional" style="background:#746B54" id="color-a304"><a class="num" href="#color-a304" aria-label="Color reference A304">A304</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 30% / F4 50%</span></div>
+<div class="swatch additional" style="background:#776B4E" id="color-a305"><a class="num" href="#color-a305" aria-label="Color reference A305">A305</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 40% / F4 40%</span></div>
+<div class="swatch additional" style="background:#7A6B49" id="color-a306"><a class="num" href="#color-a306" aria-label="Color reference A306">A306</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 50% / F4 30%</span></div>
+<div class="swatch additional" style="background:#7D6C45" id="color-a307"><a class="num" href="#color-a307" aria-label="Color reference A307">A307</a><span>F1/F2/F3/F4</span><span>F1 10% / F2 10% / F3 60% / F4 20%</span></div>
+<div class="swatch additional" style="background:#6D6B44" id="color-a308"><a class="num" href="#color-a308" aria-label="Color reference A308">A308</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 60% / F4 10%</span></div>
+<div class="swatch additional" style="background:#6C6B49" id="color-a309"><a class="num" href="#color-a309" aria-label="Color reference A309">A309</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 50% / F4 20%</span></div>
+<div class="swatch additional" style="background:#6A6B4E" id="color-a310"><a class="num" href="#color-a310" aria-label="Color reference A310">A310</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 40% / F4 30%</span></div>
+<div class="swatch additional" style="background:#696A54" id="color-a311"><a class="num" href="#color-a311" aria-label="Color reference A311">A311</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 30% / F4 40%</span></div>
+<div class="swatch additional" style="background:#676A5D" id="color-a312"><a class="num" href="#color-a312" aria-label="Color reference A312">A312</a><span>F1/F2/F3/F4</span><span>F1 20% / F2 10% / F3 20% / F4 50%</span></div>
+<div class="swatch additional" style="background:#5D6A5E" id="color-a313"><a class="num" href="#color-a313" aria-label="Color reference A313">A313</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 20% / F4 40%</span></div>
+<div class="swatch additional" style="background:#546B5F" id="color-a314"><a class="num" href="#color-a314" aria-label="Color reference A314">A314</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 10% / F3 20% / F4 30%</span></div>
+<div class="swatch additional" style="background:#4A6B60" id="color-a315"><a class="num" href="#color-a315" aria-label="Color reference A315">A315</a><span>F1/F2/F3/F4</span><span>F1 50% / F2 10% / F3 20% / F4 20%</span></div>
+<div class="swatch additional" style="background:#436B61" id="color-a316"><a class="num" href="#color-a316" aria-label="Color reference A316">A316</a><span>F1/F2/F3/F4</span><span>F1 60% / F2 10% / F3 20% / F4 10%</span></div>
+<div class="swatch additional" style="background:#4B6A56" id="color-a317"><a class="num" href="#color-a317" aria-label="Color reference A317">A317</a><span>F1/F2/F3/F4</span><span>F1 50% / F2 10% / F3 30% / F4 10%</span></div>
+<div class="swatch additional" style="background:#546A55" id="color-a318"><a class="num" href="#color-a318" aria-label="Color reference A318">A318</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 10% / F3 30% / F4 20%</span></div>
+<div class="swatch additional" style="background:#546A4E" id="color-a319"><a class="num" href="#color-a319" aria-label="Color reference A319">A319</a><span>F1/F2/F3/F4</span><span>F1 40% / F2 10% / F3 40% / F4 10%</span></div>
+<div class="swatch additional" style="background:#5F6A4E" id="color-a320"><a class="num" href="#color-a320" aria-label="Color reference A320">A320</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 40% / F4 20%</span></div>
+<div class="swatch additional" style="background:#5F6A48" id="color-a321"><a class="num" href="#color-a321" aria-label="Color reference A321">A321</a><span>F1/F2/F3/F4</span><span>F1 30% / F2 10% / F3 50% / F4 10%</span></div></div>
   </section>
     </div>
   </section>
