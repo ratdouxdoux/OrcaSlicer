@@ -150,6 +150,8 @@ public:
     // Color of the triangles / quads held by this volume.
     ColorRGBA color;
     // Color used to render this volume.
+    std::vector<ColorRGBA>              preview_gradient_colors;
+    std::vector<std::vector<ColorRGBA>> preview_gradient_colors_by_extruder;
     ColorRGBA render_color;
 
     // LOD (Level of Detail) rendering
@@ -358,7 +360,11 @@ public:
     virtual void        render();
 
     //BBS: add simple render function for thumbnail
-    void simple_render(GLShaderProgram* shader, ModelObjectPtrs& model_objects, std::vector<ColorRGBA>& extruder_colors, bool ban_light =false);
+    void simple_render(GLShaderProgram*            shader,
+                       ModelObjectPtrs&            model_objects,
+                       std::vector<ColorRGBA>&     extruder_colors,
+                       bool                        ban_light = false,
+                       const std::array<float, 2>* z_range   = nullptr);
 
     // LOD mesh simplification (async, uses quadric edge collapse)
     bool SimplifyMesh(const TriangleMesh& mesh, std::shared_ptr<GUI::GLModel> model, std::shared_ptr<std::atomic<bool>> readyFlag, LODLevel lod) const;

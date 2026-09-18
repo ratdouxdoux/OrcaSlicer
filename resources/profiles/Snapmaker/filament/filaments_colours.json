@@ -590,10 +590,10 @@
 			"filament_color": [
 				{
 					"sku": "34265",
-					"TD": 8.8,
+					"TD": 6.5,
 					"mode": 0,
 					"filament_color": [
-						"#9199A4"
+						"#7B7F80"
 					],
 					"color_name": {
 						"en": "Semi-Translucent Gray",
@@ -619,7 +619,7 @@
 					"TD": 5.5,
 					"mode": 0,
 					"filament_color": [
-						"#00C3FF"
+						"#008BB3"
 					],
 					"color_name": {
 						"en": "Semi-Translucent Cyan",
@@ -632,7 +632,7 @@
 					"TD": 5.5,
 					"mode": 0,
 					"filament_color": [
-						"#F54399"
+						"#AD4A76"
 					],
 					"color_name": {
 						"en": "Semi-Translucent Magenta",
@@ -645,7 +645,7 @@
 					"TD": 9.5,
 					"mode": 0,
 					"filament_color": [
-						"#FAE727"
+						"#EBBE00"
 					],
 					"color_name": {
 						"en": "Semi-Translucent Yellow",
