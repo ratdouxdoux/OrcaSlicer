@@ -21,6 +21,25 @@
 
 namespace Slic3r::GUI {
 
+// This tool draws its icon directly so it does not need a glyph in vendored ImGui.
+static constexpr wchar_t IDENTIFY_COLOR_TOOL = L'I';
+
+static bool identify_color_button(const ImVec2& icon_size, bool dark_mode)
+{
+    const ImVec2 padding = ImGui::GetStyle().FramePadding;
+    const bool   clicked = ImGui::Button("##identify_color", ImVec2(icon_size.x + 2.f * padding.x, icon_size.y + 2.f * padding.y));
+    const ImVec2 origin  = ImGui::GetItemRectMin();
+    const float  size    = icon_size.y;
+    const ImVec2 center(origin.x + padding.x + size * 0.38f, origin.y + padding.y + size * 0.38f);
+    const ImU32  outline   = dark_mode ? IM_COL32(207, 207, 207, 255) : IM_COL32(84, 84, 90, 255);
+    ImDrawList*  draw_list = ImGui::GetWindowDrawList();
+    draw_list->AddCircleFilled(center, size * 0.22f, ImGui::GetColorU32(ImGuiWrapper::COL_ORCA));
+    draw_list->AddCircle(center, size * 0.33f, outline, 24, size * 0.06f);
+    draw_list->AddLine(ImVec2(center.x + size * 0.24f, center.y + size * 0.24f), ImVec2(center.x + size * 0.55f, center.y + size * 0.55f),
+                       outline, size * 0.10f);
+    return clicked;
+}
+
 static inline void show_notification_extruders_limit_exceeded()
 {
     wxGetApp()
@@ -666,14 +685,18 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
 
     m_imgui->text(m_desc.at("tool_type"));
 
-    std::array<wchar_t, 6> tool_ids;
-    tool_ids = { ImGui::CircleButtonIcon, ImGui::SphereButtonIcon, ImGui::TriangleButtonIcon, ImGui::HeightRangeIcon, ImGui::FillButtonIcon, ImGui::GapFillIcon };
-    std::array<wchar_t, 6> icons;
+    std::array<wchar_t, 7> tool_ids;
+    tool_ids = {ImGui::CircleButtonIcon, ImGui::SphereButtonIcon, ImGui::TriangleButtonIcon, ImGui::HeightRangeIcon,
+                ImGui::FillButtonIcon,   ImGui::GapFillIcon,      IDENTIFY_COLOR_TOOL};
+    std::array<wchar_t, 7> icons;
     if (m_is_dark_mode)
-        icons = { ImGui::CircleButtonDarkIcon, ImGui::SphereButtonDarkIcon, ImGui::TriangleButtonDarkIcon, ImGui::HeightRangeDarkIcon, ImGui::FillButtonDarkIcon, ImGui::GapFillDarkIcon };
+        icons = {ImGui::CircleButtonDarkIcon, ImGui::SphereButtonDarkIcon, ImGui::TriangleButtonDarkIcon,
+                 ImGui::HeightRangeDarkIcon,  ImGui::FillButtonDarkIcon,   ImGui::GapFillDarkIcon,
+                 IDENTIFY_COLOR_TOOL};
     else
-        icons = { ImGui::CircleButtonIcon, ImGui::SphereButtonIcon, ImGui::TriangleButtonIcon, ImGui::HeightRangeIcon, ImGui::FillButtonIcon, ImGui::GapFillIcon };
-    std::array<wxString, 6> tool_tips = { _L("Circle"), _L("Sphere"), _L("Triangle"), _L("Height Range"), _L("Fill"), _L("Gap Fill") };
+        icons = tool_ids;
+    std::array<wxString, 7> tool_tips = {_L("Circle"), _L("Sphere"),   _L("Triangle"),      _L("Height Range"),
+                                         _L("Fill"),   _L("Gap Fill"), _L("Identify color")};
     for (int i = 0; i < tool_ids.size(); i++) {
         std::string  str_label = std::string("");
         std::wstring btn_name  = icons[i] + boost::nowide::widen(str_label);
@@ -690,7 +713,9 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0);
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 1.0);
         }
-        bool btn_clicked = ImGui::Button(into_u8(btn_name).c_str());
+        bool btn_clicked = tool_ids[i] == IDENTIFY_COLOR_TOOL ?
+                               identify_color_button(ImGui::CalcTextSize(into_u8(std::wstring(1, icons[0])).c_str()), m_is_dark_mode) :
+                               ImGui::Button(into_u8(btn_name).c_str());
         if (m_current_tool == tool_ids[i])
         {
             ImGui::PopStyleColor(4);
@@ -764,9 +789,15 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
 
         if (slider_clp_dist || b_clp_dist_input) { m_c->object_clipper()->set_position_by_ratio(clp_dist, true); }
 
-    } else if (m_current_tool == ImGui::TriangleButtonIcon) {
+    } else if (m_current_tool == ImGui::TriangleButtonIcon || m_current_tool == IDENTIFY_COLOR_TOOL) {
         m_cursor_type = TriangleSelector::CursorType::POINTER;
-        m_tool_type   = ToolType::BRUSH;
+        m_tool_type   = m_current_tool == IDENTIFY_COLOR_TOOL ? ToolType::IDENTIFY : ToolType::BRUSH;
+
+        if (m_tool_type == ToolType::IDENTIFY) {
+            m_imgui->text(_L("Identify color"));
+            m_imgui->text_wrapped(_L("Hover over the model to identify its filament or mixed filament."), window_width);
+            ImGui::Separator();
+        }
 
         if (m_c->object_clipper()->get_position() == 0.f) {
             ImGui::AlignTextToFramePadding();
@@ -872,8 +903,7 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
         bool b_clp_dist_input = ImGui::BBLDragFloat("##clp_dist_input", &clp_dist, 0.05f, 0.0f, 0.0f, "%.2f");
 
         if (slider_clp_dist || b_clp_dist_input) { m_c->object_clipper()->set_position_by_ratio(clp_dist, true); }
-    }
-    else if (m_current_tool == ImGui::GapFillIcon) {
+    } else if (m_current_tool == ImGui::GapFillIcon) {
         m_tool_type = ToolType::GAP_FILL;
         m_cursor_type = TriangleSelector::CursorType::POINTER;
         ImGui::AlignTextToFramePadding();
@@ -885,6 +915,13 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
         ImGui::SameLine(drag_left_width + gap_area_slider_left);
         ImGui::PushItemWidth(1.5 * slider_icon_width);
         ImGui::BBLDragFloat("##gap_area_input", &TriangleSelectorPatch::gap_area, 0.05f, 0.0f, 0.0f, "%.2f");
+    }
+
+    if (m_tool_type == ToolType::IDENTIFY) {
+        GizmoImguiEnd();
+        ImGuiWrapper::pop_toolbar_style();
+        render_color_identification();
+        return;
     }
 
     ImGui::Separator();
@@ -1007,6 +1044,105 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
     ImGuiWrapper::pop_toolbar_style();
 }
 
+void GLGizmoMmuSegmentation::render_color_identification()
+{
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) || !ImGui::IsMousePosValid() || m_parent.is_mouse_dragging())
+        return;
+
+    const Vec2d mouse       = m_parent.get_local_mouse_position();
+    const Size  canvas_size = m_parent.get_canvas_size();
+    if (mouse.x() < 0 || mouse.y() < 0 || mouse.x() >= canvas_size.get_width() || mouse.y() >= canvas_size.get_height())
+        return;
+
+    const ModelObject* object       = m_c->selection_info()->model_object();
+    const int          instance_idx = m_parent.get_selection().get_instance_idx();
+    if (!object || instance_idx < 0 || size_t(instance_idx) >= object->instances.size() || m_triangle_selectors.empty())
+        return;
+
+    const ModelInstance*     instance = object->instances[instance_idx];
+    std::vector<Transform3d> transforms;
+    for (const ModelVolume* volume : object->volumes) {
+        if (!volume->is_model_part())
+            continue;
+        if (m_parent.get_canvas_type() == GLCanvas3D::CanvasAssembleView) {
+            Transform3d transform = instance->get_assemble_transformation().get_matrix() * volume->get_matrix();
+            transform.translate(volume->get_transformation().get_offset() * (GLVolume::explosion_ratio - 1.0) +
+                                instance->get_offset_to_assembly() * (GLVolume::explosion_ratio - 1.0));
+            transforms.push_back(transform);
+        } else {
+            transforms.push_back(instance->get_matrix() * volume->get_matrix());
+        }
+    }
+
+    // The camera or clipping plane can change while the pointer remains stationary.
+    update_raycast_cache(mouse, wxGetApp().plater()->get_camera(), transforms, true);
+    if (m_rr.mesh_id < 0 || size_t(m_rr.mesh_id) >= m_triangle_selectors.size())
+        return;
+    const auto state = m_triangle_selectors[m_rr.mesh_id]->get_state_at(m_rr.hit, int(m_rr.facet));
+    if (!state)
+        return;
+
+    const bool         unpainted   = *state == EnforcerBlockerType::NONE;
+    const unsigned int filament_id = unpainted ?
+                                         unsigned(std::clamp(m_volumes_extruder_idxs[m_rr.mesh_id], 1, int(m_extruders_colors.size()))) :
+                                         unsigned(*state);
+    const auto         display_it  = std::find(m_display_filament_ids.begin(), m_display_filament_ids.end(), filament_id);
+    if (filament_id == 0 || filament_id > m_extruders_colors.size() || display_it == m_display_filament_ids.end())
+        return;
+
+    const int            display_id   = int(std::distance(m_display_filament_ids.begin(), display_it)) + 1;
+    const auto*          presets      = wxGetApp().preset_bundle;
+    const size_t         num_physical = size_t(std::max(wxGetApp().filaments_cnt(), 0));
+    const MixedFilament* mixed        = presets ? presets->mixed_filaments.mixed_filament_from_id(filament_id, num_physical) : nullptr;
+    const float          wrap_width   = m_imgui->scaled(24.f);
+
+    ImGui::BeginTooltip();
+    ImGui::ColorButton("##identified_filament", ImGuiWrapper::to_ImVec4(m_extruders_colors[filament_id - 1]),
+                       ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
+                       ImVec2(ImGui::GetTextLineHeight(), ImGui::GetTextLineHeight()));
+    ImGui::SameLine();
+    m_imgui->text(mixed ? wxString::Format(_L("Mixed filament %d"), display_id) : wxString::Format(_L("Filament %d"), display_id));
+
+    if (mixed) {
+        wxString recipe;
+        if (is_layer_gradient(*mixed)) {
+            m_imgui->text(_L("Gradient"));
+            for (unsigned int id : mixed_gradient_components(*mixed, num_physical)) {
+                if (!recipe.empty())
+                    recipe += " -> ";
+                recipe += wxString::Format("F%u", id);
+            }
+        } else {
+            const auto definition = mixed_filament_definition_from_legacy_row(*mixed, num_physical);
+            if (definition.recipe.kind == MixedFilamentRecipeKind::ManualPattern && definition.recipe.manual_pattern) {
+                m_imgui->text(_L("Pattern"));
+                for (const auto& group : definition.recipe.manual_pattern->groups) {
+                    if (!recipe.empty())
+                        recipe += ", ";
+                    for (size_t i = 0; i < group.size(); ++i) {
+                        if (i)
+                            recipe += " / ";
+                        recipe += wxString::Format("F%u", group[i].id);
+                    }
+                }
+            } else {
+                const auto ids         = definition.recipe.blend.component_ids();
+                const auto percentages = definition.recipe.blend.component_percents();
+                for (size_t i = 0; i < ids.size(); ++i) {
+                    if (i)
+                        recipe += " + ";
+                    recipe += wxString::Format("F%u %d%%", ids[i], percentages[i]);
+                }
+            }
+        }
+        m_imgui->text_wrapped(recipe, wrap_width);
+    } else if (presets && filament_id <= presets->filament_presets.size()) {
+        m_imgui->text_wrapped(presets->filament_presets[filament_id - 1], wrap_width);
+    }
+    if (unpainted)
+        m_imgui->text_wrapped(_L("Object/part filament (unpainted)"), wrap_width);
+    ImGui::EndTooltip();
+}
 
 void GLGizmoMmuSegmentation::update_model_object()
 {

@@ -133,6 +133,8 @@ void GLGizmoPainterBase::render_triangles(const Selection& selection) const
 
 void GLGizmoPainterBase::render_cursor()
 {
+    if (m_tool_type == ToolType::IDENTIFY)
+        return;
     if (m_tool_type == ToolType::RECTANGLE) {
         render_cursor_rectangle();
         return;
@@ -761,6 +763,14 @@ bool GLGizmoPainterBase::gizmo_event(SLAGizmoEventType action, const Vec2d& mous
         return true;
     }
 
+    // Identification never enters a painting path or creates an undo snapshot.
+    // Consume left clicks, while allowing the usual camera and section-view controls.
+    if (m_tool_type == ToolType::IDENTIFY) {
+        if (action == SLAGizmoEventType::Moving)
+            m_parent.set_as_dirty();
+        return action == SLAGizmoEventType::LeftDown || action == SLAGizmoEventType::LeftUp;
+    }
+
     if (m_tool_type == ToolType::RECTANGLE) {
         if (action == SLAGizmoEventType::RightDown) {
             m_rect_dragging = false;
@@ -1297,11 +1307,12 @@ bool GLGizmoPainterBase::on_mouse(const wxMouseEvent &mouse_event)
     return false;
 }
 
-void GLGizmoPainterBase::update_raycast_cache(const Vec2d& mouse_position,
-                                              const Camera& camera,
-                                              const std::vector<Transform3d>& trafo_matrices) const
+void GLGizmoPainterBase::update_raycast_cache(const Vec2d&                    mouse_position,
+                                              const Camera&                   camera,
+                                              const std::vector<Transform3d>& trafo_matrices,
+                                              bool                            force) const
 {
-    if (m_rr.mouse_position == mouse_position) {
+    if (!force && m_rr.mouse_position == mouse_position) {
         // Same query as last time - the answer is already in the cache.
         return;
     }

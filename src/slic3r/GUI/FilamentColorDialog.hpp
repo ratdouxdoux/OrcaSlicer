@@ -9,22 +9,63 @@
 
 class wxStaticBitmap;
 class wxStaticText;
+class wxColourData;
 
 namespace Slic3r
 {
 namespace GUI
 {
 
+// Returns wxID_MORE when the user requests the Snapmaker family palette.
+int ShowClassicFilamentColorDialog(wxWindow* parent, wxColourData& data);
+
+class FilamentPaletteDialog : public DPIDialog
+{
+public:
+    explicit FilamentPaletteDialog(wxWindow* parent);
+
+protected:
+    void PlaceNearFilamentPanel();
+    void UpdateRoundedShape();
+    void BindDragWindow(wxWindow* window);
+    void on_dpi_changed(const wxRect& suggestedRect) override;
+
+private:
+    void    StartDrag(wxMouseEvent& event);
+    void    DragDialog(wxMouseEvent& event);
+    void    EndDrag(wxMouseEvent& event);
+    bool    _dragPending{false};
+    bool    _isDragging{false};
+    wxPoint _dragStartMouse;
+    wxPoint _dragStartPosition;
+};
+
+struct FilamentFamilyChoice
+{
+    FilamentColorInfo filament;
+    std::string       presetName;
+};
+
+class FilamentFamilyDialog : public FilamentPaletteDialog
+{
+public:
+    FilamentFamilyDialog(wxWindow* parent, const std::vector<FilamentFamilyChoice>& families, const std::string& currentFamily);
+    size_t Selection() const { return _selection; }
+
+private:
+    size_t _selection{0};
+};
+
 /**
  * @brief Dialog for choosing a built-in filament color or a custom color.
  */
-class FilamentColorDialog : public DPIDialog
+class FilamentColorDialog : public FilamentPaletteDialog
 {
 public:
     /**
      * @brief Creates the filament color dialog.
      */
-    FilamentColorDialog(wxWindow* parent, const FilamentColorInfo& filament, const FilamentColor& currentColor);
+    FilamentColorDialog(wxWindow* parent, const FilamentColorInfo& filament, const FilamentColor& currentColor, bool selectOnClick = false);
 
     /**
      * @brief Gets the selected color result.
@@ -41,13 +82,6 @@ private:
     void UpdatePreview();
     void UpdateSwatchSelection();
     void OpenMoreColorDialog();
-    void PlaceNearFilamentPanel();
-    void UpdateRoundedShape();
-    void BindDragWindow(wxWindow* window);
-    void StartDrag(wxMouseEvent& event);
-    void DragDialog(wxMouseEvent& event);
-    void EndDrag(wxMouseEvent& event);
-    void on_dpi_changed(const wxRect& suggestedRect) override;
 
 private:
     FilamentColorInfo _filament;
@@ -59,10 +93,7 @@ private:
     wxStaticBitmap* _previewBitmap { nullptr };
     wxStaticText* _nameLabel { nullptr };
     wxStaticText* _skuLabel { nullptr };
-    bool _dragPending { false };
-    bool _isDragging { false };
-    wxPoint _dragStartMouse;
-    wxPoint _dragStartPosition;
+    bool                                           _selectOnClick{false};
 };
 
 } // namespace GUI

@@ -193,8 +193,13 @@ std::string MixedFilamentManager::blend_color_multi(const std::vector<MixedFilam
         return color_percents.front().color_hex;
 
     if (engine == MixedFilamentColorEngine::FullSpectrumKSPairResidual) {
-        if (const auto calibrated = full_spectrum_ks_blend_color_multi(full_spectrum_inputs_from_mixed_inputs(color_percents)))
-            return *calibrated;
+        const auto inputs = full_spectrum_inputs_from_mixed_inputs(color_percents);
+        // Choose one engine for the entire recipe. A measured material mixed with
+        // an unidentified material must not borrow an estimated KM/K-S spectrum.
+        if (full_spectrum_ks_inputs_are_calibrated(inputs)) {
+            if (const auto calibrated = full_spectrum_ks_blend_color_multi(inputs))
+                return *calibrated;
+        }
     }
 
     struct WeightedColor
@@ -262,9 +267,12 @@ std::string MixedFilamentManager::blend_color(const std::string&                
     const std::optional<double> active_td_a = use_td_for_color_prediction() ? td_a_mm : std::nullopt;
     const std::optional<double> active_td_b = use_td_for_color_prediction() ? td_b_mm : std::nullopt;
     if (color_engine() == MixedFilamentColorEngine::FullSpectrumKSPairResidual) {
-        if (const auto calibrated = full_spectrum_ks_blend_color_multi(
-                {{color_a, std::max(0, ratio_a), active_td_a, material_id_a}, {color_b, std::max(0, ratio_b), active_td_b, material_id_b}}))
-            return *calibrated;
+        const std::vector<FullSpectrumKSPairResidualColorInput> inputs{{color_a, std::max(0, ratio_a), active_td_a, material_id_a},
+                                                                       {color_b, std::max(0, ratio_b), active_td_b, material_id_b}};
+        if (full_spectrum_ks_inputs_are_calibrated(inputs)) {
+            if (const auto calibrated = full_spectrum_ks_blend_color_multi(inputs))
+                return *calibrated;
+        }
     }
 
     const int   safe_a = std::max(0, ratio_a);

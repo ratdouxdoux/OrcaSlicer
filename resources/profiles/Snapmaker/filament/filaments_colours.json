@@ -593,7 +593,7 @@
 					"TD": 6.5,
 					"mode": 0,
 					"filament_color": [
-						"#7B7F80"
+						"#7C8080"
 					],
 					"color_name": {
 						"en": "Semi-Translucent Gray",
@@ -619,7 +619,7 @@
 					"TD": 5.5,
 					"mode": 0,
 					"filament_color": [
-						"#008BB3"
+						"#008CB3"
 					],
 					"color_name": {
 						"en": "Semi-Translucent Cyan",
@@ -632,7 +632,7 @@
 					"TD": 5.5,
 					"mode": 0,
 					"filament_color": [
-						"#AD4A76"
+						"#AC4A74"
 					],
 					"color_name": {
 						"en": "Semi-Translucent Magenta",
@@ -645,7 +645,7 @@
 					"TD": 9.5,
 					"mode": 0,
 					"filament_color": [
-						"#EBBE00"
+						"#CBAC00"
 					],
 					"color_name": {
 						"en": "Semi-Translucent Yellow",

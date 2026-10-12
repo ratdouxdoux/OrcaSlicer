@@ -4,6 +4,7 @@
 #include "libslic3r/FullSpectrumICCPolynomialEstimator.hpp"
 #include "libslic3r/FullSpectrumKSPairResidual.hpp"
 #include "libslic3r/MixedFilament.hpp"
+#include "libslic3r/MixedFilamentColorPrediction.hpp"
 
 #include <array>
 #include <cctype>
@@ -286,7 +287,8 @@ TEST_CASE("Selected KM/K-S engine applies and globally disables TD correction", 
 
     const std::string without_td = MixedFilamentManager::blend_color("#008BB3", "#AD4A76", 50, 50);
     const std::string native_td  = MixedFilamentManager::blend_color("#008BB3", "#AD4A76", 50, 50, 6.4, 5.0);
-    const std::string changed_td = MixedFilamentManager::blend_color("#008BB3", "#AD4A76", 50, 50, 3.2, 5.0);
+    const std::string changed_td = MixedFilamentManager::blend_color("#008BB3", "#AD4A76", 50, 50, 3.2, 5.0, std::string(CYAN_MATERIAL_ID),
+                                                                     std::string(MAGENTA_MATERIAL_ID));
 
     CHECK(native_td == without_td);
     CHECK(changed_td != without_td);
@@ -295,17 +297,20 @@ TEST_CASE("Selected KM/K-S engine applies and globally disables TD correction", 
     CHECK(MixedFilamentManager::blend_color("#008BB3", "#AD4A76", 50, 50, 3.2, 5.0) == without_td);
 }
 
-TEST_CASE("Unknown valid colors use spectral estimates and invalid input falls back", "[MixedFilament][Color][FullSpectrumKS]")
+TEST_CASE("Unknown colors fall back in application blends while explicit spectral estimates remain available",
+          "[MixedFilament][Color][FullSpectrumKS]")
 {
     MixedColorSettingsGuard guard(MixedFilamentColorEngine::FullSpectrumKSPairResidual, true);
 
     const std::optional<std::string> estimated = full_spectrum_ks_blend_color("#123456", "#FEDCBA", 40, 60);
     REQUIRE(estimated.has_value());
     CHECK(is_rgb_hex(*estimated));
-    CHECK(MixedFilamentManager::blend_color("#123456", "#FEDCBA", 40, 60) == *estimated);
+    const std::string application_result = MixedFilamentManager::blend_color("#123456", "#FEDCBA", 40, 60);
+    CHECK(application_result != *estimated);
 
     const std::string ks_invalid_fallback = MixedFilamentManager::blend_color("#not-a-color", "#FEDCBA", 40, 60);
     MixedFilamentManager::set_color_engine(MixedFilamentColorEngine::FilamentMixer);
+    CHECK(application_result == MixedFilamentManager::blend_color("#123456", "#FEDCBA", 40, 60));
     const std::string legacy_invalid_result = MixedFilamentManager::blend_color("#not-a-color", "#FEDCBA", 40, 60);
     CHECK(ks_invalid_fallback == legacy_invalid_result);
     CHECK(is_rgb_hex(ks_invalid_fallback));
@@ -464,9 +469,11 @@ TEST_CASE("Display context routes physical TDs into KM/K-S prediction", "[MixedF
     context.physical_colors = {"#008BB3", "#AD4A76"};
     context.nozzle_diameters = {0.4, 0.4};
     context.physical_tds     = {3.2, 5.0};
+    context.physical_material_ids = {CYAN_MATERIAL_ID, MAGENTA_MATERIAL_ID};
 
     const std::string routed_td = compute_mixed_filament_display_color(row, context);
-    CHECK(routed_td == MixedFilamentManager::blend_color("#008BB3", "#AD4A76", 50, 50, 3.2, 5.0));
+    CHECK(routed_td == MixedFilamentManager::blend_color("#008BB3", "#AD4A76", 50, 50, 3.2, 5.0, std::string(CYAN_MATERIAL_ID),
+                                                         std::string(MAGENTA_MATERIAL_ID)));
 
     context.physical_tds.clear();
     const std::string without_td = compute_mixed_filament_display_color(row, context);
@@ -499,6 +506,113 @@ TEST_CASE("Display context routes stable material IDs into KM/K-S prediction",
 
     context.physical_material_ids.clear();
     const std::string inferred = compute_mixed_filament_display_color(row, context);
-    CHECK(inferred == "#C0638E");
+    context.color_engine       = MixedFilamentColorEngine::FilamentMixer;
+    CHECK(inferred == compute_mixed_filament_display_color(row, context));
     CHECK(inferred != identified);
+}
+
+TEST_CASE("Application blends fall back when any contributing material is uncalibrated", "[MixedFilament][Color][FullSpectrumKS][Fallback]")
+{
+    MixedColorSettingsGuard              guard(MixedFilamentColorEngine::FullSpectrumKSPairResidual, true);
+    std::vector<MixedFilamentColorInput> inputs{{"#008CB3", 35, 5.5, std::string("snapmaker:34267")},
+                                                {"#123456", 65, std::nullopt, std::nullopt}};
+
+    SECTION("A calibrated material and an unknown color") {}
+    SECTION("An unknown ID cannot regain calibration from a matching color")
+    {
+        inputs[1] = {"#AD4A76", 65, 5.0, std::string("retired-material-id")};
+    }
+    SECTION("A generic white has no calibration without an ID") { inputs[1].color_hex = "#FFFFFF"; }
+    SECTION("An inferred color with a distant transmission distance is uncalibrated") { inputs[1] = {"#AD4A76", 65, 30.0, std::nullopt}; }
+    SECTION("A third calibrated component does not prevent the whole recipe from falling back")
+    {
+        inputs[1].percent = 40;
+        inputs.push_back({"#AC4A74", 25, 5.5, std::string("snapmaker:34268")});
+    }
+    SECTION("The uncalibrated component can come first") { std::swap(inputs[0], inputs[1]); }
+
+    const std::string expected = MixedFilamentManager::blend_color_multi(inputs, MixedFilamentColorEngine::FilamentMixer);
+    CHECK(MixedFilamentManager::blend_color_multi(inputs) == expected);
+    CHECK(MixedFilamentManager::blend_color_multi(inputs, MixedFilamentColorEngine::FullSpectrumKSPairResidual) == expected);
+    CHECK(blend_mixed_color_inputs_auto(inputs, MixedFilamentColorEngine::FullSpectrumKSPairResidual) == expected);
+    if (inputs.size() == 2) {
+        const auto& a = inputs[0];
+        const auto& b = inputs[1];
+        CHECK(MixedFilamentManager::blend_color(a.color_hex, b.color_hex, a.percent, b.percent, a.td_mm, b.td_mm, a.material_id,
+                                                b.material_id) == expected);
+    }
+}
+
+TEST_CASE("Calibrated subsets ignore unused and zero-weight uncalibrated materials", "[MixedFilament][Color][FullSpectrumKS][Fallback]")
+{
+    MixedColorSettingsGuard     guard(MixedFilamentColorEngine::FullSpectrumKSPairResidual, true);
+    MixedFilamentDisplayContext context;
+    context.num_physical          = 4;
+    context.physical_colors       = {"#008CB3", "#AC4A74", "#123456", "#FFFFFF"};
+    context.physical_tds          = {5.5, 5.5, 0.0, 0.0};
+    context.physical_material_ids = {"snapmaker:34267", "snapmaker:34268", "", ""};
+    context.color_engine          = MixedFilamentColorEngine::FullSpectrumKSPairResidual;
+
+    const auto measured = full_spectrum_ks_blend_color_multi(
+        std::vector<FullSpectrumKSPairResidualColorInput>{{context.physical_colors[0], 35, 5.5, context.physical_material_ids[0]},
+                                                          {context.physical_colors[1], 65, 5.5, context.physical_material_ids[1]}});
+    REQUIRE(measured);
+    CHECK(blend_mixed_components({1, 2}, {35, 65}, context) == *measured);
+    CHECK(blend_mixed_components({1, 2, 3}, {35, 65, 0}, context) == *measured);
+    CHECK(blend_mixed_components({2, 1, 3}, {65, 35, -1}, context) == *measured);
+
+    const std::vector<MixedFilamentColorInput> with_inactive{{context.physical_colors[0], 35, 5.5, context.physical_material_ids[0]},
+                                                             {context.physical_colors[1], 65, 5.5, context.physical_material_ids[1]},
+                                                             {"#123456", 0, std::nullopt, std::string("unknown")}};
+    CHECK(MixedFilamentManager::blend_color_multi(with_inactive) == *measured);
+
+    MixedFilament pair;
+    pair.mix_b_percent               = 65;
+    const std::string pair_color     = compute_mixed_filament_display_color(pair, context);
+    auto              subset_context = context;
+    subset_context.num_physical      = 2;
+    subset_context.physical_colors.resize(2);
+    subset_context.physical_tds.resize(2);
+    subset_context.physical_material_ids.resize(2);
+    // Static pair previews quantize their layer cadence. Compare the same
+    // recipe with and without unrelated slots instead of assuming exact 35/65.
+    CHECK(compute_mixed_filament_display_color(pair, subset_context) == pair_color);
+    context.color_engine = MixedFilamentColorEngine::FilamentMixer;
+    CHECK(blend_mixed_components({1, 2}, {35, 65}, context) != *measured);
+    CHECK(compute_mixed_filament_display_color(pair, context) != pair_color);
+}
+
+TEST_CASE("Static pattern and gradient previews share the uncalibrated material fallback",
+          "[MixedFilament][Color][FullSpectrumKS][Fallback]")
+{
+    MixedColorSettingsGuard     guard(MixedFilamentColorEngine::FullSpectrumKSPairResidual, true);
+    MixedFilamentDisplayContext context;
+    context.num_physical          = 3;
+    context.physical_colors       = {"#008CB3", "#123456", "#AC4A74"};
+    context.physical_tds          = {5.5, 0.0, 5.5};
+    context.physical_material_ids = {"snapmaker:34267", "", "snapmaker:34268"};
+    context.color_engine          = MixedFilamentColorEngine::FullSpectrumKSPairResidual;
+    MixedFilament row;
+    row.mix_b_percent = 65;
+
+    SECTION("Static pair") {}
+    SECTION("Manual pattern with calibrated and uncalibrated components") { row.manual_pattern = "1/2/3/2"; }
+    SECTION("Weighted three-component mixture")
+    {
+        row.distribution_mode          = int(MixedFilament::LayerCycle);
+        row.gradient_component_ids     = "123";
+        row.gradient_component_weights = "25/35/40";
+    }
+
+    auto fallback_context         = context;
+    fallback_context.color_engine = MixedFilamentColorEngine::FilamentMixer;
+    const std::string expected    = compute_mixed_filament_display_color(row, fallback_context);
+    CHECK(compute_mixed_filament_display_color(row, context) == expected);
+    CHECK(compute_mixed_filament_display_color(mixed_filament_definition_from_legacy_row(row, 3), context) == expected);
+
+    row.manual_pattern.clear();
+    row.gradient_component_ids = "12";
+    row.gradient_enabled       = true;
+    for (double progress : {0.0, 0.25, 0.5, 0.75, 1.0})
+        CHECK(mixed_gradient_display_color(row, context, progress) == mixed_gradient_display_color(row, fallback_context, progress));
 }

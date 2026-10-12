@@ -2703,6 +2703,8 @@ void MixedFilamentDialog::build_swatch_grid()
     int n = (int)m_filament_colours.size();
     if (n < 2) return;
 
+    const auto display_context = build_mixed_filament_display_context(m_filament_colours);
+
     // Limit recommended swatches to the first 6 physical filaments.
     constexpr int kMaxSwatchFilaments = 6;
 
@@ -2822,7 +2824,7 @@ void MixedFilamentDialog::build_swatch_grid()
             for (int j = i + 1; j < n; ++j) {
                 // 50:50 blend is symmetric — compute once, reuse for both directions.
                 const wxColour blended = parse_mixed_color(
-                    MixedFilamentManager::blend_color(m_filament_colours[i], m_filament_colours[j], 50, 50));
+                    blend_mixed_components({unsigned(i + 1), unsigned(j + 1)}, {50, 50}, display_context));
 
                 // Direction A→B: Fi → Fj
                 Candidate c_ab;
@@ -2846,8 +2848,7 @@ void MixedFilamentDialog::build_swatch_grid()
     } else {
         for (int i = 0; i < n; ++i) {
             for (int j = i + 1; j < n; ++j) {
-                std::string blended = MixedFilamentManager::blend_color(
-                    m_filament_colours[i], m_filament_colours[j], 50, 50);
+                std::string blended = blend_mixed_components({unsigned(i + 1), unsigned(j + 1)}, {50, 50}, display_context);
                 Candidate c;
                 c.color   = parse_mixed_color(blended);
                 c.tooltip = wxString::Format("F%d + F%d", i+1, j+1);

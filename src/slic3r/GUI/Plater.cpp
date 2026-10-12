@@ -4,6 +4,7 @@
 #include "MixedGradientSelector.hpp"
 #include "MixedColorMatchPanel.hpp"
 #include "MixedFilamentBadge.hpp"
+#include "MixedFilamentRecipePreview.hpp"
 #include "MixedFilamentColorMapPanel.hpp"
 #include "MixedColorMatchHelpers.hpp"
 #include "libslic3r/FilamentColorLibrary.hpp" // kFullSpectrumSlotCount (recommended slot write-back)
@@ -5402,26 +5403,17 @@ static std::string blend_display_color_from_sequence(const std::vector<std::stri
     if (total == 0)
         return fallback;
 
-    unsigned int first_id = 0;
+    std::vector<unsigned int> ids;
+    std::vector<int>          weights;
     for (size_t id = 1; id <= num_physical; ++id) {
-        if (counts[id] > 0) {
-            first_id = unsigned(id);
-            break;
-        }
-    }
-    if (first_id == 0 || first_id > colors.size())
-        return fallback;
-
-    std::string blended = colors[first_id - 1];
-    int         accumulated = int(counts[first_id]);
-    for (size_t id = size_t(first_id + 1); id <= num_physical; ++id) {
         if (counts[id] == 0 || id > colors.size())
             continue;
-        blended = MixedFilamentManager::blend_color(blended, colors[id - 1], accumulated, int(counts[id]));
-        accumulated += int(counts[id]);
+        ids.push_back(unsigned(id));
+        weights.push_back(int(counts[id]));
     }
-
-    return blended;
+    // Resolve calibration once for the complete sequence, not for intermediate
+    // blended colors that no longer identify a physical filament.
+    return ids.empty() ? fallback : blend_mixed_components(ids, weights, build_mixed_filament_display_context(colors));
 }
 
 
@@ -5611,40 +5603,7 @@ std::string MixedFilamentConfigPanel::summarize_local_z_breakdown(const MixedFil
 
 std::string MixedFilamentConfigPanel::blend_from_sequence(const std::vector<std::string> &colors, const std::vector<unsigned int> &seq, const std::string &fallback)
 {
-    if (colors.empty() || seq.empty())
-        return fallback;
-
-    std::vector<size_t> counts(colors.size() + 1, size_t(0));
-    size_t total = 0;
-    for (const unsigned int id : seq) {
-        if (id == 0 || id > colors.size())
-            continue;
-        ++counts[id];
-        ++total;
-    }
-    if (total == 0)
-        return fallback;
-
-    unsigned int first_id = 0;
-    for (size_t id = 1; id <= colors.size(); ++id) {
-        if (counts[id] > 0) {
-            first_id = unsigned(id);
-            break;
-        }
-    }
-    if (first_id == 0 || first_id > colors.size())
-        return fallback;
-
-    std::string blended = colors[first_id - 1];
-    int acc = int(counts[first_id]);
-    for (size_t id = size_t(first_id + 1); id <= colors.size(); ++id) {
-        if (counts[id] == 0)
-            continue;
-        blended = MixedFilamentManager::blend_color(blended, colors[id - 1], acc, int(counts[id]));
-        acc += int(counts[id]);
-    }
-
-    return blended;
+    return blend_display_color_from_sequence(colors, colors.size(), seq, fallback);
 }
 
 MixedFilamentConfigPanel::MixedFilamentConfigPanel(wxWindow *parent,
@@ -6114,11 +6073,8 @@ void MixedFilamentConfigPanel::build_ui()
             m_mf.component_a <= m_physical_colors.size() && m_mf.component_b <= m_physical_colors.size()) {
             const auto [apparent_pct_a, apparent_pct_b] =
                 Slic3r::mixed_filament_apparent_pair_percentages(m_mf, m_preview_settings, m_nozzle_diameters, m_bias_mode_enabled);
-            m_mf.display_color = MixedFilamentManager::blend_color(
-                m_physical_colors[size_t(m_mf.component_a - 1)],
-                m_physical_colors[size_t(m_mf.component_b - 1)],
-                apparent_pct_a,
-                apparent_pct_b);
+            m_mf.display_color = blend_mixed_components({m_mf.component_a, m_mf.component_b}, {apparent_pct_a, apparent_pct_b},
+                                                        build_mixed_filament_display_context(m_physical_colors));
         } else if (selected_gradient_ids.size() >= 3 || !preview_sequence.empty()) {
             m_mf.display_color = blend_from_sequence(m_physical_colors, preview_sequence, "#26A69A");
             if (m_blend_label) {
@@ -6130,9 +6086,8 @@ void MixedFilamentConfigPanel::build_ui()
                 }
             }
         } else {
-            m_mf.display_color = MixedFilamentManager::blend_color(
-                m_physical_colors[size_t(a - 1)], m_physical_colors[size_t(b - 1)],
-                100 - preview_mix_b_percent, preview_mix_b_percent);
+            m_mf.display_color = blend_mixed_components({unsigned(a), unsigned(b)}, {100 - preview_mix_b_percent, preview_mix_b_percent},
+                                                        build_mixed_filament_display_context(m_physical_colors));
             if (m_blend_label)
                 m_blend_label->SetLabel(wxString::Format(simple_mode ? _L("Simple %d%%/%d%%") : _L("%d%%/%d%%"),
                                                         100 - preview_mix_b_percent, preview_mix_b_percent));
@@ -6420,11 +6375,8 @@ void MixedFilamentConfigPanel::update_preview()
             m_mf.component_a <= m_physical_colors.size() && m_mf.component_b <= m_physical_colors.size()) {
             const auto [apparent_pct_a, apparent_pct_b] =
                 Slic3r::mixed_filament_apparent_pair_percentages(m_mf, m_preview_settings, m_nozzle_diameters, m_bias_mode_enabled);
-            m_mf.display_color = MixedFilamentManager::blend_color(
-                m_physical_colors[size_t(m_mf.component_a - 1)],
-                m_physical_colors[size_t(m_mf.component_b - 1)],
-                apparent_pct_a,
-                apparent_pct_b);
+            m_mf.display_color = blend_mixed_components({m_mf.component_a, m_mf.component_b}, {apparent_pct_a, apparent_pct_b},
+                                                        build_mixed_filament_display_context(m_physical_colors));
         }
 
         const std::string bias_summary =
@@ -6789,70 +6741,23 @@ void Sidebar::update_color_mix_panel()
         }
 
         bool has_error = !is_filament_compatible(mf);
-        
-        // Create a panel with border for the text
-        auto* name_panel = new wxPanel(p->m_panel_color_mix_content, wxID_ANY);
-        name_panel->SetBackgroundColour(StateColor::darkModeColorFor(*wxWHITE));
 
-        auto* name_sizer = new wxBoxSizer(wxHORIZONTAL);
-
-        // Add error icon if there's an error
-        if (has_error) {
-            name_sizer->AddSpacer(FromDIP(8));
-            ScalableBitmap error_bmp(name_panel, "error_icon_red_exclamation", 14);
-            auto* error_icon = new wxStaticBitmap(name_panel, wxID_ANY, error_bmp.bmp());
-            name_sizer->Add(error_icon, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
-        }
-
-        auto* name_btn = new wxStaticText(name_panel, wxID_ANY, lbl, wxDefaultPosition, wxDefaultSize, 0);
-        name_btn->SetBackgroundColour(StateColor::darkModeColorFor(*wxWHITE));
-        name_btn->SetForegroundColour(StateColor::darkModeColorFor(wxColour("#262E30")));
-        name_btn->SetCursor(wxCursor(wxCURSOR_HAND));
-        name_btn->SetMinSize(wxSize(0, -1)); // allow sizer to shrink below text width
-
-        int name_flags = wxEXPAND | (has_error ? (wxTOP | wxBOTTOM | wxRIGHT) : wxALL);
-        name_sizer->Add(name_btn, 1, name_flags, FromDIP(8));
-        name_panel->SetSizer(name_sizer);
-        name_panel->SetMinSize(wxSize(name_panel->FromDIP(100), name_panel->FromDIP(30)));
-        name_panel->SetMaxSize(wxSize(-1, name_panel->FromDIP(30)));
-
-        // Use wxControl::Ellipsize on resize to match combo truncation behavior
-        name_panel->Bind(wxEVT_SIZE, [lbl, name_btn, name_panel](wxSizeEvent& evt) {
-            name_panel->Layout(); // force sizer layout so name_btn has its current size
-            int avail = name_btn->GetSize().x;
-            if (avail > 0) {
-                wxClientDC dc(name_btn);
-                dc.SetFont(name_btn->GetFont());
-                wxString ellipsized = wxControl::Ellipsize(lbl, dc, wxELLIPSIZE_END, avail);
-                name_btn->SetLabel(ellipsized);
-            }
-            evt.Skip();
-        });
-
-        // Add border to the panel
-        name_panel->Bind(wxEVT_PAINT, [](wxPaintEvent& evt) {
-            wxPanel* panel = dynamic_cast<wxPanel*>(evt.GetEventObject());
-            if (!panel) return;
-
-            wxPaintDC dc(panel);
-            wxRect rect = panel->GetClientRect();
-
-            // Draw border matching combo (#dbdbdb, 1px)
-            dc.SetPen(wxPen(StateColor::darkModeColorFor(wxColour(0xdb, 0xdb, 0xdb)), 1));
-            dc.SetBrush(*wxTRANSPARENT_BRUSH);
-            dc.DrawRectangle(rect);
-        });
-
-        name_btn->SetToolTip(lbl);
-        name_btn->Bind(wxEVT_LEFT_DOWN, [this, i](wxMouseEvent&) {
+        auto* name_panel = new MixedFilamentRecipePreview(p->m_panel_color_mix_content, mf, display_context, has_error);
+        name_panel->SetName(lbl);
+        name_panel->SetLabel(lbl);
+        name_panel->SetToolTip(lbl);
+        name_panel->Bind(wxEVT_LEFT_DOWN, [this, i](wxMouseEvent&) {
             auto* co = wxGetApp().preset_bundle->project_config.option<ConfigOptionStrings>("filament_colour");
             const std::vector<std::string> colors = co ? co->values : std::vector<std::string>{};
-            if (colors.size() < 2) return;
+            if (colors.size() < 2)
+                return;
             auto& mgr = wxGetApp().preset_bundle->mixed_filaments;
             auto& mfs2 = mgr.mixed_filaments();
-            if (i >= mfs2.size()) return;
+            if (i >= mfs2.size())
+                return;
             MixedFilamentDialog dlg(wxGetApp().mainframe, colors, mfs2[i]);
-            if (dlg.ShowModal() != wxID_OK) return;
+            if (dlg.ShowModal() != wxID_OK)
+                return;
             const MixedFilament& r = dlg.GetResult();
             mfs2[i].component_a                = r.component_a;
             mfs2[i].component_b                = r.component_b;

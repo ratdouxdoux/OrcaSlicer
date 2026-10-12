@@ -233,6 +233,16 @@ int TriangleSelector::select_unsplit_triangle(const Vec3f &hit, int facet_idx) c
     return this->select_unsplit_triangle(hit, facet_idx, neighbors);
 }
 
+std::optional<EnforcerBlockerType> TriangleSelector::get_state_at(const Vec3f& hit, int original_facet_idx) const
+{
+    if (original_facet_idx < 0 || original_facet_idx >= m_orig_size_indices || !hit.allFinite())
+        return std::nullopt;
+    const int facet_idx = select_unsplit_triangle(hit, original_facet_idx);
+    if (facet_idx < 0)
+        return std::nullopt;
+    return m_triangles[facet_idx].get_state();
+}
+
 void TriangleSelector::select_patch(int facet_start, std::unique_ptr<Cursor> &&cursor, EnforcerBlockerType new_state, const Transform3d& trafo_no_translate, bool triangle_splitting, float highlight_by_angle_deg)
 {
     assert(facet_start < m_orig_size_indices);

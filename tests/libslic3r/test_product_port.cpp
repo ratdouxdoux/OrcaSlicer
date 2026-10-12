@@ -151,10 +151,28 @@ TEST_CASE("Product color library identifies the shipping bundle and its TD value
         REQUIRE(found != bundle.colors.end());
         CHECK(found->tdValue == Approx(td));
         CHECK(found->fullSpectrumMaterialId == "snapmaker:" + sku);
-        const std::string measured = sku == "34267" ? "#008BB3" : sku == "34268" ? "#AD4A76" : sku == "34269" ? "#EBBE00" : "#7B7F80";
+        const std::string measured = sku == "34267" ? "#008CB3" : sku == "34268" ? "#AC4A74" : sku == "34269" ? "#CBAC00" : "#7C8080";
         CHECK(found->colorData.PrimaryColor() == measured);
-        CHECK_FALSE(found->legacyPrimaryColor.empty());
+        CHECK(found->MatchesSingleColor(measured));
+        const std::string previous = sku == "34267" ? "#008BB3" : sku == "34268" ? "#AD4A76" : sku == "34269" ? "#EBBE00" : "#7B7F80";
+        const std::string original = sku == "34267" ? "#00C3FF" : sku == "34268" ? "#F54399" : sku == "34269" ? "#FAE727" : "#9199A4";
+        CHECK(found->MatchesSingleColor(previous));
+        CHECK(found->MatchesSingleColor(original));
+        CHECK_FALSE(found->MatchesSingleColor("#123456"));
+        CHECK_FALSE(found->MatchesSingleColor(""));
+
+        // A pure calibrated material must display the same color as its palette swatch.
+        // The blend API requires two inputs, so use the same material for both.
+        const auto predicted = full_spectrum_ks_blend_color_multi(
+            std::vector<FullSpectrumKSPairResidualColorInput>{{measured, 50, std::nullopt, found->fullSpectrumMaterialId},
+                                                              {measured, 50, std::nullopt, found->fullSpectrumMaterialId}});
+        REQUIRE(predicted.has_value());
+        CHECK(*predicted == measured);
     }
+    const auto white = std::find_if(bundle.colors.begin(), bundle.colors.end(), [](const auto& item) { return item.sku == "34266"; });
+    REQUIRE(white != bundle.colors.end());
+    CHECK(white->colorData.PrimaryColor() == "#F5F4F2");
+    CHECK(white->fullSpectrumMaterialId.empty());
 }
 
 TEST_CASE("Product painting projection tools select only their screen regions", "[ProductPort][TriangleSelector]")

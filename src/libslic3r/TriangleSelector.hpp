@@ -5,6 +5,7 @@
 
 
 #include <cfloat>
+#include <optional>
 #include "Point.hpp"
 #include "TriangleMesh.hpp"
 
@@ -410,6 +411,10 @@ public:
     // Returns the facet_idx of the unsplit triangle containing the "hit". Returns -1 if the triangle isn't found.
     [[nodiscard]] int select_unsplit_triangle(const Vec3f &hit, int facet_idx) const;
     [[nodiscard]] int select_unsplit_triangle(const Vec3f &hit, int facet_idx, const Vec3i32 &neighbors) const;
+
+    // Read the painted state at a mesh-space hit on an original facet, including subdivided brush strokes.
+    // NONE is an unpainted surface; no value means that the hit is outside the facet.
+    [[nodiscard]] std::optional<EnforcerBlockerType> get_state_at(const Vec3f& hit, int original_facet_idx) const;
 
     // Select all triangles fully inside the circle, subdivide where needed.
     void select_patch(int                       facet_start,                   // facet of the original mesh (unsplit) that the hit point belongs to

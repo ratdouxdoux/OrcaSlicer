@@ -1048,57 +1048,33 @@ void PlaterPresetComboBox::ChangeExtruderColor()
         return;
 
     const std::string filamentPresetName = CurrentFilamentPresetName();
-    const Preset* currentPreset = m_collection != nullptr ? m_collection->find_preset(filamentPresetName, false, true) : nullptr;
-    if (currentPreset == nullptr || !currentPreset->is_compatible)
-    {
-        SelectLegacyFilamentColor();
-        return;
-    }
-
-    const std::string filamentBaseName = FilamentBaseName(filamentPresetName);
-    if (!IsSnapmakerFilamentName(filamentBaseName))
-    {
-        SelectLegacyFilamentColor();
-        return;
-    }
-
-    DynamicPrintConfig& config = wxGetApp().preset_bundle->project_config;
-    const std::string currentColorHex = ConfigStringAt(config, "filament_colour", m_filament_idx);
-    const std::string currentMultiColors = ConfigStringAt(config, "filament_multi_colors", m_filament_idx);
-    const int currentModeValue = ConfigIntAt(config, "filament_colour_mode", m_filament_idx);
-
+    const Preset*         currentPreset    = m_collection != nullptr ? m_collection->find_preset(filamentPresetName, false, true) : nullptr;
+    const std::string     filamentBaseName = FilamentBaseName(filamentPresetName);
     FilamentColorLibrary& library = FilamentColorLibrary::Instance();
     FilamentColorInfo filament;
     const std::string filamentId = CurrentFilamentId();
     bool foundFilament = false;
-    if (library.EnsureLoaded())
-    {
+    if (currentPreset != nullptr && currentPreset->is_compatible && IsSnapmakerFilamentName(filamentBaseName) && library.EnsureLoaded()) {
         foundFilament = !filamentPresetName.empty() && library.FindFilamentByName(filamentPresetName, filament);
         if (!foundFilament)
             foundFilament = !filamentId.empty() && library.FindFilamentById(filamentId, filament) &&
                             FilamentMatchesPresetName(filament, filamentPresetName);
     }
 
-    if (foundFilament && !filament.colors.empty())
-    {
-        const FilamentColorMode currentMode = FilamentColorModeFromConfig(currentModeValue);
-        const FilamentColor currentColor = FilamentColor::FromMultiColors(currentMultiColors, currentMode, currentColorHex);
-        FilamentColorDialog dialog(this, filament, currentColor);
-
-        if (dialog.ShowModal() == wxID_OK)
-        {
-            ApplyFilamentColor(dialog.Selection());
-        }
-        return;
+    bool showPalette = foundFilament && !filament.colors.empty();
+    // Switch dialogs after the previous modal has closed, without nesting color dialogs.
+    for (;;) {
+        const bool switchDialog = showPalette ? SelectSnapmakerFilamentColor() : SelectLegacyFilamentColor();
+        if (!switchDialog)
+            return;
+        showPalette = !showPalette;
     }
-
-    SelectLegacyFilamentColor();
 }
 
-void PlaterPresetComboBox::SelectLegacyFilamentColor()
+bool PlaterPresetComboBox::SelectLegacyFilamentColor()
 {
     if (m_filament_idx < 0 || wxGetApp().preset_bundle == nullptr)
-        return;
+        return false;
 
     DynamicPrintConfig& config = wxGetApp().preset_bundle->project_config;
     wxColour current_color(ConfigStringAt(config, "filament_colour", m_filament_idx));
@@ -1117,12 +1093,10 @@ void PlaterPresetComboBox::SelectLegacyFilamentColor()
     for (int i = 0; i < custom_count; ++i)
         m_clrData.SetCustomColour(i, string_to_wxColor(custom_colors[i]));
 
-    wxColourDialog dialog(this, &m_clrData);
-    dialog.SetTitle(_L("Please choose the filament color"));
-    if (dialog.ShowModal() != wxID_OK)
-        return;
+    const int result = ShowClassicFilamentColorDialog(this, m_clrData);
+    if (result != wxID_OK && result != wxID_MORE)
+        return false;
 
-    m_clrData = dialog.GetColourData();
     if (custom_colors.size() != CUSTOM_COLOR_COUNT)
         custom_colors.resize(CUSTOM_COLOR_COUNT);
     for (int i = 0; i < CUSTOM_COLOR_COUNT; ++i)
@@ -1130,8 +1104,118 @@ void PlaterPresetComboBox::SelectLegacyFilamentColor()
     if (wxGetApp().app_config != nullptr)
         wxGetApp().app_config->save_custom_color_to_config(custom_colors);
 
+    if (result == wxID_MORE)
+        return true;
+
     const std::string selected_color = m_clrData.GetColour().GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
     ApplyFilamentColor(FilamentColor::FromMultiColors("", FilamentColorMode::Segment, selected_color));
+    return false;
+}
+
+bool PlaterPresetComboBox::SelectSnapmakerFilamentColor()
+{
+    auto& library = FilamentColorLibrary::Instance();
+    if (!library.EnsureLoaded() || m_collection == nullptr) {
+        MessageDialog(this, _L("The Snapmaker filament palette could not be loaded."), _L("Snapmaker palette")).ShowModal();
+        return true;
+    }
+
+    std::vector<FilamentFamilyChoice> families;
+    const std::string                 currentPreset = CurrentFilamentPresetName();
+    for (const auto& filament : library.GetAllFilamentInfos()) {
+        if (!IsSnapmakerFilamentName(FilamentBaseName(filament.filamentName)) || filament.colors.empty())
+            continue;
+        const Preset* preset = FindFilamentFamilyPreset(m_collection->get_presets(), filament.filamentName, currentPreset);
+        families.push_back({filament, preset != nullptr ? preset->name : std::string()});
+    }
+    std::sort(families.begin(), families.end(),
+              [](const auto& left, const auto& right) { return left.filament.filamentName < right.filament.filamentName; });
+    if (families.empty()) {
+        MessageDialog(this, _L("No Snapmaker filament colors are available."), _L("Snapmaker palette")).ShowModal();
+        return true;
+    }
+
+    std::string highlightedFamily = currentPreset;
+    for (;;) {
+        size_t familyIndex;
+        {
+            FilamentFamilyDialog dialog(this, families, highlightedFamily);
+            const int            result = dialog.ShowModal();
+            if (result != wxID_OK)
+                return result == wxID_MORE;
+            familyIndex = dialog.Selection();
+        }
+        const auto& family = families[familyIndex];
+        highlightedFamily  = family.filament.filamentName;
+        FilamentColor selectedColor;
+        {
+            const auto&         config = m_preset_bundle->project_config;
+            const FilamentColor currentColor =
+                FilamentColor::FromMultiColors(ConfigStringAt(config, "filament_multi_colors", m_filament_idx),
+                                               FilamentColorModeFromConfig(ConfigIntAt(config, "filament_colour_mode", m_filament_idx)),
+                                               ConfigStringAt(config, "filament_colour", m_filament_idx));
+            FilamentColorDialog dialog(this, family.filament, currentColor, true);
+            const int           result = dialog.ShowModal();
+            if (result == wxID_BACKWARD)
+                continue;
+            if (result != wxID_OK)
+                return false;
+            selectedColor = dialog.Selection();
+        }
+        // No project changes occur while browsing families or cancelling a dialog.
+        if (ApplyFilamentFamily(family.presetName)) {
+            ApplyFilamentColor(selectedColor);
+            return false;
+        }
+    }
+}
+
+bool PlaterPresetComboBox::ApplyFilamentFamily(const std::string& presetName)
+{
+    Preset* preset = m_collection->find_preset(presetName, false, true);
+    if (preset == nullptr || !preset->is_compatible)
+        return false;
+    if (CurrentFilamentPresetName() == presetName)
+        return true;
+
+    const bool wasVisible = preset->is_visible;
+    preset->is_visible    = true;
+    auto* plater          = wxGetApp().plater();
+    if (!plater->sidebar().is_multifilament()) {
+        // The settings tab handles unsaved edits and synchronizes the single slot.
+        // Do not also send a dropdown event: transferred edits would prompt twice.
+        if (!wxGetApp().get_tab(Preset::TYPE_FILAMENT)->select_preset(presetName)) {
+            if (Preset* restored = m_collection->find_preset(presetName, false, true))
+                restored->is_visible = wasVisible;
+            update();
+            return false;
+        }
+        if (!wasVisible && wxGetApp().app_config != nullptr)
+            wxGetApp().app_config->set(AppConfig::SECTION_FILAMENTS, presetName, "true");
+        plater->on_config_change(m_preset_bundle->full_config());
+        plater->sidebar().update_color_mix_panel();
+        return CurrentFilamentPresetName() == presetName;
+    }
+
+    preset = m_collection->find_preset(presetName, false, true);
+    if (preset == nullptr || !preset->is_compatible)
+        return false;
+    update();
+    const int selection = FindString(get_preset_name(*preset), true);
+    if (selection == wxNOT_FOUND) {
+        preset->is_visible = wasVisible;
+        update();
+        return false;
+    }
+
+    // Use the same synchronous path as the preset dropdown so slicing, filament
+    // mappings, flushing volumes, and the mixed-filament panels are all refreshed.
+    SelectAndNotify(selection);
+    if (CurrentFilamentPresetName() != presetName)
+        return false;
+    if (!wasVisible && wxGetApp().app_config != nullptr)
+        wxGetApp().app_config->set(AppConfig::SECTION_FILAMENTS, presetName, "true");
+    return true;
 }
 
 void PlaterPresetComboBox::ApplyFilamentColor(const FilamentColor& colorData)
@@ -1139,16 +1223,16 @@ void PlaterPresetComboBox::ApplyFilamentColor(const FilamentColor& colorData)
     if (m_filament_idx < 0 || wxGetApp().preset_bundle == nullptr)
         return;
 
-    DynamicPrintConfig* config = &wxGetApp().preset_bundle->project_config;
-    const size_t index = static_cast<size_t>(m_filament_idx);
-    const size_t target_size = index + 1;
+    DynamicPrintConfig* config      = &wxGetApp().preset_bundle->project_config;
+    const size_t        index       = static_cast<size_t>(m_filament_idx);
+    const size_t        target_size = index + 1;
 
-    const FilamentColor normalizedColor = FilamentColor::FromColors(colorData.colors, colorData.mode);
-    const std::string normalizedPrimary = normalizedColor.PrimaryColor("#26A69A");
-    const std::string multiColors = normalizedColor.ToMultiColorsString();
-    const int normalizedMode = FilamentColorModeToConfig(normalizedColor.NormalizedMode());
+    const FilamentColor normalizedColor   = FilamentColor::FromColors(colorData.colors, colorData.mode);
+    const std::string   normalizedPrimary = normalizedColor.PrimaryColor("#26A69A");
+    const std::string   multiColors       = normalizedColor.ToMultiColorsString();
+    const int           normalizedMode    = FilamentColorModeToConfig(normalizedColor.NormalizedMode());
 
-    ConfigOptionStrings* filament_colors = CloneStringOption(*config, "filament_colour");
+    ConfigOptionStrings* filament_colors       = CloneStringOption(*config, "filament_colour");
     ConfigOptionStrings* filament_multi_colors = CloneStringOption(*config, "filament_multi_colors");
     ConfigOptionInts* filament_colour_modes = CloneIntOption(*config, "filament_colour_mode");
 

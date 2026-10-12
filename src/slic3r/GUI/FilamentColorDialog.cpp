@@ -13,15 +13,24 @@
 #include <boost/log/trivial.hpp>
 
 #include <wx/colordlg.h>
+#include <wx/button.h>
 #include <wx/dcbuffer.h>
 #include <wx/dcmemory.h>
 #include <wx/display.h>
 #include <wx/panel.h>
 #include <wx/region.h>
+#include <wx/scrolwin.h>
 #include <wx/sizer.h>
 #include <wx/statbmp.h>
 #include <wx/stattext.h>
 #include <wx/wrapsizer.h>
+
+#ifdef __WXMSW__
+#include <wx/msw/private.h>
+#include <commctrl.h>
+#else
+#include <wx/generic/colrdlgg.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -35,6 +44,66 @@ namespace GUI
 {
 namespace
 {
+
+#ifdef __WXMSW__
+// Keep the native Windows RGB/HSL selector and add one action below its controls.
+// Close it before opening another palette: wxColourDialog uses a global hook owner.
+class ClassicFilamentColorDialog : public wxColourDialog
+{
+public:
+    ClassicFilamentColorDialog(wxWindow* parent, const wxColourData* data) : wxColourDialog(parent, data) {}
+
+    int ShowModal() override
+    {
+        _paletteRequested = false;
+        const int result  = wxColourDialog::ShowModal();
+        return _paletteRequested && result == wxID_OK ? wxID_MORE : result;
+    }
+
+    void MSWOnInitDone(WXHWND handle) override
+    {
+        wxColourDialog::MSWOnInitDone(handle);
+        HWND dialog = static_cast<HWND>(handle);
+        RECT client, window, units{0, 0, 7, 14};
+        ::GetClientRect(dialog, &client);
+        ::GetWindowRect(dialog, &window);
+        ::MapDialogRect(dialog, &units);
+        const int      margin = units.right;
+        const int      height = units.bottom;
+        const wxString label  = _L("Snapmaker palette");
+        HWND           button = ::CreateWindowExW(0, L"BUTTON", label.wc_str(), WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, margin,
+                                                  client.bottom, client.right - margin * 2, height, dialog,
+                                                  reinterpret_cast<HMENU>(PALETTE_BUTTON_ID), ::GetModuleHandleW(nullptr), nullptr);
+        if (button == nullptr)
+            return;
+        ::SendMessageW(button, WM_SETFONT, ::SendMessageW(::GetDlgItem(dialog, IDOK), WM_GETFONT, 0, 0), TRUE);
+        if (!::SetWindowSubclass(dialog, DialogProc, PALETTE_BUTTON_ID, reinterpret_cast<DWORD_PTR>(this))) {
+            ::DestroyWindow(button);
+            return;
+        }
+        ::SetWindowPos(dialog, nullptr, 0, 0, window.right - window.left, window.bottom - window.top + height + margin,
+                       SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+private:
+    static constexpr UINT_PTR PALETTE_BUTTON_ID = wxID_HIGHEST + 101;
+    bool                      _paletteRequested{false};
+
+    static LRESULT CALLBACK DialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data)
+    {
+        if (message == WM_COMMAND && LOWORD(wParam) == PALETTE_BUTTON_ID && HIWORD(wParam) == BN_CLICKED) {
+            auto* dialog              = reinterpret_cast<ClassicFilamentColorDialog*>(data);
+            dialog->_paletteRequested = true;
+            // Let the native dialog save its current/custom colors normally.
+            ::SendMessageW(window, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), reinterpret_cast<LPARAM>(::GetDlgItem(window, IDOK)));
+            return 0;
+        }
+        if (message == WM_NCDESTROY)
+            ::RemoveWindowSubclass(window, DialogProc, id);
+        return ::DefSubclassProc(window, message, wParam, lParam);
+    }
+};
+#endif
 
 /**
  * @brief HSV value cached for color sorting.
@@ -510,11 +579,141 @@ wxRect WindowClientScreenRect(const wxWindow* window)
 
 } // namespace
 
-FilamentColorDialog::FilamentColorDialog(wxWindow* parent, const FilamentColorInfo& filament,
-                                         const FilamentColor& currentColor)
+int ShowClassicFilamentColorDialog(wxWindow* parent, wxColourData& data)
+{
+#ifdef __WXMSW__
+    ClassicFilamentColorDialog dialog(parent, &data);
+#else
+    // Native macOS/GTK color panels do not expose a portable extra-button API.
+    wxGenericColourDialog dialog(parent, &data);
+    auto*                 palette = new wxButton(&dialog, wxID_ANY, _L("Snapmaker palette"));
+    dialog.GetSizer()->Add(palette, 0, wxEXPAND | wxALL, dialog.FromDIP(8));
+    palette->Bind(wxEVT_BUTTON, [&dialog](wxCommandEvent&) { dialog.EndModal(wxID_MORE); });
+    dialog.GetSizer()->SetSizeHints(&dialog);
+#endif
+    dialog.SetTitle(_L("Please choose the filament color"));
+    const int result = dialog.ShowModal();
+    if (result == wxID_OK || result == wxID_MORE)
+        data = dialog.GetColourData();
+    return result;
+}
+
+FilamentPaletteDialog::FilamentPaletteDialog(wxWindow* parent)
     : DPIDialog(parent, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE | wxFRAME_SHAPED)
-    , _filament(filament)
-    , _languageCode(GetLanguageCode())
+{
+    SetEscapeId(wxID_CANCEL);
+}
+
+FilamentFamilyDialog::FilamentFamilyDialog(wxWindow*                                parent,
+                                           const std::vector<FilamentFamilyChoice>& families,
+                                           const std::string&                       currentFamily)
+    : FilamentPaletteDialog(parent)
+{
+    SetTitle(_L("Snapmaker palette"));
+    SetBackgroundColour(StateColor::darkModeColorFor(wxColour("#FFFFFF")));
+    const int width  = FromDIP(380);
+    const int margin = FromDIP(16);
+    auto*     root   = new wxBoxSizer(wxVERTICAL);
+    auto*     card   = new StaticBox(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE);
+    card->SetBackgroundColorNormal(wxColour("#FFFFFF"));
+    card->SetCornerRadius(FromDIP(8));
+    auto* content = new wxBoxSizer(wxVERTICAL);
+    auto* title   = new wxStaticText(card, wxID_ANY, _L("Snapmaker palette"));
+    title->SetFont(DialogFont(wxFONTWEIGHT_SEMIBOLD));
+    title->SetForegroundColour(StateColor::darkModeColorFor(wxColour("#242424")));
+    content->AddSpacer(FromDIP(28));
+    content->Add(title, 0, wxLEFT | wxRIGHT, margin);
+    auto* subtitle = new wxStaticText(card, wxID_ANY, _L("Choose a filament family"));
+    subtitle->SetFont(DialogFont(wxFONTWEIGHT_MEDIUM));
+    subtitle->SetForegroundColour(StateColor::darkModeColorFor(wxColour("#4A4A4A")));
+    content->Add(subtitle, 0, wxALL, margin);
+    BindDragWindow(title);
+    BindDragWindow(subtitle);
+
+    auto* scroll = new wxScrolledWindow(card, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL | wxTAB_TRAVERSAL | wxBORDER_NONE);
+    scroll->SetBackgroundColour(GetBackgroundColour());
+    scroll->SetScrollRate(0, FromDIP(20));
+    const int         gap     = FromDIP(8);
+    const wxSize      tileSize((width - margin * 2 - FromDIP(24) - gap) / 2, FromDIP(40));
+    auto*             grid    = new wxGridSizer(0, 2, gap, gap);
+    const std::string current = GetFilamentMatchName(currentFamily);
+    for (size_t index = 0; index < families.size(); ++index) {
+        const auto&       family = families[index];
+        const std::string name   = GetFilamentMatchName(family.filament.filamentName);
+        // The popup title already identifies the brand; keep the tiles compact.
+        wxString label = FromStdString(name);
+        label.StartsWith("Snapmaker ", &label);
+        auto* button = new Button(scroll, label, wxEmptyString, wxBORDER_NONE);
+        button->SetFont(DialogFont(wxFONTWEIGHT_MEDIUM));
+        button->SetPaddingSize(wxSize(FromDIP(6), FromDIP(8)));
+        button->SetMinSize(tileSize);
+        button->SetCornerRadius(0);
+        button->SetCursor(wxCursor(wxCURSOR_HAND));
+        // Match the flat, filled Other Colors control in the color palette.
+        button->SetBackgroundColor(StateColor(std::make_pair(wxColour("#F0F0F0"), int(StateColor::Disabled)),
+                                              std::make_pair(wxColour("#EBEBEB"), int(StateColor::Hovered)),
+                                              std::make_pair(wxColour("#F0F0F0"), int(StateColor::Normal))));
+        button->SetBorderWidth(FromDIP(1));
+        button->SetBorderColor(StateColor(std::make_pair(wxColour("#F0F0F0"), int(StateColor::Disabled)),
+                                          std::make_pair(wxColour("#019687"), int(StateColor::Focused)),
+                                          std::make_pair(wxColour(name == current ? "#019687" : "#EBEBEB"), int(StateColor::Hovered)),
+                                          std::make_pair(wxColour(name == current ? "#019687" : "#F0F0F0"), int(StateColor::Normal))));
+        button->SetTextColor(StateColor(std::make_pair(wxColour("#8A8A8A"), int(StateColor::Disabled)),
+                                        std::make_pair(wxColour("#242424"), int(StateColor::Normal))));
+        if (family.presetName.empty()) {
+            button->Enable(false);
+            button->SetToolTip(_L("No compatible profile for the current printer and nozzle."));
+        } else {
+            button->SetToolTip(FromStdString(family.presetName));
+            button->Bind(wxEVT_BUTTON, [this, index](wxCommandEvent&) {
+                _selection = index;
+                EndModal(wxID_OK);
+            });
+        }
+        grid->Add(button, 0, wxEXPAND);
+    }
+    scroll->SetSizer(grid);
+    const int       displayIndex = wxDisplay::GetFromWindow(parent);
+    const wxDisplay display(displayIndex == wxNOT_FOUND ? 0 : static_cast<unsigned int>(displayIndex));
+    const int       availableHeight = display.IsOk() ? display.GetClientArea().GetHeight() - FromDIP(180) : FromDIP(360);
+    scroll->SetMinSize(wxSize(width - margin * 2, std::max(FromDIP(100), std::min(FromDIP(360), availableHeight))));
+    content->Add(scroll, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, margin);
+
+    auto* divider = new wxPanel(card, wxID_ANY);
+    divider->SetBackgroundColour(StateColor::darkModeColorFor(wxColour("#F0F0F0")));
+    divider->SetMinSize(wxSize(width, FromDIP(1)));
+    content->Add(divider, 0, wxEXPAND);
+    auto* buttons = new wxBoxSizer(wxHORIZONTAL);
+    for (const auto& action : std::vector<std::pair<int, wxString>>{{wxID_MORE, _L("Other Colors")}, {wxID_CANCEL, _L("Cancel")}}) {
+        auto* button = new Button(card, action.second, wxEmptyString, wxBORDER_NONE, 0, action.first);
+        button->SetFont(DialogFont(wxFONTWEIGHT_MEDIUM));
+        button->SetMinSize(wxSize(FromDIP(166), FromDIP(38)));
+        button->SetCornerRadius(FromDIP(4));
+        button->SetBackgroundColorNormal(wxColour("#FFFFFF"));
+        button->SetBorderColorNormal(wxColour("#D1D5DC"));
+        button->SetTextColorNormal(wxColour("#242424"));
+        button->Bind(wxEVT_BUTTON, [this, id = action.first](wxCommandEvent&) { EndModal(id); });
+        buttons->Add(button, 0, wxRIGHT, action.first == wxID_MORE ? FromDIP(8) : 0);
+    }
+    content->AddSpacer(FromDIP(12));
+    content->Add(buttons, 0, wxLEFT | wxRIGHT, FromDIP(20));
+    content->AddSpacer(FromDIP(11));
+    card->SetSizer(content);
+    BindDragWindow(card);
+    BindDragWindow(this);
+    root->Add(card, 1, wxEXPAND);
+    SetSizer(root);
+    root->SetSizeHints(this);
+    SetClientSize(wxSize(width, root->CalcMin().GetHeight()));
+    UpdateRoundedShape();
+    PlaceNearFilamentPanel();
+}
+
+FilamentColorDialog::FilamentColorDialog(wxWindow*                parent,
+                                         const FilamentColorInfo& filament,
+                                         const FilamentColor&     currentColor,
+                                         bool                     selectOnClick)
+    : FilamentPaletteDialog(parent), _filament(filament), _languageCode(GetLanguageCode()), _selectOnClick(selectOnClick)
 {
     const FilamentColor normalizedCurrent =
         FilamentColor::FromColors(currentColor.colors, currentColor.mode, "#26A69A");
@@ -641,7 +840,8 @@ void FilamentColorDialog::BuildUi()
     BindDragWindow(buttonPanel);
     wxBoxSizer* buttonPanelSizer = new wxBoxSizer(wxVERTICAL);
     wxBoxSizer* buttons = new wxBoxSizer(wxHORIZONTAL);
-    Button* cancel = new Button(buttonPanel, _L("Cancel"), wxEmptyString, wxBORDER_NONE, 0, wxID_CANCEL);
+    Button*      cancel           = new Button(buttonPanel, _selectOnClick ? _L("Back") : _L("Cancel"), wxEmptyString, wxBORDER_NONE, 0,
+                                _selectOnClick ? wxID_BACKWARD : wxID_CANCEL);
     const wxSize buttonSize(FromDIP(166), FromDIP(38));
     cancel->SetMinSize(buttonSize);
     cancel->SetSize(buttonSize);
@@ -651,14 +851,15 @@ void FilamentColorDialog::BuildUi()
     cancel->SetBorderColorNormal(wxColour("#D1D5DC"));
     cancel->SetTextColorNormal(wxColour("#242424"));
     cancel->SetFont(DialogFont(wxFONTWEIGHT_MEDIUM));
-    Button* ok = new Button(buttonPanel, _L("OK"), wxEmptyString, wxBORDER_NONE, 0, wxID_OK);
-    ok->SetStyle(ButtonStyle::Confirm, ButtonType::Choice);
+    Button* ok = new Button(buttonPanel, _selectOnClick ? _L("Cancel") : _L("OK"), wxEmptyString, wxBORDER_NONE, 0,
+                            _selectOnClick ? wxID_CANCEL : wxID_OK);
+    ok->SetStyle(_selectOnClick ? ButtonStyle::Regular : ButtonStyle::Confirm, ButtonType::Choice);
     ok->SetMinSize(buttonSize);
     ok->SetSize(buttonSize);
     ok->SetCornerRadius(FromDIP(4));
-    ok->SetBackgroundColorNormal(wxColour("#019687"));
-    ok->SetBorderColorNormal(wxColour("#019687"));
-    ok->SetTextColorNormal(wxColour("#FFFFFF"));
+    ok->SetBackgroundColorNormal(wxColour(_selectOnClick ? "#FFFFFF" : "#019687"));
+    ok->SetBorderColorNormal(wxColour(_selectOnClick ? "#D1D5DC" : "#019687"));
+    ok->SetTextColorNormal(wxColour(_selectOnClick ? "#242424" : "#FFFFFF"));
     ok->SetFont(DialogFont(wxFONTWEIGHT_MEDIUM));
 
     buttons->Add(cancel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
@@ -668,15 +869,9 @@ void FilamentColorDialog::BuildUi()
     buttonPanel->SetSizer(buttonPanelSizer);
     cardSizer->Add(buttonPanel, 0, wxEXPAND);
 
-    cancel->Bind(wxEVT_BUTTON, [this](wxCommandEvent&)
-    {
-        EndModal(wxID_CANCEL);
-    });
+    cancel->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { EndModal(_selectOnClick ? wxID_BACKWARD : wxID_CANCEL); });
 
-    ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&)
-    {
-        EndModal(wxID_OK);
-    });
+    ok->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { EndModal(_selectOnClick ? wxID_CANCEL : wxID_OK); });
 
     card->SetSizer(cardSizer);
     BindDragWindow(card);
@@ -702,6 +897,8 @@ void FilamentColorDialog::SelectFilamentColor(const FilamentColorItem& colorItem
     _highlightSku = colorItem.sku;
     UpdatePreview();
     UpdateSwatchSelection();
+    if (_selectOnClick)
+        EndModal(wxID_OK);
 }
 
 void FilamentColorDialog::SelectCustomColor(const std::string& color)
@@ -738,14 +935,14 @@ void FilamentColorDialog::UpdateSwatchSelection()
     }
 }
 
-void FilamentColorDialog::on_dpi_changed(const wxRect&)
+void FilamentPaletteDialog::on_dpi_changed(const wxRect&)
 {
     Fit();
     UpdateRoundedShape();
     PlaceNearFilamentPanel();
 }
 
-void FilamentColorDialog::UpdateRoundedShape()
+void FilamentPaletteDialog::UpdateRoundedShape()
 {
     const wxSize size = GetSize();
     if (size.GetWidth() <= 0 || size.GetHeight() <= 0)
@@ -754,17 +951,17 @@ void FilamentColorDialog::UpdateRoundedShape()
     SetShape(MakeRoundedRegion(size, FromDIP(8)));
 }
 
-void FilamentColorDialog::BindDragWindow(wxWindow* window)
+void FilamentPaletteDialog::BindDragWindow(wxWindow* window)
 {
     if (window == nullptr)
         return;
 
-    window->Bind(wxEVT_LEFT_DOWN, &FilamentColorDialog::StartDrag, this);
-    window->Bind(wxEVT_MOTION, &FilamentColorDialog::DragDialog, this);
-    window->Bind(wxEVT_LEFT_UP, &FilamentColorDialog::EndDrag, this);
+    window->Bind(wxEVT_LEFT_DOWN, &FilamentPaletteDialog::StartDrag, this);
+    window->Bind(wxEVT_MOTION, &FilamentPaletteDialog::DragDialog, this);
+    window->Bind(wxEVT_LEFT_UP, &FilamentPaletteDialog::EndDrag, this);
 }
 
-void FilamentColorDialog::StartDrag(wxMouseEvent& event)
+void FilamentPaletteDialog::StartDrag(wxMouseEvent& event)
 {
     _dragPending = true;
     _isDragging = false;
@@ -773,7 +970,7 @@ void FilamentColorDialog::StartDrag(wxMouseEvent& event)
     event.Skip();
 }
 
-void FilamentColorDialog::DragDialog(wxMouseEvent& event)
+void FilamentPaletteDialog::DragDialog(wxMouseEvent& event)
 {
     if (!_dragPending && !_isDragging)
     {
@@ -818,7 +1015,7 @@ void FilamentColorDialog::DragDialog(wxMouseEvent& event)
                  _dragStartPosition.y + currentMouse.y - _dragStartMouse.y));
 }
 
-void FilamentColorDialog::EndDrag(wxMouseEvent& event)
+void FilamentPaletteDialog::EndDrag(wxMouseEvent& event)
 {
     if (_dragPending || _isDragging)
     {
@@ -830,7 +1027,7 @@ void FilamentColorDialog::EndDrag(wxMouseEvent& event)
     event.Skip();
 }
 
-void FilamentColorDialog::PlaceNearFilamentPanel()
+void FilamentPaletteDialog::PlaceNearFilamentPanel()
 {
     wxWindow* parent = GetParent();
     wxWindow* topWindow = parent != nullptr ? wxGetTopLevelParent(parent) : nullptr;
@@ -890,12 +1087,11 @@ void FilamentColorDialog::OpenMoreColorDialog()
     for (int index = 0; index < custom_count; ++index)
         data.SetCustomColour(index, string_to_wxColor(custom_colors[index]));
 
-    wxColourDialog dialog(this, &data);
-    dialog.SetTitle(_L("Please choose the filament color"));
-    if (dialog.ShowModal() != wxID_OK)
+    const int dialogResult = ShowClassicFilamentColorDialog(this, data);
+    if (dialogResult != wxID_OK && dialogResult != wxID_MORE)
         return;
 
-    const wxColourData result = dialog.GetColourData();
+    const wxColourData& result = data;
     if (custom_colors.size() != CUSTOM_COLOR_COUNT)
         custom_colors.resize(CUSTOM_COLOR_COUNT);
     for (int index = 0; index < CUSTOM_COLOR_COUNT; ++index)
@@ -903,9 +1099,17 @@ void FilamentColorDialog::OpenMoreColorDialog()
     if (wxGetApp().app_config != nullptr)
         wxGetApp().app_config->save_custom_color_to_config(custom_colors);
 
+    if (dialogResult == wxID_MORE) {
+        EndModal(wxID_BACKWARD);
+        return;
+    }
+
     const wxColour color = result.GetColour();
-    if (color.IsOk())
+    if (color.IsOk()) {
         SelectCustomColor(color.GetAsString(wxC2S_HTML_SYNTAX).ToStdString());
+        if (_selectOnClick)
+            EndModal(wxID_OK);
+    }
 }
 
 } // namespace GUI

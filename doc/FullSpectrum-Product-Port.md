@@ -12,7 +12,9 @@ Source snapshot: `ba00f1d661`. Target baseline: `5970fea62d`.
 - Independent gradient cycle height, minimum sublayer height, achievable-ratio clamping, and first-layer protection.
 - Direct multicolor SML for static recipes with three or more components. Enabling SML also enables independent static Local-Z heights; the separate switch is hidden.
 - Two-, three-, and four-filament gradients with ordered color stops, transition midpoints, middle-color windows, layered/blended editor previews, and Prepare previews for whole objects and painted regions.
+- Community-style sidebar recipe previews: proportioned component swatches, percentages on hover, numbered gradient stops, and manual-pattern strips. Numeric mixed-filament badges and the existing edit/options actions are retained.
 - Surface-only painting, extra painted-zone walls, brush precision, rectangle painting, and polygon painting. Snorca's existing same-material region deduplication is retained.
+- Identify color in the painting toolbar: hover over a surface to see its numeric filament badge and profile or mixed recipe. Reads subdivided painted facets directly, falls back to the object/part filament on unpainted surfaces, and leaves painting unchanged. Section-view clipping and camera controls remain available.
 
 The port does not add component bias, image mapping, perimeter modulation, the swatch generator, or a second infill-subdivision option.
 
@@ -29,14 +31,18 @@ The port does not add component bias, image mapping, perimeter modulation, the s
 | Interior solid-color width | 3% per color for new gradients; edited in the gradient selector |
 | Surface-only painting / extra painted walls | Off / 0 |
 
-| Bundle material | SKU | TD | Picker color |
-| --- | --- | --- | --- |
-| Cyan | 34267 | 5.5 mm | `#008BB3` |
-| Magenta | 34268 | 5.5 mm | `#AD4A76` |
-| Yellow | 34269 | 9.5 mm | `#EBBE00` |
-| Gray | 34265 | 6.5 mm | `#7B7F80` |
+| Bundle material | SKU | TD | Measured Lab (L*, a*, b*) | Picker sRGB |
+| --- | --- | --- | --- | --- |
+| Cyan | 34267 | 5.5 mm | 53.009827, -23.342970, -31.478889 | `#008CB3` |
+| Magenta | 34268 | 5.5 mm | 45.485212, 44.872515, -4.945385 | `#AC4A74` |
+| Yellow | 34269 | 9.5 mm | 70.922081, -1.577099, 73.554603 | `#CBAC00` |
+| Gray | 34265 | 6.5 mm | 53.296308, -1.072223, -1.091876 | `#7C8080` |
 
-These stable SKU aliases select the corresponding measured FS cyan, magenta, yellow, and gray calibration records with the supplied TD values. The source calibration coefficients are retained; they have not been refitted from a new shipping-bundle measurement dataset. White and unsupported materials do not receive those aliases. Picker colors use `primary_colors` from the existing Panchroma CMYG measurement manifest in `D:/SwatchDatas`. Older downloaded catalogs receive the same correction; the previous swatches remain recognized when loading the matching Full Spectrum preset.
+These stable SKU aliases select the corresponding measured FS cyan, magenta, yellow, and gray calibration records with the supplied TD values. The source calibration coefficients are retained; they have not been refitted from a new shipping-bundle measurement dataset. White and unsupported materials do not receive those aliases.
+
+Picker colors use the measured D65/10-degree, SCE, black-backing anchor Lab averages from `D:/SwatchDatas/Panchroma-G6-8Y9-7M5-0C6-4_SC185_LH0p08_SD10p8_0091B3_AE537F_C8AA0F_868787_20260612_192835_266.manifest_measurements(1).json`: anchors `1_7p4MM`, `2_6MM`, `3_10p7MM`, and `4_7p8MM`, respectively. Convert with the same Lab-to-sRGB transform as `FullSpectrumKSPairResidual.cpp`, clipping channels to the display gamut. These swatches also match the embedded calibration's pure-material predictions. The manifest's `primary_colors` labels are not the source for these display values.
+
+Older downloaded catalogs receive the same correction. Both the original catalog swatches and the previous manifest-label swatches remain recognized when loading the matching Full Spectrum preset, preserving the SKU calibration and TD while updating the displayed color.
 
 ## Validation
 
@@ -74,6 +80,10 @@ The final Windows application and test builds pass. All 221 regression cases hav
 The gradient slider, blended editor preview, and Prepare gradient colors follow the requested mixing ratio across the full transition. Minimum printable pass heights no longer clamp these design previews into broad constant-color bands. Slicing and the layered preview still enforce physical minimum heights; the blended design preview is not a guarantee of an achievable printed ratio at every point.
 
 Automatic gradient and color-matching previews use calibrated KM/K-S when all active components match measured materials, including the supported Snapmaker pack. Unsupported color combinations use FilamentMixer so generic RGB selections retain their transitions. Explicit low-level KM/K-S prediction remains available unchanged.
+
+This check also applies at the shared pair/multicolor blend entry points, including static badges, manual patterns, and editor previews. One uncalibrated component switches the whole contributing mix to FilamentMixer. Calibrated subsets still use KM/K-S; unused slots and zero-weight components do not disable it. GUI sequence previews evaluate the full recipe once and carry the selected materials' IDs and transmission distances.
+
+Calibration recognition is unchanged: the four Snapmaker SKU IDs map to the first CMYG reference set, and the embedded database also recognizes 16 measured entries across four sets (CMY/grey, CMY/white, CMY/translucent black, and red/blue/yellow/white). A known explicit material ID takes precedence over display RGB; an unknown explicit ID prevents color inference. Without an ID, only an exact database hex match qualifies, and a supplied positive transmission distance must be within the larger of 0.75 mm or 25% of the recorded value. Generic pure UI colors cannot qualify from RGB alone. Consequently, an unrelated profile given an exact recorded color can still qualify through the existing color-only inference; recognition is not restricted to a profile name.
 
 The Local-Z minimum sublayer-height field is visible only while Subdivide mix layer is enabled; hiding it retains the stored value.
 

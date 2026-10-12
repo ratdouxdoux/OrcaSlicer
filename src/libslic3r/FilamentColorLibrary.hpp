@@ -1,12 +1,21 @@
 #pragma once
 
 #include <cstddef>
+#include <deque>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace Slic3r
 {
+
+class Preset;
+
+// Resolve a catalog family to a loaded profile compatible with the active printer.
+// Hidden system profiles are eligible: choosing a catalog color enables the profile.
+const Preset* FindFilamentFamilyPreset(const std::deque<Preset>& presets,
+                                       const std::string&        familyName,
+                                       const std::string&        currentPresetName);
 
 enum class FilamentColorMode
 {
@@ -43,11 +52,13 @@ struct FilamentColor
 struct FilamentColorItem
 {
     std::unordered_map<std::string, std::string> colorNames;
-    std::string sku;
-    std::string legacyPrimaryColor; // Previous catalog swatch, for migrating this exact SKU.
-    double tdValue = 0.0;
-    FilamentColor colorData;
+    std::string                                  sku;
+    std::vector<std::string>                     legacyPrimaryColors; // Previous catalog swatches, for migrating this exact SKU.
+    double                                       tdValue = 0.0;
+    FilamentColor                                colorData;
     std::string                                  fullSpectrumMaterialId; // Empty for materials without measured calibration.
+
+    bool MatchesSingleColor(const std::string& color) const;
 };
 
 struct FilamentColorInfo

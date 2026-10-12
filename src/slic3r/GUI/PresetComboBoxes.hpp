@@ -252,7 +252,9 @@ private:
     wxRect get_edit_btn_rect() const;
     wxRect get_dropdown_rect() const;
 
-    void SelectLegacyFilamentColor();
+    bool        SelectLegacyFilamentColor();
+    bool        SelectSnapmakerFilamentColor();
+    bool        ApplyFilamentFamily(const std::string& presetName);
     void ApplyFilamentColor(const FilamentColor& colorData);
     std::string CurrentFilamentPresetName() const;
     std::string CurrentFilamentId() const;

@@ -1,4 +1,5 @@
 #include "FilamentColorLibrary.hpp"
+#include "Preset.hpp"
 #include "Utils.hpp"
 
 #include <boost/filesystem.hpp>
@@ -267,6 +268,35 @@ std::string GetFilamentMatchName(const std::string& name)
     return TrimCopy(matchName);
 }
 
+const Preset* FindFilamentFamilyPreset(const std::deque<Preset>& presets,
+                                       const std::string&        familyName,
+                                       const std::string&        currentPresetName)
+{
+    const std::string family = GetFilamentMatchName(familyName);
+    if (family.empty())
+        return nullptr;
+
+    const std::string current  = Preset::remove_suffix_modified(currentPresetName);
+    const Preset*     best     = nullptr;
+    int               bestRank = -1;
+    for (const Preset& preset : presets) {
+        if (preset.type != Preset::TYPE_FILAMENT || preset.is_default || !preset.is_compatible ||
+            GetFilamentMatchName(preset.name) != family)
+            continue;
+
+        // Preserve the slot's profile (and any edits) when staying in its family.
+        if (preset.name == current)
+            return &preset;
+
+        const int rank = (preset.is_system ? 2 : 0) + (preset.is_visible ? 1 : 0);
+        if (rank > bestRank) {
+            best     = &preset;
+            bestRank = rank;
+        }
+    }
+    return best;
+}
+
 FilamentColorMode FilamentColorModeFromConfig(int modeValue)
 {
     if (modeValue == static_cast<int>(FilamentColorMode::Segment))
@@ -307,6 +337,14 @@ std::string FilamentColor::PrimaryColor(const std::string& fallbackColor) const
             return normalized;
     }
     return NormalizeFilamentHexColor(fallbackColor, "#26A69A");
+}
+
+bool FilamentColorItem::MatchesSingleColor(const std::string& color) const
+{
+    const std::string normalized = NormalizeFilamentHexColor(color);
+    return colorData.colors.size() == 1 && !normalized.empty() &&
+           (colorData.PrimaryColor() == normalized ||
+            std::find(legacyPrimaryColors.begin(), legacyPrimaryColors.end(), normalized) != legacyPrimaryColors.end());
 }
 
 std::string FilamentColor::ToMultiColorsString() const
@@ -606,17 +644,17 @@ bool FilamentColorLibrary::LoadIndex()
             if (filament.filamentId == "14170311270" &&
                 (colorItem.sku == "34265" || colorItem.sku == "34267" || colorItem.sku == "34268" || colorItem.sku == "34269")) {
                 colorItem.fullSpectrumMaterialId = "snapmaker:" + colorItem.sku;
-                colorItem.legacyPrimaryColor = colorItem.sku == "34267" ? "#00C3FF" :
-                                              colorItem.sku == "34268" ? "#F54399" :
-                                              colorItem.sku == "34269" ? "#FAE727" : "#9199A4";
+                colorItem.legacyPrimaryColors    = colorItem.sku == "34267" ? std::vector<std::string>{"#00C3FF", "#008BB3"} :
+                                                   colorItem.sku == "34268" ? std::vector<std::string>{"#F54399", "#AD4A76"} :
+                                                   colorItem.sku == "34269" ? std::vector<std::string>{"#FAE727", "#EBBE00"} :
+                                                                              std::vector<std::string>{"#9199A4", "#7B7F80"};
                 // Bundle specification; also applies to older cached libraries.
                 colorItem.tdValue = colorItem.sku == "34265" ? 6.5 : colorItem.sku == "34269" ? 9.5 : 5.5;
             }
             const int modeValue = JsonMode(colorJson);
 
             bool hasInvalidColor = false;
-            for (const std::string& rawColor : JsonStringArray(colorJson, "filament_color"))
-            {
+            for (const std::string& rawColor : JsonStringArray(colorJson, "filament_color")) {
                 const std::string normalizedColor = NormalizeJsonColor(rawColor, hasInvalidColor);
                 if (!normalizedColor.empty())
                     colorItem.colorData.colors.emplace_back(normalizedColor);
@@ -628,18 +666,19 @@ bool FilamentColorLibrary::LoadIndex()
                 continue;
             }
 
-            // Use the measured profile's primary colors even when the picker
-            // loads an older downloaded catalog. Unrelated SKUs are unchanged.
+            // sRGB from the D65/10-degree SCE black-backing anchor Lab measurements
+            // used by the calibrated profile (see doc/FullSpectrum-Product-Port.md).
+            // Apply to older downloaded catalogs too; unrelated SKUs are unchanged.
             if (!colorItem.fullSpectrumMaterialId.empty()) {
-                const char* primary = colorItem.sku == "34267" ? "#008BB3" :
-                                      colorItem.sku == "34268" ? "#AD4A76" :
-                                      colorItem.sku == "34269" ? "#EBBE00" : "#7B7F80";
+                const char* primary        = colorItem.sku == "34267" ? "#008CB3" :
+                                             colorItem.sku == "34268" ? "#AC4A74" :
+                                             colorItem.sku == "34269" ? "#CBAC00" :
+                                                                        "#7C8080";
                 colorItem.colorData.colors = {primary};
             }
             colorItem.colorData.mode = FilamentColorModeFromConfig(modeValue);
 
-            if (colorItem.sku.empty() || colorItem.colorData.colors.empty())
-            {
+            if (colorItem.sku.empty() || colorItem.colorData.colors.empty()) {
                 BOOST_LOG_TRIVIAL(warning) << "Skip incomplete color item for official filament: "
                                            << filament.filamentId;
                 continue;

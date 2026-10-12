@@ -3931,9 +3931,7 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
                     FilamentColorInfo library_filament;
                     if (FilamentColorLibrary::Instance().FindFilamentByName(selected_filament_name, library_filament)) {
                         for (const auto& item : library_filament.colors) {
-                            if (item.colorData.colors.size() == 1 &&
-                                (item.colorData.PrimaryColor() == NormalizeFilamentHexColor(color_opt->values[i]) ||
-                                 (!item.legacyPrimaryColor.empty() && item.legacyPrimaryColor == NormalizeFilamentHexColor(color_opt->values[i])))) {
+                            if (item.MatchesSingleColor(color_opt->values[i])) {
                                 if (!item.fullSpectrumMaterialId.empty())
                                     color_opt->values[i] = item.colorData.PrimaryColor();
                                 physical_tds[i]          = item.tdValue;

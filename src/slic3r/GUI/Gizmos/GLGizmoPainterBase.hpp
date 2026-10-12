@@ -263,6 +263,7 @@ protected:
         GAP_FILL,
         RECTANGLE,
         POLYGON,
+        IDENTIFY,
     };
 
     struct ProjectedMousePosition
@@ -339,9 +340,10 @@ private:
     void apply_polygon_mask(EnforcerBlockerType new_state);
 
     bool is_mesh_point_clipped(const Vec3d& point, const Transform3d& trafo) const;
-    void update_raycast_cache(const Vec2d& mouse_position,
-                              const Camera& camera,
-                              const std::vector<Transform3d>& trafo_matrices) const;
+    void update_raycast_cache(const Vec2d&                    mouse_position,
+                              const Camera&                   camera,
+                              const std::vector<Transform3d>& trafo_matrices,
+                              bool                            force = false) const;
 
     static std::shared_ptr<GLModel> s_sphere;
 
