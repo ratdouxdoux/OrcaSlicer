@@ -305,6 +305,8 @@ set(lisbslic3r_sources
     FullSpectrumICCPolynomialEstimator.cpp
     MixedFilament.hpp
     MixedFilamentLayerTracker.hpp
+    LocalZClipper.cpp
+    LocalZClipper.hpp
     filament_mixer.cpp
     filament_mixer.h
     filament_mixer_model.h
