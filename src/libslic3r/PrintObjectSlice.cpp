@@ -15,6 +15,7 @@
 #include "I18N.hpp"
 #include "Layer.hpp"
 #include "MixedFilament.hpp"
+#include "MixedFilamentLayerTracker.hpp"
 #include "MultiMaterialSegmentation.hpp"
 #include "Print.hpp"
 #include "SVG.hpp"
@@ -2476,6 +2477,12 @@ static bool apply_mixed_region_surface_offsets(PrintObject &print_object)
 
 static void export_local_z_plan_debug(const PrintObject& print_object, coordf_t min_sublayer_height)
 {
+    // A large painted project can produce thousands of SVGs. Keep this developer
+    // diagnostic opt-in instead of serializing all mask geometry on every slice.
+    const char* debug_export = std::getenv("ORCA_LOCAL_Z_DEBUG");
+    if (debug_export == nullptr || std::string(debug_export) != "1")
+        return;
+
     const std::vector<LocalZInterval> &intervals = print_object.local_z_intervals();
     const std::vector<SubLayerPlan>   &plans     = print_object.local_z_sublayer_plan();
     if (intervals.empty() || plans.empty())
@@ -4221,64 +4228,27 @@ static inline void apply_mm_segmentation(PrintObject &print_object, std::vector<
     };
     std::vector<std::vector<int>> mixed_zone_component_local_layer_index(segmentation.size() * num_channels);
     if (num_channels > 1) {
-        struct TrackedMixedZoneComponent
-        {
-            ExPolygon   mask;
-            BoundingBox bbox;
-            int         start_layer = 0;
-        };
-        std::vector<std::vector<TrackedMixedZoneComponent>> active_components(num_channels);
-        for (size_t layer_id = 0; layer_id < segmentation.size(); ++layer_id) {
-            throw_on_cancel();
-            if (segmentation[layer_id].size() != num_channels)
-                continue;
-
-            for (size_t channel_idx = 1; channel_idx < num_channels; ++channel_idx) {
-                const unsigned int channel_id = segmentation_channel_filament_id(channel_idx);
-                if (!mixed_mgr.is_mixed(channel_id, num_physical))
-                    continue;
-
-                const ExPolygons &state_masks = segmentation[layer_id][channel_idx];
-                if (state_masks.empty()) {
-                    active_components[channel_idx].clear();
-                    continue;
-                }
-
-                std::vector<int> &component_local_indices =
-                    mixed_zone_component_local_layer_index[mixed_zone_phase_slot(layer_id, channel_idx)];
-                component_local_indices.assign(state_masks.size(), -1);
-
-                std::vector<TrackedMixedZoneComponent> next_components;
-                next_components.reserve(state_masks.size());
-                for (size_t component_idx = 0; component_idx < state_masks.size(); ++component_idx) {
-                    const ExPolygon &component = state_masks[component_idx];
-                    if (component.empty())
-                        continue;
-
-                    const BoundingBox component_bbox = get_extents(component);
-                    int start_layer = -1;
-                    for (const TrackedMixedZoneComponent &active : active_components[channel_idx]) {
-                        if (!active.bbox.overlap(component_bbox))
-                            continue;
-                        if (!active.mask.overlaps(component))
-                            continue;
-                        if (start_layer < 0 || active.start_layer < start_layer)
-                            start_layer = active.start_layer;
-                    }
-                    if (start_layer < 0)
-                        start_layer = int(layer_id);
-
-                    component_local_indices[component_idx] = int(layer_id) - start_layer;
-                    TrackedMixedZoneComponent next;
-                    next.mask = component;
-                    next.bbox = component_bbox;
-                    next.start_layer = start_layer;
-                    next_components.emplace_back(std::move(next));
-                }
-
-                active_components[channel_idx] = std::move(next_components);
-            }
+        std::vector<size_t> mixed_channels;
+        for (size_t channel_idx = 1; channel_idx < num_channels; ++channel_idx) {
+            if (mixed_mgr.is_mixed(segmentation_channel_filament_id(channel_idx), num_physical))
+                mixed_channels.push_back(channel_idx);
         }
+        // Channels are independent, but activation runs depend on the preceding
+        // layer within each channel. All masks remain immutable until this pass
+        // joins, so trackers can borrow them instead of copying polygon geometry.
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, mixed_channels.size()), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t channel_slot = range.begin(); channel_slot < range.end(); ++channel_slot) {
+                const size_t              channel_idx = mixed_channels[channel_slot];
+                MixedFilamentLayerTracker tracker;
+                for (size_t layer_id = 0; layer_id < segmentation.size(); ++layer_id) {
+                    throw_on_cancel();
+                    if (segmentation[layer_id].size() != num_channels)
+                        continue;
+                    tracker.track_layer(segmentation[layer_id][channel_idx], int(layer_id),
+                                        mixed_zone_component_local_layer_index[mixed_zone_phase_slot(layer_id, channel_idx)]);
+                }
+            }
+        });
     }
 
     tbb::parallel_for(
@@ -5591,8 +5561,8 @@ void PrintObject::apply_conical_overhang() {
 
             // Now go through all the holes in the current layer and check if they intersect anything in the layer above
             // If not, then they're the top of a hole and should be cut from the layer above before the union
-            for (auto layer_polygon : current_poly) {
-                for (auto hole : layer_polygon.holes) {
+            for (const auto& layer_polygon : current_poly) {
+                for (const auto& hole : layer_polygon.holes) {
                     if (std::abs(hole.area()) < scaled_max_hole_area) {
                         ExPolygon hole_poly(hole);
                         auto hole_with_above = intersection_ex(upper_poly, hole_poly);

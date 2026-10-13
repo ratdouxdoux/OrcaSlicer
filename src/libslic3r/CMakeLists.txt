@@ -304,6 +304,7 @@ set(lisbslic3r_sources
     FullSpectrumKSPairResidual.cpp
     FullSpectrumICCPolynomialEstimator.cpp
     MixedFilament.hpp
+    MixedFilamentLayerTracker.hpp
     filament_mixer.cpp
     filament_mixer.h
     filament_mixer_model.h
