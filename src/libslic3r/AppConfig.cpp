@@ -322,6 +322,10 @@ void AppConfig::set_defaults()
         set_bool("auto_generate_gradients", false);
     }
 
+    if (get("local_z_gpu_acceleration").empty()) {
+        set_bool("local_z_gpu_acceleration", false);
+    }
+
     if (get("show_home_page").empty()) {
         set_bool("show_home_page", true);
     }
