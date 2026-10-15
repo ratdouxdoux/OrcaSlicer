@@ -37,6 +37,7 @@ namespace Slic3r {
 
 // Forward declarations.
 class GCode;
+class LocalZClipAcceleration;
 
 namespace { struct Item; }
 struct PrintInstance;
@@ -489,6 +490,7 @@ private:
     std::set<ObjectID>              m_objSupportsWithBrim; // indicates the objs' supports with brim
     // Cache for custom seam enforcers/blockers for each layer.
     SeamPlacer                          m_seam_placer;
+    std::shared_ptr<LocalZClipAcceleration> m_local_z_clip_acceleration;
 
     ExtrusionQualityEstimator m_extrusion_quality_estimator;
 

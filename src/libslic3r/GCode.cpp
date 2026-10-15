@@ -7,6 +7,7 @@
 #include "GCode.hpp"
 #include "LocalZOrderOptimizer.hpp"
 #include "LocalZClipper.hpp"
+#include "LocalZClipAcceleration.hpp"
 #include "Exception.hpp"
 #include "ExtrusionEntity.hpp"
 #include "EdgeGrid.hpp"
@@ -2201,6 +2202,7 @@ static BambuBedType to_bambu_bed_type(BedType type)
 void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGeneratorCallback thumbnail_cb)
 {
     PROFILE_FUNC();
+    m_local_z_clip_acceleration = LocalZClipAcceleration::from_environment();
 
     // modifies m_silent_time_estimator_enabled
     DoExport::init_gcode_processor(print.config(), m_processor, m_silent_time_estimator_enabled);
@@ -3168,6 +3170,8 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
     }
     file.write("\n");
 
+    if (m_local_z_clip_acceleration)
+        m_local_z_clip_acceleration->report();
     print.throw_if_canceled();
 }
 
@@ -3766,10 +3770,7 @@ static inline void append_clipped_path(const ExtrusionPath&        src_path,
                                        const double                flow_height_override,
                                        std::vector<ExtrusionPath>& dst)
 {
-    Polylines segments = include_masks != nullptr && !include_masks->empty() ? include_masks->intersection(src_path.polyline) :
-                                                                               Polylines{src_path.polyline};
-    if (exclude_masks != nullptr && !exclude_masks->empty())
-        segments = exclude_masks->difference(segments);
+    Polylines segments = LocalZClipper::clip_path(src_path.polyline, include_masks, exclude_masks);
 
     for (Polyline& segment : segments) {
         if (!segment.is_valid())
@@ -3982,7 +3983,8 @@ static std::unique_ptr<ExtrusionEntityCollection> clip_extrusion_collection_for_
                                                                                         const LocalZClipper*             include_masks,
                                                                                         const LocalZClipper*             exclude_masks,
                                                                                         const double                flow_height_override,
-                                                                                        const LocalZLoopSeamPlacer* seam_placer = nullptr)
+                                                                                        const LocalZLoopSeamPlacer* seam_placer = nullptr,
+                                                                                        LocalZClipAcceleration* acceleration = nullptr)
 {
     if (source.entities.empty())
         return nullptr;
@@ -3997,23 +3999,40 @@ static std::unique_ptr<ExtrusionEntityCollection> clip_extrusion_collection_for_
     out->no_sort = source.no_sort;
 
     for (const ExtrusionEntity* entity : source.flatten_refs()) {
+        const bool discard = acceleration && acceleration->proven_empty(*entity, include_masks, exclude_masks);
+        const bool validate_discard = discard && acceleration->validation();
+        auto check_discard = [&](const std::vector<ExtrusionPath>& paths) {
+            if (validate_discard && !paths.empty())
+                throw std::runtime_error("Local-Z Vulkan rejected a nonempty clipped extrusion");
+        };
         if (const auto* path = dynamic_cast<const ExtrusionPath*>(entity)) {
+            if (discard && !validate_discard)
+                continue;
             std::vector<ExtrusionPath> clipped_paths;
             append_clipped_path(*path, include_masks, exclude_masks, flow_height_override, clipped_paths);
+            check_discard(clipped_paths);
             append_clipped_paths(std::move(clipped_paths), *out);
         } else if (const auto* multipath = dynamic_cast<const ExtrusionMultiPath*>(entity)) {
+            if (discard && !validate_discard)
+                continue;
             std::vector<ExtrusionPath> clipped_paths;
             for (const ExtrusionPath& path : multipath->paths)
                 append_clipped_path(path, include_masks, exclude_masks, flow_height_override, clipped_paths);
+            check_discard(clipped_paths);
             append_clipped_paths(std::move(clipped_paths), *out);
         } else if (const auto* loop = dynamic_cast<const ExtrusionLoop*>(entity)) {
             ExtrusionLoop seam_loop = *loop;
             Point         seam_anchor = loop->first_point();
             const bool    seam_ready =
                 seam_placer != nullptr && (*seam_placer)(*loop, seam_loop, seam_anchor);
+            // Preserve every state-dependent seam operation even when all
+            // subsequent clipping is known to be empty.
+            if (discard && !validate_discard)
+                continue;
             std::vector<ExtrusionPath> clipped_paths;
             for (const ExtrusionPath& path : seam_loop.paths)
                 append_clipped_path(path, include_masks, exclude_masks, flow_height_override, clipped_paths);
+            check_discard(clipped_paths);
             if (seam_ready)
                 local_z_order_clipped_paths_for_seam(clipped_paths, seam_anchor);
             append_clipped_paths(std::move(clipped_paths), *out);
@@ -5447,6 +5466,39 @@ LayerResult GCode::process_layer(const Print& print,
                                    << " runtime_supported=" << local_z_perimeter_runtime_supported;
     }
 
+    if (m_local_z_clip_acceleration && local_z_perimeter_phase_b_enabled) {
+        auto& acceleration = *m_local_z_clip_acceleration;
+        acceleration.begin_layer();
+        for (size_t layer_idx = 0; layer_idx < layers.size(); ++layer_idx) {
+            if (!local_z_layer_contexts[layer_idx].enabled || layers[layer_idx].object_layer == nullptr)
+                continue;
+            print.throw_if_canceled();
+            auto& ctx = local_z_layer_contexts[layer_idx];
+            for (const LayerRegion* region : layers[layer_idx].object_layer->regions()) {
+                if (region == nullptr)
+                    continue;
+                auto add_collections = [&](const ExtrusionEntityCollection& collections) {
+                    for (const ExtrusionEntity* entity : collections.entities) {
+                        const auto* collection = dynamic_cast<const ExtrusionEntityCollection*>(entity);
+                        if (collection == nullptr || collection->entities.empty())
+                            continue;
+                        for (const auto& pass : ctx.pass_buckets) {
+                            if (pass.plan == nullptr)
+                                continue;
+                            for (size_t extruder = 0; extruder < pass.plan->painted_masks_by_extruder.size(); ++extruder)
+                                acceleration.add(*collection, pass.clippers_by_extruder[extruder], false);
+                        }
+                        acceleration.add(*collection, ctx.base_exclude_clipper, true);
+                    }
+                };
+                add_collections(region->perimeters);
+                if (local_z_infill_enabled)
+                    add_collections(region->fills);
+            }
+        }
+        acceleration.prepare([&print] { print.throw_if_canceled(); });
+    }
+
     for (const LayerToPrint& layer_to_print : layers) {
         const size_t layer_to_print_idx = &layer_to_print - layers.data();
         if (layer_to_print.support_layer != nullptr) {
@@ -5651,7 +5703,8 @@ LayerResult GCode::process_layer(const Print& print,
                                                                                                &pass_masks,
                                                                                                nullptr,
                                                                                                pass_bucket.plan->flow_height,
-                                                                                               &local_z_loop_seam_placer);
+                                                                                               &local_z_loop_seam_placer,
+                                                                                               m_local_z_clip_acceleration.get());
                                     if (!clipped_local)
                                         continue;
 
@@ -5690,7 +5743,8 @@ LayerResult GCode::process_layer(const Print& print,
 
                             auto clipped_base = clip_extrusion_collection_for_local_z(*extrusions, nullptr,
                                                                                       &local_z_ctx->base_exclude_clipper, 0.,
-                                                                                      &local_z_loop_seam_placer);
+                                                                                      &local_z_loop_seam_placer,
+                                                                                      m_local_z_clip_acceleration.get());
                             if (!clipped_base)
                                 continue;
                             const LocalZPathHeightStats base_height_stats = collect_local_z_path_height_stats(*clipped_base);
