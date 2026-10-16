@@ -16,6 +16,7 @@
 #include "Layer.hpp"
 #include "MixedFilament.hpp"
 #include "MixedFilamentLayerTracker.hpp"
+#include "PreparationDiagnostics.hpp"
 #include "MultiMaterialSegmentation.hpp"
 #include "Print.hpp"
 #include "SVG.hpp"
@@ -2859,6 +2860,8 @@ static void build_local_z_plan(PrintObject&                                print
                                bool                                        whole_object_scope_active,
                                ThrowOnCancel                               throw_on_cancel)
 {
+    PreparationProfile prep_profile("local_z_plan");
+    PreparationTimer   plan_timer(&prep_profile, "total");
     print_object.clear_local_z_plan();
 
     const Print *print = print_object.print();
@@ -3207,6 +3210,7 @@ static void build_local_z_plan(PrintObject&                                print
         const bool subdivide_this_layer = mixed_filament_local_z_should_subdivide_layer(layer_id, local_z_whole_objects,
                                                                                         local_z_preserve_first_layer);
 
+        PreparationTimer     scan_timer(&prep_profile, "active_scan");
         ExPolygons mixed_masks;
         size_t     mixed_state_count = 0;
         std::vector<uint8_t> row_active_this_layer(mixed_definitions.size(), uint8_t(0));
@@ -3243,6 +3247,8 @@ static void build_local_z_plan(PrintObject&                                print
                 dominant_mixed_idx  = size_t(mixed_idx);
             }
         }
+        scan_timer.finish();
+        PreparationTimer cadence_timer(&prep_profile, "cadence");
         for (size_t row_idx = 0; row_idx < row_active_this_layer.size(); ++row_idx) {
             if (row_active_this_layer[row_idx] == 0) {
                 if (row_idx < row_last_gradient_extruder.size())
@@ -3299,6 +3305,8 @@ static void build_local_z_plan(PrintObject&                                print
                 dominant_gradient_valid = true;
             }
         }
+        cadence_timer.finish();
+        PreparationTimer geometry_timer(&prep_profile, "geometry");
         total_mixed_state_layers += mixed_state_count;
         if (!mixed_masks.empty())
             mixed_masks = union_ex(mixed_masks);
@@ -3387,6 +3395,8 @@ static void build_local_z_plan(PrintObject&                                print
             }
         }
 
+        geometry_timer.finish();
+        PreparationTimer emit_timer(&prep_profile, "plan_assembly");
         size_t active_row_mask_components = 0;
         size_t active_row_mask_vertices   = 0;
         for (size_t row_idx = 0; row_idx < row_state_masks.size(); ++row_idx)
@@ -4202,6 +4212,8 @@ static void build_local_z_plan(PrintObject&                                print
 template<typename ThrowOnCancel>
 static inline void apply_mm_segmentation(PrintObject &print_object, std::vector<std::vector<ExPolygons>> segmentation, ThrowOnCancel throw_on_cancel)
 {
+    PreparationProfile prep_profile("apply_regions");
+    PreparationTimer   apply_timer(&prep_profile, "total");
     assert(segmentation.size() == print_object.layer_count());
     const PrintConfig        &print_cfg = print_object.print()->config();
     const DynamicPrintConfig &full_cfg  = print_object.print()->full_print_config();
@@ -4227,6 +4239,7 @@ static inline void apply_mm_segmentation(PrintObject &print_object, std::vector<
         return layer_id * num_channels + channel_idx;
     };
     std::vector<std::vector<int>> mixed_zone_component_local_layer_index(segmentation.size() * num_channels);
+    PreparationTimer              tracking_timer(&prep_profile, "tracking");
     if (num_channels > 1) {
         std::vector<size_t> mixed_channels;
         for (size_t channel_idx = 1; channel_idx < num_channels; ++channel_idx) {
@@ -4251,6 +4264,8 @@ static inline void apply_mm_segmentation(PrintObject &print_object, std::vector<
         });
     }
 
+    tracking_timer.finish();
+    PreparationTimer regions_timer(&prep_profile, "regions");
     tbb::parallel_for(
         tbb::blocked_range<size_t>(0, segmentation.size(), std::max(segmentation.size() / 128, size_t(1))),
         [&print_object,
