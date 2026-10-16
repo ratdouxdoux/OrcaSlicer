@@ -4252,14 +4252,26 @@ static inline void apply_mm_segmentation(PrintObject &print_object, std::vector<
         tbb::parallel_for(tbb::blocked_range<size_t>(0, mixed_channels.size()), [&](const tbb::blocked_range<size_t>& range) {
             for (size_t channel_slot = range.begin(); channel_slot < range.end(); ++channel_slot) {
                 const size_t              channel_idx = mixed_channels[channel_slot];
-                MixedFilamentLayerTracker tracker;
+                const bool                reuse_tracking    = preparation_experiment("tracking");
+                const bool                validate_tracking = reuse_tracking && preparation_diagnostic("ORCA_PREP_VALIDATE_REUSE");
+                MixedFilamentLayerTracker tracker(reuse_tracking), reference_tracker;
+                std::vector<int>          reference_indices;
+                size_t                    max_components = 0;
                 for (size_t layer_id = 0; layer_id < segmentation.size(); ++layer_id) {
                     throw_on_cancel();
                     if (segmentation[layer_id].size() != num_channels)
                         continue;
                     tracker.track_layer(segmentation[layer_id][channel_idx], int(layer_id),
                                         mixed_zone_component_local_layer_index[mixed_zone_phase_slot(layer_id, channel_idx)]);
+                    max_components = std::max(max_components, segmentation[layer_id][channel_idx].size());
+                    if (validate_tracking) {
+                        reference_tracker.track_layer(segmentation[layer_id][channel_idx], int(layer_id), reference_indices);
+                        if (reference_indices != mixed_zone_component_local_layer_index[mixed_zone_phase_slot(layer_id, channel_idx)])
+                            throw std::runtime_error("Optimized mixed-component tracking changed activation indices");
+                    }
                 }
+                if (prep_profile.enabled)
+                    BOOST_LOG_TRIVIAL(info) << "Preparation tracker channel=" << channel_idx << " max_components=" << max_components;
             }
         });
     }
