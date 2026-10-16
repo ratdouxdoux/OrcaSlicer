@@ -4,6 +4,8 @@ Measured work from 12–16 October 2026, through source checkpoint `87930d936e` 
 
 The largest improvements came from removing repeated CPU geometry work, reusing immutable results within a slice, and parallelizing preparation while preserving ordered output. Vulkan provided a useful additional improvement for Local-Z clipping. Several other GPU experiments were correct but slower after transfers, synchronization and remaining CPU work were included.
 
+Across the recorded beginning and end points, **Starry Night with Local-Z fell from 320.42 to 105.97 seconds: 66.9% less time, or 3.02× faster**, saving about **3 minutes 34 seconds per slice**. Peak slicing private commit fell from **8.10 to 4.18 GiB**. These cumulative observations include the CPU improvements, both GPU options enabled at the final endpoint, and intervening correctness fixes; they are not an output-equivalent A/B benchmark. The [cumulative comparison at the end](#cumulative-comparison-from-first-measurements-to-latest-build) gives the timing, CPU and memory breakdown.
+
 This report covers preview memory, CPU slicing, Local-Z, Vulkan experiments, painting preparation, wall generation and G-code export. It consolidates the existing measurements; it does not represent a new benchmark run. Palette, color-calibration and other product features are outside its scope except where their behavior affects benchmark comparability.
 
 ## Main measured results
@@ -22,8 +24,6 @@ Each row compares the before and after configurations of **one experiment**. The
 | Painting and Local-Z preparation | U1 / ordinary Starry / Local-Z Starry, broad preparation stage | 9.12 → 4.62 / 28.18 → 16.93 / 37.73 → 18.86 s | Approximately halves preparation on the Local-Z workloads |
 | Painting preparation memory reduction | Ordinary / Local-Z Starry, peak private commit | 8.17 → 3.86 / 8.09 → 4.08 GiB | About half the slicing-process peak commit |
 | Latest wall/export changes | Ordinary / Local-Z Starry, complete CLI run | 78.78 → 72.76 / 110.18 → 105.97 s | 7.6% / 3.8% less elapsed time |
-
-The earliest recorded Starry Local-Z complete-run benchmark was **320.42 seconds**; the latest is **105.97 seconds with both GPU options enabled**. These are historical endpoints, not a controlled cumulative speedup: GPU settings, intervening correctness fixes and generated output changed between checkpoints. In particular, early Local-Z tower scheduling warnings were addressed later. The paired comparisons in this report are the appropriate evidence for individual changes.
 
 ## How to read the measurements
 
@@ -518,3 +518,48 @@ Changes were committed in separate units for rollback. Later refinements can dep
 | `8784142ea1`, `87930d936e` | Reproducible wall/export replays and final results |
 
 The [Vulkan design](Vulkan-Compute-Acceleration-Design.md) and [later target review](Vulkan-Next-Targets-Review.md) also contain proposals. Their proposed work should not be counted as delivered optimization unless a later results report records its implementation and validation. Likewise, early experiment documents preserve historical build/runtime defaults; the current behavior is summarized above.
+
+## Cumulative comparison from first measurements to latest build
+
+### Starry Night with Local-Z
+
+The starting point is the first benchmark **before the slicing-performance changes**: commit `9a791daff1` plus the common CLI-loading fix. It already includes the preview-memory fixes, which are compared separately below. The ending point is the final wall/export build, with all retained CPU improvements and **both Vulkan preferences enabled**. Both endpoints use the original Starry Night input and the same machine, with two fresh-process timing runs each.
+
+| Measurement | Before slicing improvements | Latest build | Absolute reduction | Relative reduction |
+|---|---:|---:|---:|---:|
+| Complete CLI elapsed time | **320.42 s** | **105.97 s** | **214.45 s** | **66.9%** |
+| Mesh, painting and Local-Z preparation | 48.52 s | 17.93 s | 30.59 s | 63.0% |
+| Entire G-code export | 183.71 s | 54.39 s | 129.31 s | 70.4% |
+| Aggregate process CPU time | 933.73 CPU-s | 461.87 CPU-s | 471.87 CPU-s | 50.5% |
+| Peak slicing private commit | 8.10 GiB | 4.18 GiB | 3.93 GiB | 48.5% |
+
+The complete slice went from approximately **5 minutes 20 seconds to 1 minute 46 seconds**, a **3.02× runtime improvement**. Preparation and export are parts of that total, not additional savings. The preparation row uses the same broad boundary at both endpoints: initial mesh slicing through the start of wall generation. CPU-seconds and peak commit are separate measures of work and memory, not elapsed time.
+
+Before-run totals were **319.05 and 321.78 seconds**; final totals were **106.17 and 105.77 seconds**. The table calculates reductions from the unrounded means, so displayed rounded values can differ slightly when subtracted. It compares endpoints directly rather than adding or multiplying the phase percentages elsewhere in this report.
+
+This measures the observed cumulative progress of the evolving application. It does not isolate performance changes from the intervening tower/gradient and determinism fixes, and the early and final generated outputs are not established as equivalent. Early Local-Z tower warnings were addressed between these endpoints. For causal evidence about each optimization, use its controlled comparison in the preceding sections. No final CPU-only measurement covering this entire historical span is available; the 105.97-second endpoint specifically includes optional GPU acceleration.
+
+Sources: [original baseline measurements](../build_logs/cpu_optimization_benchmark/comparison_final.json), [final measurements](../build_logs/wall_export_experiments_20261016/final_summary.json), and the [latest stage breakdown](#latest-complete-stage-breakdown).
+
+### Memory from the initial investigation
+
+| Measurement | Before memory fixes | After memory fixes | Observed reduction |
+|---|---:|---:|---:|
+| Live sliced-preview working set | 5.776 GiB | 2.549 GiB | 3.227 GiB / 55.9% |
+| Isolated parser, fresh allocations: private commit | 923.7 MiB | 296.7 MiB | 627.0 MiB / 67.9% |
+| Isolated parser, previously oversized buffers: private commit | 1,561.1 MiB | 292.2 MiB | 1,268.9 MiB / 81.3% |
+
+The live-preview row compares the original Intel-rendered snapshot with the later NVIDIA-rendered snapshot after the memory fixes. It is an observed beginning-to-after-fix comparison, not a final-build rerun of an identical GUI session: move counts, graphics residency and allocator history differ. The two parser rows are controlled same-input comparisons and provide the stronger evidence for the memory fixes themselves. They are alternative scenarios, not amounts to add together. The final slicing peak in the preceding table measures a different process phase from retained GUI-preview RAM.
+
+Sources: [initial live audit](../build_logs/memory-investigation-43764.md), [post-fix NVIDIA snapshot](../build_logs/memory_current_36560/report.md), and [controlled parser verification](../build_logs/preview-memory-fix-verification.md).
+
+### Other workloads from their earliest available baselines
+
+There is no recorded pre-all-improvements baseline for ordinary Starry or U1. Their earliest usable measurements already contain earlier optimizations, so these rows show only the cumulative progress from those later checkpoints. Final timings again have both GPU options enabled; ordinary Starry dispatches no Local-Z clipping work.
+
+| Workload | Earliest available baseline | Latest complete run | Observed reduction | Baseline scope |
+|---|---:|---:|---:|---|
+| Starry Night, ordinary | 114.85 s | 72.76 s | 42.09 s / 36.7% | One unprofiled run after the initial CPU cleanup; GPU paths not yet added |
+| U1, Local-Z | 38.55 s | 28.90 s | 9.65 s / 25.0% | Three-run clean CPU baseline for the shortcut retry, after the earlier CPU reuse/support work |
+
+These are historical endpoint comparisons, with different sample sizes and no claim of unchanged complete output across the entire interval. Sources: [earliest ordinary timing](CPU-Slicing-Profile-Without-LocalZ.md#unprofiled-timing-cross-check), [clean U1 baseline](U1-Paint-Shortcut-Results.md#clean-timing-results), and [final timings](Wall-Export-Experiments.md#final-selection-and-repeated-slice-timings).
