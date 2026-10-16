@@ -1,4 +1,5 @@
 #include "PolygonCompute.hpp"
+#include "PreparationDiagnostics.hpp"
 #include "BoundingBox.hpp"
 #include "ClipperUtils.hpp"
 #include "EdgeGrid.hpp"
@@ -18,6 +19,7 @@
 
 #include <boost/log/trivial.hpp>
 #include <tbb/parallel_for.h>
+#include <tbb/task_arena.h>
 #include <mutex>
 #include <boost/thread/lock_guard.hpp>
 
@@ -1184,11 +1186,13 @@ static bool is_volume_sinking(const indexed_triangle_set &its, const Transform3d
 //#define MMU_SEGMENTATION_DEBUG_TOP_BOTTOM
 
 // Returns segmentation of top and bottom layers based on painting in segmentation gizmos.
-static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_layers(const PrintObject                                               &print_object,
-                                                                                      const std::vector<ExPolygons>                                   &input_expolygons,
-                                                                                      const std::function<ModelVolumeFacetsInfo(const ModelVolume &)> &extract_facets_info,
-                                                                                      const size_t                                                     num_facets_states,
-                                                                                      const std::function<void()>                                     &throw_on_cancel_callback)
+static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_layers(
+    const PrintObject&                                              print_object,
+    const std::vector<ExPolygons>&                                  input_expolygons,
+    const std::function<ModelVolumeFacetsInfo(const ModelVolume&)>& extract_facets_info,
+    const size_t                                                    num_facets_states,
+    const std::function<void()>&                                    throw_on_cancel_callback,
+    PreparationProfile*                                             profile)
 {
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - Segmentation of top and bottom layers in parallel - Begin";
     const size_t num_layers    = input_expolygons.size();
@@ -1220,6 +1224,7 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
             if (mv->is_model_part()) {
                 const Transform3d volume_trafo = object_trafo * mv->get_matrix();
                 for (size_t extruder_idx = 0; extruder_idx < num_facets_states; ++extruder_idx) {
+                    PreparationTimer facets_timer(profile, "strict_facets");
                     const indexed_triangle_set painted = extract_facets_info(*mv).facets_annotation.get_facets_strict(*mv, EnforcerBlockerType(extruder_idx));
 #ifdef MM_SEGMENTATION_DEBUG_TOP_BOTTOM
                     {
@@ -1227,7 +1232,9 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
                         its_write_obj(painted, debug_out_path("mm-painted-patch-%d-%d.obj", iRun ++, extruder_idx).c_str());
                     }
 #endif // MM_SEGMENTATION_DEBUG_TOP_BOTTOM
+                    facets_timer.finish();
                     if (! painted.indices.empty()) {
+                        PreparationTimer      slab_timer(profile, "slabs");
                         std::vector<Polygons> top, bottom;
                         if (!zs.empty() && is_volume_sinking(painted, volume_trafo)) {
                             std::vector<float> zs_sinking = {0.f};
@@ -1305,6 +1312,7 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
     }
 #endif // MM_SEGMENTATION_DEBUG_TOP_BOTTOM
 
+    PreparationTimer occlusion_timer(profile, "occlusion");
     // When the upper surface of an object is occluded, it should no longer be considered the upper surface
     {
         for (size_t extruder_idx = 0; extruder_idx < num_facets_states; ++extruder_idx) {
@@ -1319,6 +1327,8 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
         }
     }
 
+    occlusion_timer.finish();
+    PreparationTimer                     propagation_timer(profile, "shell_propagation");
     std::vector<std::vector<ExPolygons>> triangles_by_color_bottom(num_facets_states);
     std::vector<std::vector<ExPolygons>> triangles_by_color_top(num_facets_states);
     triangles_by_color_bottom.assign(num_facets_states, std::vector<ExPolygons>(num_layers * 2));
@@ -1427,6 +1437,8 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
         }
     });
 
+    propagation_timer.finish();
+    PreparationTimer                     top_merge_timer(profile, "shell_merge");
     std::vector<std::vector<ExPolygons>> triangles_by_color_merged(num_facets_states);
     triangles_by_color_merged.assign(num_facets_states, std::vector<ExPolygons>(num_layers));
     tbb::parallel_for(tbb::blocked_range<size_t>(0, num_layers), [&triangles_by_color_merged, &triangles_by_color_bottom, &triangles_by_color_top, &num_layers, &throw_on_cancel_callback,
@@ -1532,7 +1544,7 @@ static inline Line clip_finite_voronoi_edge(const Voronoi::VD::edge_type &edge, 
 
 static inline bool has_same_color(const ColoredLine &cl1, const ColoredLine &cl2) { return cl1.color == cl2.color; }
 
-static MMU_Graph build_graph(size_t layer_idx, const std::vector<std::vector<ColoredLine>> &color_poly)
+static MMU_Graph build_graph(size_t layer_idx, const std::vector<std::vector<ColoredLine>>& color_poly, PreparationProfile* profile)
 {
     const Polygons color_poly_tmp = colored_points_to_polygon(color_poly);
     const Points   points         = to_points(color_poly_tmp);
@@ -1559,7 +1571,10 @@ static MMU_Graph build_graph(size_t layer_idx, const std::vector<std::vector<Col
     ColoredLines       lines_colored = to_lines(color_poly);
 
     Voronoi::VD vd;
+    PreparationTimer voronoi_timer(profile, "voronoi");
     vd.construct_voronoi(lines_colored.cbegin(), lines_colored.cend());
+    voronoi_timer.finish();
+    PreparationTimer graph_timer(profile, "graph_assembly");
     // boost::polygon::construct_voronoi(lines_colored.begin(), lines_colored.end(), &vd);
     MMU_Graph graph;
     graph.nodes.reserve(points.size() + vd.vertices().size());
@@ -1960,8 +1975,12 @@ static bool has_layer_only_one_color(const std::vector<ColoredLines> &colored_po
     return true;
 }
 
-static std::vector<ExPolygons> segment_painted_layer_impl(
-    const ExPolygons& input, const std::vector<ColoredLines>& colors, size_t num_colors, bool split_islands, bool* used_island_fast_path)
+static std::vector<ExPolygons> segment_painted_layer_impl(const ExPolygons&                input,
+                                                          const std::vector<ColoredLines>& colors,
+                                                          size_t                           num_colors,
+                                                          bool                             split_islands,
+                                                          bool*                            used_island_fast_path,
+                                                          PreparationProfile*              profile = nullptr)
 {
     if (used_island_fast_path)
         *used_island_fast_path = false;
@@ -1973,9 +1992,12 @@ static std::vector<ExPolygons> segment_painted_layer_impl(
         return result;
     }
     auto segment = [&](const std::vector<ColoredLines>& contours) {
-        MMU_Graph graph = build_graph(0, contours);
+        MMU_Graph        graph = build_graph(0, contours, profile);
+        PreparationTimer cleanup_timer(profile, "graph_cleanup");
         remove_multiple_edges_in_vertices(graph, contours);
         graph.remove_nodes_with_one_arc();
+        cleanup_timer.finish();
+        PreparationTimer extract_timer(profile, "graph_extract");
         return extract_colored_segments(graph, num_colors);
     };
     if (!split_islands || input.size() < 2)
@@ -2024,14 +2046,16 @@ std::vector<ExPolygons> segment_painted_layer(const ExPolygons&                i
     return segment_painted_layer_impl(input, colors, num_colors, split_islands, nullptr);
 }
 
-std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject                                               &print_object,
-                                                              const std::function<ModelVolumeFacetsInfo(const ModelVolume &)> &extract_facets_info,
-                                                              const size_t                                                     num_facets_states,
-                                                              const float                                                      segmentation_max_width,
-                                                              const float                                                      segmentation_interlocking_depth,
-                                                              const bool                                                       segmentation_interlocking_beam,
-                                                              const IncludeTopAndBottomLayers                                  include_top_and_bottom_layers,
-                                                              const std::function<void()>                                     &throw_on_cancel_callback)
+static std::vector<std::vector<ExPolygons>> segmentation_by_painting_impl(
+    const PrintObject&                                              print_object,
+    const std::function<ModelVolumeFacetsInfo(const ModelVolume&)>& extract_facets_info,
+    const size_t                                                    num_facets_states,
+    const float                                                     segmentation_max_width,
+    const float                                                     segmentation_interlocking_depth,
+    const bool                                                      segmentation_interlocking_beam,
+    const IncludeTopAndBottomLayers                                 include_top_and_bottom_layers,
+    const std::function<void()>&                                    throw_on_cancel_callback,
+    PreparationProfile*                                             profile)
 {
     const size_t                          num_layers    = print_object.layers().size();
     std::vector<std::vector<ExPolygons>>  segmented_regions(num_layers);
@@ -2048,6 +2072,7 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
     static int iRun = 0;
 #endif // MM_SEGMENTATION_DEBUG
 
+    PreparationTimer outlines_timer(profile, "outlines");
     // Merge all regions and remove small holes
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - Slices preprocessing in parallel - Begin";
     tbb::parallel_for(tbb::blocked_range<size_t>(0, num_layers), [&layers, &input_expolygons, &throw_on_cancel_callback](const tbb::blocked_range<size_t> &range) {
@@ -2079,6 +2104,8 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
     }); // end of parallel_for
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - Slices preprocessing in parallel - End";
 
+    outlines_timer.finish();
+    PreparationTimer         grids_timer(profile, "grids");
     std::vector<BoundingBox> layer_bboxes(num_layers);
     for (size_t layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
         throw_on_cancel_callback();
@@ -2100,6 +2127,8 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
         edge_grids[layer_idx].create(input_expolygons[layer_idx], coord_t(scale_(10.)));
     }
 
+    grids_timer.finish();
+    PreparationTimer projection_timer(profile, "projection");
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - Projection of painted triangles - Begin";
     for (const ModelVolume *mv : print_object.model_object()->volumes) {
         const ModelVolumeFacetsInfo facets_info = extract_facets_info(*mv);
@@ -2198,6 +2227,8 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - painted layers count: "
                              << std::count_if(painted_lines.begin(), painted_lines.end(), [](const std::vector<PaintedLine> &pl) { return !pl.empty(); });
 
+    projection_timer.finish();
+    PreparationTimer    layers_timer(profile, "side_regions");
     const char*         islands_setting = std::getenv("ORCA_PAINT_ISLANDS");
     const std::string   islands_mode    = islands_setting ? islands_setting : "cpu";
     const bool          split_islands   = islands_mode == "islands" || islands_mode == "validate";
@@ -2205,11 +2236,12 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - layers segmentation in parallel - begin";
     tbb::parallel_for(tbb::blocked_range<size_t>(0, num_layers), [&edge_grids, &input_expolygons, &painted_lines, &segmented_regions,
                                                                   &num_facets_states, &throw_on_cancel_callback, split_islands,
-                                                                  &islands_mode, &checked_island_layers,
-                                                                  &fast_island_layers](const tbb::blocked_range<size_t>& range) {
+                                                                  &islands_mode, &checked_island_layers, &fast_island_layers,
+                                                                  profile](const tbb::blocked_range<size_t>& range) {
         PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
         for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++layer_idx) {
             throw_on_cancel_callback();
+            PreparationTimer layer_timer(profile, "side_layer");
             if (!painted_lines[layer_idx].empty()) {
 #ifdef MM_SEGMENTATION_DEBUG_PAINTED_LINES
                 export_painted_lines_to_svg(debug_out_path("0-mm-painted-lines-%d-%d.svg", layer_idx, iRun), {painted_lines[layer_idx]}, input_expolygons[layer_idx]);
@@ -2231,7 +2263,7 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
                 assert(!color_poly.front().empty());
                 bool used_island_fast_path   = false;
                 segmented_regions[layer_idx] = segment_painted_layer_impl(input_expolygons[layer_idx], color_poly, num_facets_states,
-                                                                          split_islands, &used_island_fast_path);
+                                                                          split_islands, &used_island_fast_path, profile);
                 if (used_island_fast_path)
                     ++fast_island_layers;
                 if (islands_mode == "validate" && input_expolygons[layer_idx].size() > 1) {
@@ -2251,6 +2283,7 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
         }
     }); // end of parallel_for
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - layers segmentation in parallel - end";
+    layers_timer.finish();
     if (islands_mode == "validate")
         BOOST_LOG_TRIVIAL(info) << "Paint island validation layers=" << checked_island_layers.load()
                                 << " fast_layers=" << fast_island_layers.load();
@@ -2262,12 +2295,16 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
     }
 
     // The first index is extruder number (includes default extruder), and the second one is layer number
+    PreparationTimer                     top_bottom_timer(profile, "top_bottom");
     std::vector<std::vector<ExPolygons>> top_and_bottom_layers;
     if (include_top_and_bottom_layers == IncludeTopAndBottomLayers::Yes) {
-        top_and_bottom_layers = segmentation_top_and_bottom_layers(print_object, input_expolygons, extract_facets_info, num_facets_states, throw_on_cancel_callback);
+        top_and_bottom_layers = segmentation_top_and_bottom_layers(print_object, input_expolygons, extract_facets_info, num_facets_states,
+                                                                   throw_on_cancel_callback, profile);
         throw_on_cancel_callback();
     }
 
+    top_bottom_timer.finish();
+    PreparationTimer merge_timer(profile, "merge");
     std::vector<std::vector<ExPolygons>> segmented_regions_merged = merge_segmented_layers(segmented_regions, std::move(top_and_bottom_layers), num_facets_states, throw_on_cancel_callback);
     throw_on_cancel_callback();
 
@@ -2281,6 +2318,48 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
 #endif // MM_SEGMENTATION_DEBUG
 
     return segmented_regions_merged;
+}
+
+std::vector<std::vector<ExPolygons>> segmentation_by_painting(
+    const PrintObject&                                              print_object,
+    const std::function<ModelVolumeFacetsInfo(const ModelVolume&)>& extract_facets_info,
+    size_t                                                          num_facets_states,
+    float                                                           segmentation_max_width,
+    float                                                           segmentation_interlocking_depth,
+    bool                                                            segmentation_interlocking_beam,
+    IncludeTopAndBottomLayers                                       include_top_and_bottom_layers,
+    const std::function<void()>&                                    throw_on_cancel_callback)
+{
+    auto run = [&](PreparationProfile& profile) {
+        return segmentation_by_painting_impl(print_object, extract_facets_info, num_facets_states, segmentation_max_width,
+                                             segmentation_interlocking_depth, segmentation_interlocking_beam, include_top_and_bottom_layers,
+                                             throw_on_cancel_callback, &profile);
+    };
+    PreparationProfile profile("painting");
+    if (!preparation_diagnostic("ORCA_PREP_VALIDATE_THREADS"))
+        return run(profile);
+    PreparationProfile reference_profile("painting_one_thread");
+    tbb::task_arena    serial(1);
+    const auto         reference           = serial.execute([&] { return run(reference_profile); });
+    auto               result              = run(profile);
+    size_t             ordered_differences = 0, geometry_differences = 0;
+    for (size_t layer = 0; layer < result.size(); ++layer)
+        for (size_t color = 0; color < result[layer].size(); ++color) {
+            throw_on_cancel_callback();
+            if (reference[layer][color] == result[layer][color])
+                continue;
+            ++ordered_differences;
+            if (!diff_ex(reference[layer][color], result[layer][color]).empty() ||
+                !diff_ex(result[layer][color], reference[layer][color]).empty()) {
+                ++geometry_differences;
+                BOOST_LOG_TRIVIAL(error) << "Preparation thread geometry difference layer=" << layer << " color=" << color;
+            }
+        }
+    BOOST_LOG_TRIVIAL(info) << "Preparation thread validation layers=" << result.size() << " ordered_differences=" << ordered_differences
+                            << " geometry_differences=" << geometry_differences;
+    if (geometry_differences)
+        throw std::runtime_error("Painting geometry depends on worker scheduling");
+    return result;
 }
 
 static float surface_paint_shell_width(const PrintObject& print_object)
