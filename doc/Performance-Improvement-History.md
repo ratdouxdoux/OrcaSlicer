@@ -6,6 +6,8 @@ The largest improvements came from removing repeated CPU geometry work, reusing 
 
 Across the recorded beginning and end points, **Starry Night with Local-Z fell from 320.42 to 105.97 seconds: 66.9% less time, or 3.02× faster**, saving about **3 minutes 34 seconds per slice**. Peak slicing private commit fell from **8.10 to 4.18 GiB**. These cumulative observations include the CPU improvements, both GPU options enabled at the final endpoint, and intervening correctness fixes; they are not an output-equivalent A/B benchmark. The [cumulative comparison at the end](#cumulative-comparison-from-first-measurements-to-latest-build) gives the timing, CPU and memory breakdown.
 
+**Without Local-Z, Starry Night fell from its earliest measured 114.85 to 72.76 seconds: 36.65% less time, or 1.58× faster.** Aggregate CPU work fell **42.9%**, and peak slicing private commit fell **7.95 → 3.91 GiB**. The main gains came from CPU shell reuse, painting preparation, tree-support processing, classic walls and seam caching. Local-Z GPU clipping contributes nothing to this workflow. This earlier ordinary baseline already contains the first CPU cleanup, so it does not measure every improvement from the project's beginning.
+
 This report covers preview memory, CPU slicing, Local-Z, Vulkan experiments, painting preparation, wall generation and G-code export. It consolidates the existing measurements; it does not represent a new benchmark run. Palette, color-calibration and other product features are outside its scope except where their behavior affects benchmark comparability.
 
 ## Main measured results
@@ -24,6 +26,25 @@ Each row compares the before and after configurations of **one experiment**. The
 | Painting and Local-Z preparation | U1 / ordinary Starry / Local-Z Starry, broad preparation stage | 9.12 → 4.62 / 28.18 → 16.93 / 37.73 → 18.86 s | Approximately halves preparation on the Local-Z workloads |
 | Painting preparation memory reduction | Ordinary / Local-Z Starry, peak private commit | 8.17 → 3.86 / 8.09 → 4.08 GiB | About half the slicing-process peak commit |
 | Latest wall/export changes | Ordinary / Local-Z Starry, complete CLI run | 78.78 → 72.76 / 110.18 → 105.97 s | 7.6% / 3.8% less elapsed time |
+
+## Improvements that apply without Local-Z
+
+Most retained CPU changes do not require Local-Z. They accelerate shared slicing stages whenever a model and its settings exercise the relevant work. The ordinary Starry benchmark keeps painting and mixed materials but disables Local-Z; its gains therefore demonstrate useful improvements outside the Local-Z path.
+
+| Shared CPU improvement | Why it helps without Local-Z | Measured ordinary result in its controlled experiment |
+|---|---|---|
+| Shell filtering and projection reuse | Avoid shell projection for regions without internal fill; calculate filter geometry only when needed and share compatible projections | Vertical shells **16.74 → 2.66 s**; the combined wall/shell reuse phase reduced the complete job **112.30 → 95.34 s** |
+| Painting and region preparation | Reuse decoded painting/selectors, compact temporary meshes, parallelize painted-surface occlusion and reduce graph/region bookkeeping | Broad preparation **28.18 → 16.93 s**; complete job **88.36 → 80.37 s**; peak private commit **8.17 → 3.86 GiB** |
+| Bridge-outline reuse and tree filtering | Share a support outline between material regions and process independent overhang layers concurrently | Tree-support stage **11.22 → 6.31 s** |
+| Classic wall support offsets | Reuse identical support outlines and omit offset variants no consumer needs | Latest wall generation alone **7.63 → 4.59 s**; curl estimation essentially unchanged |
+| Seam-neighborhood caching | Reuse the same ordered geometric searches during seam alignment | Seam alignment **6.491 → 3.009 s**; export **32.836 → 29.227 s** |
+| Export parser and geometry cleanup | Parse Klipper velocity commands without repeated regex searches, borrow output buffers, skip unused curvature and move lookup structures | Parser replay **2.667 → 0.465 s**; the latest combined wall/export phase reduced ordinary export **26.28 → 25.33 s** |
+
+These rows come from different controlled rounds and cannot be added together. The parser replay is a component measurement, not an isolated whole-export gain. Sources: [CPU geometry reuse](CPU-Geometry-Reuse-Results.md), [painting preparation](Painting-Preparation-Experiments.md), [tree-support follow-up](CPU-Overhang-Parallelism-Results.md), [seam caching](Vulkan-Shared-Geometry-Experiment.md), and [latest wall/export changes](Wall-Export-Experiments.md).
+
+Applicability depends on the workload. Painting-specific changes need a painted model; sharing across material regions needs eligible repeated geometry. Classic-wall changes do not accelerate Arachne, tree-support changes need that support path, seam caching benefits the alignment modes, and the velocity parser change applies to Klipper commands. Shared shell, wall, seam, export and preview-memory paths can also serve unpainted or single-material jobs, but this series does not establish a universal percentage for those jobs.
+
+All these retained CPU improvements are enabled in normal builds without either GPU checkbox. Optional GPU seam visibility also runs without Local-Z, but its measured saving is only a few tenths of a second and it has not established a complete ordinary-slice gain. Local-Z planning/clipping, Local-Z wipe eligibility and the new Local-Z-only distance batch cache are inactive in an ordinary slice. The [ordinary cumulative comparison](#starry-night-without-local-z) separates the full historical change from the individual experiments above.
 
 ## How to read the measurements
 
@@ -541,6 +562,32 @@ This measures the observed cumulative progress of the evolving application. It d
 
 Sources: [original baseline measurements](../build_logs/cpu_optimization_benchmark/comparison_final.json), [final measurements](../build_logs/wall_export_experiments_20261016/final_summary.json), and the [latest stage breakdown](#latest-complete-stage-breakdown).
 
+### Starry Night without Local-Z
+
+The ordinary workload uses the same controlled Local-Z-disabled project at both endpoints. It still contains painted and mixed-material regions. The earliest unprofiled measurement was taken after the first CPU cleanup, before the subsequent seam cache, wall/shell reuse, support, preparation and export changes. No earlier pre-all-improvements ordinary benchmark was recorded.
+
+| Measurement | Earliest ordinary baseline | Latest ordinary build | Absolute reduction | Relative reduction |
+|---|---:|---:|---:|---:|
+| Complete CLI elapsed time | **114.85 s** | **72.76 s** | **42.09 s** | **36.65%** |
+| Painting and region preparation, excluding initial mesh slicing | 26.76 s | 15.11 s | 11.66 s | 43.6% |
+| Walls and curl combined | 15.13 s | 10.12 s | 5.01 s | 33.1% |
+| Vertical shells | 16.57 s | 2.47 s | 14.10 s | 85.1% |
+| Tree support | 11.36 s | 5.46 s | 5.91 s | 52.0% |
+| Entire G-code export | 30.17 s | 25.33 s | 4.85 s | 16.1% |
+| Aggregate process CPU time | 706.42 CPU-s | 403.58 CPU-s | 302.84 CPU-s | 42.9% |
+| Peak slicing private commit | 7.95 GiB | 3.91 GiB | 4.04 GiB | 50.8% |
+| Peak resident working set | 5.24 GiB | 3.67 GiB | 1.57 GiB | 29.9% |
+
+The complete ordinary slice went from approximately **1 minute 55 seconds to 1 minute 13 seconds**, a **1.58× runtime improvement**. The largest historical stage reductions were shells and painting preparation, followed by support and walls. They reduce work before export, explaining why ordinary slicing improved substantially even though the largest Local-Z-specific optimization is absent. Initial mesh-plane slicing was nearly unchanged at **1.44 → 1.40 seconds**.
+
+The baseline is one unprofiled run; the final value is the mean of **71.76 and 73.75 seconds**. Stage values above were extracted from those same runs using matching log boundaries, rather than substituting the older sampled profile. Walls and curl are combined because the earlier logs did not separate them; the latest **10.12 seconds** is **4.59 seconds walls + 5.53 seconds curl**. Reductions use unrounded measurements. These stage rows are parts of the whole job, and CPU and memory reductions are separate measures.
+
+Both GPU preferences were enabled at the final endpoint, but **Local-Z clipping dispatches zero work** in this project. Seam visibility remains the only enabled GPU operation that applies. Its separate profiled comparison improved **0.529 → 0.207 seconds**, without establishing an overall ordinary-slice GPU benefit. The evidence for the substantial ordinary gains comes from the shared CPU experiments above; the historical 36.65% figure is not a GPU speedup claim or a final GPU-on/off comparison.
+
+This is a historical comparison across builds and includes the later determinism fixes. Ordinary G-code still varies in some downstream infill between runs, including unchanged baselines, so complete output equivalence across these endpoints is not established. The exact preparation-boundary comparison and the per-operation checks provide narrower correctness evidence.
+
+Sources: [earliest ordinary process metrics](../build_logs/cpu_slicing_profile/starry_no_local_z_unprofiled_1/metrics.json), [earliest ordinary report](CPU-Slicing-Profile-Without-LocalZ.md#unprofiled-timing-cross-check), [final process metrics](../build_logs/wall_export_experiments_20261016/final_summary.json), and [latest stage breakdown](#latest-complete-stage-breakdown). Stage extraction uses the earlier run's `stdout.log` and `final1/ordinary/slice/stdout.log` / `final2/ordinary/slice/stdout.log` in the final experiment directory.
+
 ### Memory from the initial investigation
 
 | Measurement | Before memory fixes | After memory fixes | Observed reduction |
@@ -553,13 +600,8 @@ The live-preview row compares the original Intel-rendered snapshot with the late
 
 Sources: [initial live audit](../build_logs/memory-investigation-43764.md), [post-fix NVIDIA snapshot](../build_logs/memory_current_36560/report.md), and [controlled parser verification](../build_logs/preview-memory-fix-verification.md).
 
-### Other workloads from their earliest available baselines
+### U1 from its earliest clean baseline
 
-There is no recorded pre-all-improvements baseline for ordinary Starry or U1. Their earliest usable measurements already contain earlier optimizations, so these rows show only the cumulative progress from those later checkpoints. Final timings again have both GPU options enabled; ordinary Starry dispatches no Local-Z clipping work.
+U1 uses Local-Z and is a separate model from both Starry configurations. Its earliest clean CPU baseline already includes the earlier CPU reuse/support work: **38.55 seconds**, the median of three shortcut-retry runs. The final two-run mean with both GPU options enabled is **28.90 seconds**, an observed reduction of **9.65 seconds / 25.0%**. This is progress from a later checkpoint, not a pre-all-improvements baseline or a non-Local-Z result.
 
-| Workload | Earliest available baseline | Latest complete run | Observed reduction | Baseline scope |
-|---|---:|---:|---:|---|
-| Starry Night, ordinary | 114.85 s | 72.76 s | 42.09 s / 36.7% | One unprofiled run after the initial CPU cleanup; GPU paths not yet added |
-| U1, Local-Z | 38.55 s | 28.90 s | 9.65 s / 25.0% | Three-run clean CPU baseline for the shortcut retry, after the earlier CPU reuse/support work |
-
-These are historical endpoint comparisons, with different sample sizes and no claim of unchanged complete output across the entire interval. Sources: [earliest ordinary timing](CPU-Slicing-Profile-Without-LocalZ.md#unprofiled-timing-cross-check), [clean U1 baseline](U1-Paint-Shortcut-Results.md#clean-timing-results), and [final timings](Wall-Export-Experiments.md#final-selection-and-repeated-slice-timings).
+As with the other historical comparisons, sample sizes differ and complete output equivalence across the interval is not established. Sources: [clean U1 baseline](U1-Paint-Shortcut-Results.md#clean-timing-results) and [final timings](Wall-Export-Experiments.md#final-selection-and-repeated-slice-timings).
