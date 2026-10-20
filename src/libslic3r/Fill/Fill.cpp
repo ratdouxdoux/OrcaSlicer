@@ -4,6 +4,7 @@
 
 #include "../ClipperUtils.hpp"
 #include "../Geometry.hpp"
+#include "../InfillDiagnostics.hpp"
 #include "../Layer.hpp"
 #include "../Print.hpp"
 #include "../PrintConfig.hpp"
@@ -806,11 +807,13 @@ void split_solid_surface(size_t layer_id, const SurfaceFill &fill, ExPolygons &n
 #endif
 }
 
-std::vector<SurfaceFill> group_fills(const Layer &layer, LockRegionParam &lock_param)
+std::vector<SurfaceFill> group_fills(const Layer& layer, LockRegionParam& lock_param, bool sparse_anchors = false)
 {
-	std::vector<SurfaceFill> surface_fills;
-	// Fill in a map of a region & surface to SurfaceFillParams.
-	std::set<SurfaceFillParams> 						set_surface_params;
+    static const bool        skip_discarded_clip = infill_experiment("anchor_clip");
+    PreparationTimer         grouping_timer(&infill_profile(), sparse_anchors ? "anchor_grouping" : "full_grouping");
+    std::vector<SurfaceFill> surface_fills;
+    // Fill in a map of a region & surface to SurfaceFillParams.
+    std::set<SurfaceFillParams> 						set_surface_params;
 	std::vector<std::vector<const SurfaceFillParams*>> 	region_to_surface_params(layer.regions().size(), std::vector<const SurfaceFillParams*>());
     SurfaceFillParams									params;
     bool 												has_internal_voids = false;
@@ -1018,15 +1021,22 @@ std::vector<SurfaceFill> group_fills(const Layer &layer, LockRegionParam &lock_p
 		Polygons all_polygons;
 		for (SurfaceFill &fill : surface_fills)
 			if (! fill.expolygons.empty()) {
-				if (fill.expolygons.size() > 1 || ! all_polygons.empty()) {
-					Polygons polys = to_polygons(std::move(fill.expolygons));
-		            // Make a union of polygons, use a safety offset, subtract the preceding polygons.
+                if (sparse_anchors && skip_discarded_clip && fill.surface.surface_type != stInternal) {
+                    // Priority clipping accumulates the original polygons, not
+                    // the clipped result. Keep those masks in their exact order;
+                    // this fill's own result is never consumed by anchor generation.
+                    append(all_polygons, to_polygons(fill.expolygons));
+                    continue;
+                }
+                if (fill.expolygons.size() > 1 || !all_polygons.empty()) {
+                    Polygons polys = to_polygons(std::move(fill.expolygons));
+                    // Make a union of polygons, use a safety offset, subtract the preceding polygons.
 				    // Bridges are processed first (see SurfaceFill::operator<())
 		            fill.expolygons = all_polygons.empty() ? union_safety_offset_ex(polys) : diff_ex(polys, all_polygons, ApplySafetyOffset::Yes);
 					append(all_polygons, std::move(polys));
-				} else if (&fill != &surface_fills.back())
-					append(all_polygons, to_polygons(fill.expolygons));
-	        }
+                } else if (&fill != &surface_fills.back())
+                    append(all_polygons, to_polygons(fill.expolygons));
+            }
 	}
 
     // we need to detect any narrow surfaces that might collapse
@@ -1038,8 +1048,8 @@ std::vector<SurfaceFill> group_fills(const Layer &layer, LockRegionParam &lock_p
     // we are going to grow such regions by overlapping them with the void (if any)
     // TODO: detect and investigate whether there could be narrow regions without
     // any void neighbors
-    if (has_internal_voids) {
-    	// Internal voids are generated only if "infill_only_where_needed" or "infill_every_layers" are active.
+    if (has_internal_voids && !sparse_anchors) {
+        // Internal voids are generated only if "infill_only_where_needed" or "infill_every_layers" are active.
         coord_t  distance_between_surfaces = 0;
         Polygons surfaces_polygons;
         Polygons voids;
@@ -1112,11 +1122,14 @@ std::vector<SurfaceFill> group_fills(const Layer &layer, LockRegionParam &lock_p
 		}
     }
 
-	// BBS: detect narrow internal solid infill area and use ipConcentricInternal pattern instead
-	if (layer.object()->config().detect_narrow_internal_solid_infill) {
-		size_t surface_fills_size = surface_fills.size();
-		for (size_t i = 0; i < surface_fills_size; i++) {
-			if (surface_fills[i].surface.surface_type != stInternalSolid)
+    // BBS: detect narrow internal solid infill area and use ipConcentricInternal pattern instead
+    // Anchor generation consumes only stInternal. Its priority masks are already
+    // resolved above; splitting discarded solid surfaces cannot change them.
+    if (!sparse_anchors && layer.object()->config().detect_narrow_internal_solid_infill) {
+        PreparationTimer narrow_timer(&infill_profile(), "narrow_solid_split");
+        size_t           surface_fills_size = surface_fills.size();
+        for (size_t i = 0; i < surface_fills_size; i++) {
+            if (surface_fills[i].surface.surface_type != stInternalSolid)
 				continue;
 
 			ExPolygons normal_infill;
@@ -1145,10 +1158,10 @@ std::vector<SurfaceFill> group_fills(const Layer &layer, LockRegionParam &lock_p
 			    // BBS: delete the narrow expolygons from old surface_fills
                 surface_fills[i].expolygons = std::move(normal_infill);
 			}
-		}
-	}
+        }
+    }
 
-	return surface_fills;
+    return surface_fills;
 }
 
 #ifdef SLIC3R_DEBUG_SLICE_PROCESSING
@@ -1342,9 +1355,33 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
 Polylines Layer::generate_sparse_infill_polylines_for_anchoring(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive::Octree* support_fill_octree,  FillLightning::Generator* lightning_generator) const
 {
     LockRegionParam skin_inner_param;
-    std::vector<SurfaceFill> surface_fills = group_fills(*this, skin_inner_param);
-	const Slic3r::BoundingBox bbox = this->object()->bounding_box();
-	const auto                resolution = this->object()->print()->config().resolution.value;
+    PreparationTimer         anchor_timer(&infill_profile(), "sparse_anchors");
+    static const bool        sparse_only   = infill_experiment("anchors");
+    std::vector<SurfaceFill> surface_fills = group_fills(*this, skin_inner_param, sparse_only);
+    if (sparse_only && infill_validate()) {
+        LockRegionParam reference_params;
+        auto            reference      = group_fills(*this, reference_params);
+        auto            discard_solids = [](std::vector<SurfaceFill>& fills) {
+            fills.erase(std::remove_if(fills.begin(), fills.end(),
+                                                  [](const SurfaceFill& fill) { return fill.surface.surface_type != stInternal; }),
+                                   fills.end());
+        };
+        discard_solids(reference);
+        auto actual = surface_fills;
+        discard_solids(actual);
+        if (actual.size() != reference.size())
+            throw std::runtime_error("Sparse anchor group count differs from reference");
+        for (size_t i = 0; i < actual.size(); ++i) {
+            const auto& a = actual[i];
+            const auto& b = reference[i];
+            if (!(a.params == b.params) || a.region_id != b.region_id || a.region_id_group != b.region_id_group ||
+                a.expolygons != b.expolygons || a.no_overlap_expolygons != b.no_overlap_expolygons ||
+                a.surface.thickness != b.surface.thickness || a.surface.thickness_layers != b.surface.thickness_layers)
+                throw std::runtime_error("Sparse anchor geometry differs from reference");
+        }
+    }
+    const Slic3r::BoundingBox bbox       = this->object()->bounding_box();
+    const auto                resolution = this->object()->print()->config().resolution.value;
 
     Polylines sparse_infill_polylines{};
 
