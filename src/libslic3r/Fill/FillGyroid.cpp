@@ -1,6 +1,7 @@
 #include "../ClipperUtils.hpp"
 #include "../ShortestPath.hpp"
 #include "../Surface.hpp"
+#include "../InfillDiagnostics.hpp"
 #include <cmath>
 #include <algorithm>
 #include <iostream>
@@ -64,6 +65,7 @@ static inline Polyline make_wave(
 
 static std::vector<Vec2d> make_one_period(double width, double scaleFactor, double z_cos, double z_sin, bool vertical, bool flip, double tolerance)
 {
+    PreparationTimer   timer(&infill_profile(), "gyroid_period");
     std::vector<Vec2d> points;
     double dx = M_PI_2; // exact coordinates on main inflexion lobes
     double limit = std::min(2*M_PI, width);
@@ -104,6 +106,7 @@ static std::vector<Vec2d> make_one_period(double width, double scaleFactor, doub
 
 static Polylines make_gyroid_waves(double gridZ, double density_adjusted, double line_spacing, double width, double height)
 {
+    PreparationTimer timer(&infill_profile(), "gyroid_waves");
     const double scaleFactor = scale_(line_spacing) / density_adjusted;
 
     // tolerance in scaled units. clamp the maximum tolerance as there's
@@ -187,7 +190,10 @@ void FillGyroid::_fill_surface_single(
     // Apply multiline offset if needed
     multiline_fill(polylines, params, spacing);
 
-	polylines = intersection_pl(polylines, expolygon);
+    {
+        PreparationTimer timer(&infill_profile(), "gyroid_clip");
+        polylines = intersection_pl(polylines, expolygon);
+    }
 
     if (! polylines.empty()) {
 		// Remove very small bits, but be careful to not remove infill lines connecting thin walls!
@@ -201,9 +207,12 @@ void FillGyroid::_fill_surface_single(
 	if (! polylines.empty()) {
 		// connect lines
 		size_t polylines_out_first_idx = polylines_out.size();
-        chain_or_connect_infill(std::move(polylines), expolygon, polylines_out, this->spacing, params);
+        {
+            PreparationTimer timer(&infill_profile(), "gyroid_connect");
+            chain_or_connect_infill(std::move(polylines), expolygon, polylines_out, this->spacing, params);
+        }
 
-	    // new paths must be rotated back
+        // new paths must be rotated back
         if (std::abs(infill_angle) >= EPSILON) {
 	        for (auto it = polylines_out.begin() + polylines_out_first_idx; it != polylines_out.end(); ++ it)
 	        	it->rotate(infill_angle);

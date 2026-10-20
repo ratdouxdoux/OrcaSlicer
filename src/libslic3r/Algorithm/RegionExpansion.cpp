@@ -1,3 +1,4 @@
+#include "../InfillDiagnostics.hpp"
 #include "RegionExpansion.hpp"
 
 #include <libslic3r/AABBTreeIndirect.hpp>
@@ -204,6 +205,7 @@ std::vector<WaveSeed> wave_seeds(
     // Sort output by boundary ID and source ID.
     bool                   sorted)
 {
+    PreparationTimer timer(&infill_profile(), "wave_seeds");
     assert(tiny_expansion > 0);
 
     if (src.empty() || boundary.empty())
@@ -405,6 +407,7 @@ static Polygons propagate_wave_from_boundary(
 // Resulting regions are sorted by boundary id and source id.
 std::vector<RegionExpansion> propagate_waves(const WaveSeeds &seeds, const ExPolygons &boundary, const RegionExpansionParameters &params)
 {
+    PreparationTimer             timer(&infill_profile(), "wave_propagate");
     std::vector<RegionExpansion> out;
     ClipperLib::Paths            paths;
     ClipperLib::ClipperOffset co;
@@ -445,6 +448,7 @@ std::vector<RegionExpansion> propagate_waves(const ExPolygons &src, const ExPoly
 // Returns regions per source ExPolygon expanded into boundary.
 std::vector<RegionExpansionEx> propagate_waves_ex(const WaveSeeds &seeds, const ExPolygons &boundary, const RegionExpansionParameters &params)
 {
+    PreparationTimer             timer(&infill_profile(), "wave_propagate_ex");
     std::vector<RegionExpansion> expanded = propagate_waves(seeds, boundary, params);
     assert(std::is_sorted(seeds.begin(), seeds.end(), [](const auto &l, const auto &r){ return l.boundary < r.boundary || (l.boundary == r.boundary && l.src < r.src); }));
     Polygons acc;

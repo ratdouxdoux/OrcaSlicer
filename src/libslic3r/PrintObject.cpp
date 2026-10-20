@@ -1,4 +1,5 @@
 #include "PolygonCompute.hpp"
+#include "InfillDiagnostics.hpp"
 #include "Exception.hpp"
 #include "Print.hpp"
 #include "BoundingBox.hpp"
@@ -1522,6 +1523,7 @@ void PrintObject::detect_surfaces_type()
 
 void PrintObject::process_external_surfaces()
 {
+    PreparationTimer timer(&infill_profile(), "external_wall");
     BOOST_LOG_TRIVIAL(info) << "Processing external surfaces..." << log_memory_info();
 
     // Cached surfaces covered by some extrusion, defining regions, over which the from the surfaces one layer higher are allowed to expand.
@@ -1604,6 +1606,7 @@ void PrintObject::process_external_surfaces()
 
 void PrintObject::discover_vertical_shells()
 {
+    PreparationTimer timer(&infill_profile(), "vertical_shells_wall");
     PROFILE_FUNC();
 
     BOOST_LOG_TRIVIAL(info) << "Discovering vertical shells..." << log_memory_info();
@@ -2204,6 +2207,7 @@ template<typename T> void debug_draw(std::string name, const T& a, const T& b, c
 // This method applies bridge flow to the first internal solid layer above sparse infill.
 void PrintObject::bridge_over_infill()
 {
+    PreparationTimer timer(&infill_profile(), "bridge_wall");
     BOOST_LOG_TRIVIAL(info) << "Bridge over infill - Start" << log_memory_info();
     struct CandidateSurface
     {
@@ -2506,7 +2510,8 @@ void PrintObject::bridge_over_infill()
     }
 
     // LAMBDA to gather areas with sparse infill deep enough that we can fit thick bridges there.
-    auto gather_areas_w_depth = [target_flow_height_factor](const PrintObject *po, int lidx, float target_flow_height) {
+    auto gather_areas_w_depth = [target_flow_height_factor](const PrintObject* po, int lidx, float target_flow_height) {
+        PreparationTimer timer(&infill_profile(), "bridge_depth_masks");
         // Gather layers sparse infill areas, to depth defined by used bridge flow
         ExPolygons layers_sparse_infill{};
         ExPolygons not_sparse_infill{};
@@ -2536,7 +2541,9 @@ void PrintObject::bridge_over_infill()
     };
 
     // LAMBDA do determine optimal bridging angle
-    auto determine_bridging_angle = [](const Polygons &bridged_area, const Lines &anchors, InfillPattern dominant_pattern, double infill_direction) {
+    auto determine_bridging_angle = [](const Polygons& bridged_area, const Lines& anchors, InfillPattern dominant_pattern,
+                                       double infill_direction) {
+        PreparationTimer                    timer(&infill_profile(), "bridge_angle");
         AABBTreeLines::LinesDistancer<Line> lines_tree(anchors);
 
         // Check it the infill that require a fixed infill angle.
@@ -4073,6 +4080,7 @@ void PrintObject::clip_fill_surfaces()
 
 void PrintObject::discover_horizontal_shells()
 {
+    PreparationTimer timer(&infill_profile(), "horizontal_shells_wall");
     BOOST_LOG_TRIVIAL(trace) << "discover_horizontal_shells()";
 
     for (size_t region_id = 0; region_id < this->num_printing_regions(); ++ region_id) {
