@@ -1,6 +1,6 @@
 # Snapmaker Orca performance improvement history
 
-Measured work from 12–16 October 2026, with a normal-slicing follow-up on 20 October, through source checkpoint `87930d936e` on `proposal_UI_changes_GPU_Accelerate`.
+Measured work from 12–16 October 2026 through checkpoint `87930d936e`, followed by the 20 October bridge comparisons and V2 CPU changes through `3de8bfb94f` on `proposal_UI_changes_GPU_Accelerate_V2`.
 
 The largest improvements came from removing repeated CPU geometry work, reusing immutable results within a slice, and parallelizing preparation while preserving ordered output. Vulkan provided a useful additional improvement for Local-Z clipping. Several other GPU experiments were correct but slower after transfers, synchronization and remaining CPU work were included.
 
@@ -8,9 +8,11 @@ Across the recorded beginning and end points, **Starry Night with Local-Z fell f
 
 **Without Local-Z, Starry Night fell from its earliest measured 114.85 to 72.76 seconds: 36.65% less time, or 1.58× faster.** Aggregate CPU work fell **42.9%**, and peak slicing private commit fell **7.95 → 3.91 GiB**. The main gains came from CPU shell reuse, painting preparation, tree-support processing, classic walls and seam caching. Local-Z GPU clipping contributes nothing to this workflow. This earlier ordinary baseline already contains the first CPU cleanup, so it does not measure every improvement from the project's beginning.
 
-A new **unpainted, single-material comparison on 1MPolygonBridge** gives a smaller result: **62.59 → 60.58 seconds, or 3.2% less time**, with both GPU options off. Walls improved **33.6%** and export **8.3%**, while peak memory was essentially unchanged. Three runs per build compare the original pre-slicing-optimization baseline with the final CPU defaults. Output varies even between unchanged-baseline repeats, so this is an observed timing improvement, not a proven identical-output speedup. The [bridge comparison](#1mpolygonbridge-without-painting-or-local-z) explains the different workload and limitations.
+The first **unpainted, single-material comparison on 1MPolygonBridge** gives a smaller result: **62.59 → 60.58 seconds, or 3.2% less time**, with both GPU options off. Walls improved **33.6%** and export **8.3%**, while peak memory was essentially unchanged. Three runs per build compare the original pre-slicing-optimization baseline with the pre-V2 CPU defaults. Output varies even between unchanged-baseline repeats, so this is an observed timing improvement, not a proven identical-output speedup. The [bridge comparison](#1mpolygonbridge-without-painting-or-local-z) explains the different workload and limitations.
 
-This report covers preview memory, CPU slicing, Local-Z, Vulkan experiments, painting preparation, wall generation and G-code export. It consolidates the earlier measurements and adds the 20 October bridge comparison. Palette, color-calibration and other product features are outside its scope except where their behavior affects benchmark comparability.
+**A second, V2 round targets single-color slicing directly.** On the same bridge project, a fresh three-run comparison gives **67.64 → 58.11 seconds median, or 14.1% less time**, with CPU-only operation. External surfaces improve **58.1%**, infill/finalization **30.7%**, and peak private commit falls **155.6 MiB**. The current-session reference includes stable mesh ordering but disables the four new speedup groups. Machine conditions differ from the earlier bridge series, so these percentages must not be compounded.
+
+This report covers preview memory, CPU slicing, Local-Z, Vulkan experiments, painting preparation, wall generation and G-code export. It consolidates the earlier measurements and adds both 20 October bridge comparisons. Palette, color-calibration and other product features are outside its scope except where their behavior affects benchmark comparability.
 
 ## Main measured results
 
@@ -28,6 +30,7 @@ Each row compares the before and after configurations of **one experiment**. The
 | Painting and Local-Z preparation | U1 / ordinary Starry / Local-Z Starry, broad preparation stage | 9.12 → 4.62 / 28.18 → 16.93 / 37.73 → 18.86 s | Approximately halves preparation on the Local-Z workloads |
 | Painting preparation memory reduction | Ordinary / Local-Z Starry, peak private commit | 8.17 → 3.86 / 8.09 → 4.08 GiB | About half the slicing-process peak commit |
 | Latest wall/export changes | Ordinary / Local-Z Starry, complete CLI run | 78.78 → 72.76 / 110.18 → 105.97 s | 7.6% / 3.8% less elapsed time |
+| Single-color CPU V2 | Bridge, complete CLI process | 67.64 → 58.11 s | 14.1% less time; CPU-only |
 
 ## Improvements that apply without Local-Z
 
@@ -614,6 +617,32 @@ This workload has no painting, Local-Z or tree-support work to benefit from the 
 A follow-up quantifies the variation: the current build's three repeats differ by **1.33 mm of filament out of about 82.07 m**, all round to **244.79 g**, and span **3 seconds** of estimated printing time. The original outlier differs from the other baseline runs by about **1.91 g and 18 minutes**. Two additional early-geometry captures differ on **58 of 737 layer outlines before wall/infill generation**, including actual enclosed-area changes. Ordinary triangle intersections are accumulated in worker-dependent order and then chained greedily; this is a concrete existing determinism lead, separate from the earlier painting-slab ordering fix. The exact cause of the large infill outlier is still unproven. These diagnostic captures are excluded from timing.
 
 See the [full bridge report](Normal-Slicing-Bridge-Benchmark.md) for all stages, individual runs, configuration, hashes, variation diagnostics and validation scope. Raw evidence: [timing summary](../build_logs/bridge_normal_20261020/summary.json) and [output checks](../build_logs/bridge_normal_20261020/output_checks.json).
+
+### V2 improvements for single color slicing
+
+The V2 round removes gap-fill calculations whose results cannot be emitted, skips discarded solid-fill preparation when only sparse bridge anchors are needed, parallelizes independent bridge directions within complex layers, and shortcuts single-variant process/printer flow lookups. These CPU changes are enabled by default in normal builds.
+
+The same unmodified, unpainted 1MPolygonBridge project was sliced in three fresh processes per configuration, with no Local-Z, painting, supports or GPU computation. The reference uses the same executable and mesh-order correction, with just the new speedups disabled.
+
+| Measurement | V2 reference median | V2 enabled median | Observed reduction |
+|---|---:|---:|---:|
+| Complete CLI process | 67.64 s | 58.11 s | **14.1%** |
+| External surfaces | 11.24 s | 4.71 s | **58.1%** |
+| Infill and remaining finalization | 12.09 s | 8.38 s | **30.7%** |
+| Bridge over infill | 6.82 s | 6.83 s | No whole-stage gain established |
+| G-code export | 13.27 s | 12.79 s | Small difference with overlapping ranges |
+| Aggregate CPU work | 391.91 CPU-s | 367.92 CPU-s | **6.1%** |
+| Peak private commit | 3286.32 MiB | 3130.77 MiB | **155.6 MiB / 4.7%** |
+
+Complete-process reference runs were **67.64, 70.62 and 66.46 seconds**; enabled runs were **58.11, 58.62 and 54.83 seconds**. The preserved pre-V2 executable took **66.61 seconds** in the current session, versus its earlier **60.58-second** median. Normal desktop applications remained open and clocks were not fixed. This is a new paired comparison, not a cumulative percentage to add to the earlier 3.2% result.
+
+Separate diagnostics found **4,096 gap-fill calls** whose results were discarded, occupying **41.64 seconds summed across worker calls**. That is overlapping worker duration, not elapsed slice time or measured CPU time. Anchor preparation fell **5.68 → 2.74 summed worker seconds**, but did not materially reduce the enclosing bridge stage. A separate two-million-call lookup test fell **306.55 → 136.30 ms median**; that is an isolated lookup gain, not a 55.5% export improvement.
+
+Gyroid wave generation occupied only **0.206 summed worker seconds**, so no new cache or Vulkan kernel was added. Horizontal-shell work was inactive for this configuration. More general vertical-shell window reuse would change Boolean operation order, and a structured G-code pipeline remains a larger architectural project.
+
+A separate correctness fix restores serial triangle-face order before greedy loop repair. Two new early captures match on **all 737 layers**, compared with the previous **58 differing layers**. Full G-code still varies: across the six timing runs, displayed filament consumption spans **0.02 mm**, all report **244.79 g**, and estimated printing time spans **one second**. The changed geometry operations are also checked against original calculations on the same inputs. Complete toolpath determinism is not claimed.
+
+See [Single color slicing improvements V2](Single-Color-Slicing-V2.md) for the experiments, tests, individual commits and reproduction controls.
 
 ### Memory from the initial investigation
 

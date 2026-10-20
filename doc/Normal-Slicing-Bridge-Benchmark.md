@@ -6,6 +6,8 @@ Measured 20 October 2026. This compares the original pre-slicing-optimization bu
 
 This is a modest observed whole-job improvement on an unpainted, single-material workload. It does not reproduce Starry Night's much larger gains: this model does not exercise painting, mixed-filament tracking, Local-Z or tree-support generation. **Complete G-code equivalence did not pass, including between repeats of the unchanged baseline.** Treat the timings as a repeated comparison across builds with the output limitations described below, not a proven identical-output speedup.
 
+**Later V2 follow-up:** [Single color slicing improvements V2](Single-Color-Slicing-V2.md) records a fresh matched comparison of **67.64 → 58.11 seconds (14.1% less time)**, CPU-only surface/infill improvements, and a separate fix that makes the two early captures identical on all 737 layers. These later timings use different desktop conditions; the historical results below remain unchanged.
+
 ## Input and configuration
 
 | Item | Value |
