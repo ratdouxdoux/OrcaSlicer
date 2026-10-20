@@ -1,0 +1,62 @@
+{
+  "source_sha256": {
+    "before1": "619c144af755ff910cc0349e660083f48485cf5a56e3595c9691ce4af8840ed9",
+    "before2": "3035f79cdb15cba1e486bebf66eee891602ec913759d903d0fb40ed9a858e386",
+    "after1": "2b6fefc98c66e749f38f5180cd6c27c2c3a2154805d7edc964a0e134036f180e",
+    "after2": "c812dbd5c32b59bfdc27423633faf0d5f263e3de46cb1805e02f517e156895a5"
+  },
+  "overlay_tolerance_mm": 0.002,
+  "figures": [
+    {
+      "stem": "original-layer-290-detail",
+      "left": "before1",
+      "right": "before2",
+      "layer": 290,
+      "z_mm": 34.88,
+      "role": "Internal solid infill",
+      "crop_mm": [
+        151.0,
+        173.0,
+        219.0,
+        241.0
+      ],
+      "left_only_length_mm": 0.0,
+      "right_only_length_mm": 275.0325201397754,
+      "shared_length_mm": 423.373343075847
+    },
+    {
+      "stem": "current-layer-331-detail",
+      "left": "after1",
+      "right": "after2",
+      "layer": 331,
+      "z_mm": 39.8,
+      "role": "Internal Bridge",
+      "crop_mm": [
+        155.0,
+        165.0,
+        65.0,
+        75.0
+      ],
+      "left_only_length_mm": 101.53776033747226,
+      "right_only_length_mm": 105.44280146185022,
+      "shared_length_mm": 306.0016289875192
+    },
+    {
+      "stem": "current-layer-323-detail",
+      "left": "after1",
+      "right": "after2",
+      "layer": 323,
+      "z_mm": 38.84,
+      "role": "Internal solid infill",
+      "crop_mm": [
+        175.0,
+        185.0,
+        79.0,
+        89.0
+      ],
+      "left_only_length_mm": 8.607539932585016,
+      "right_only_length_mm": 0.0,
+      "shared_length_mm": 832.2593519832967
+    }
+  ]
+}

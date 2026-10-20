@@ -149,6 +149,26 @@ The observed Voronoi repair warning is not itself evidence of random behavior: i
 
 Evidence: [per-layer extrusion comparison](../build_logs/bridge_normal_20261020/variation_summary.json), [early geometry comparison](../build_logs/bridge_normal_20261020/early_variation.json), and the capture manifests/logs in `early_capture1/` and `early_capture2/` under the experiment directory. No production code was changed during this investigation.
 
+### Visual comparison of the actual G-code
+
+Each pair below compares repeats of the same executable. These are top views of positive-extrusion centerlines extracted from G-code, with travel omitted. In the overlays, orange appears only in the first run, blue only in the second, and gray is coincident within 0.002 mm. Colors identify runs, not filaments; drawn line thickness is not deposited bead width.
+
+**Original build, layer 290:** run 2 contains continuous internal-solid-infill paths absent from run 1. Across the whole layer, approximately 275.03 mm of selected-role centerline is present only in run 2 at the stated tolerance. The close-up shows part of that difference. This comparison does not determine which result is correct.
+
+![Full layer locating the original-build difference](images/bridge-gcode-variation/original-layer-290-overview.png)
+
+![Original-build layer 290 solid-infill detail and difference overlay](images/bridge-gcode-variation/original-layer-290-detail.png)
+
+**Current build, layer 331:** the internal bridge pattern shifts locally, despite both runs reporting 174 extrusion commands in that role.
+
+![Current-build layer 331 internal-bridge detail and difference overlay](images/bridge-gcode-variation/current-layer-331-detail.png)
+
+**Current build, layer 323:** a small solid-infill loop is present in run 1 and absent from run 2.
+
+![Current-build layer 323 solid-infill detail and difference overlay](images/bridge-gcode-variation/current-layer-323-detail.png)
+
+The [figure notes](images/bridge-gcode-variation/README.md) describe the selection, assumptions and reproduction command. The [renderer](../scripts/render_bridge_gcode_variation.py) verifies source hashes and matches per-layer extrusion counts and E totals against the prior extraction.
+
 ## Reproduction and evidence
 
 The retained measurement tools are [benchmark_cpu_slicing.py](../scripts/benchmark_cpu_slicing.py) and [compare_cpu_slicing.py](../scripts/compare_cpu_slicing.py). The latter deliberately fails its strict comparison when outputs differ. The experiment-specific runner and stage/output analysis are preserved with the raw evidence under `build_logs/bridge_normal_20261020/`.
