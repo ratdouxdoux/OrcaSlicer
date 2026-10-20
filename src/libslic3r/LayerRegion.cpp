@@ -3,6 +3,7 @@
 #include "ClipperUtils.hpp"
 #include "Exception.hpp"
 #include "Geometry.hpp"
+#include "InfillDiagnostics.hpp"
 #include "PerimeterGenerator.hpp"
 #include "Print.hpp"
 #include "Surface.hpp"
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <string>
 #include <map>
+#include <tbb/parallel_for.h>
 
 #include <boost/log/trivial.hpp>
 #include <boost/algorithm/clamp.hpp>
@@ -290,6 +292,7 @@ std::vector<Bridge> get_grouped_bridges(
     ExPolygons&& bridge_expolygons,
     const std::vector<Algorithm::RegionExpansionEx>& bridge_expansions
 ) {
+    PreparationTimer timer(&infill_profile(), "external_group_bridges");
     using namespace Algorithm;
 
     std::vector<Bridge> result;
@@ -361,11 +364,11 @@ void detect_bridge_directions(
     std::vector<Bridge>& bridges,
     const std::vector<ExpansionZone>& expansion_zones
 ) {
+    PreparationTimer timer(&infill_profile(), "external_directions");
     if (expansion_zones.empty()) {
         throw std::runtime_error("At least one expansion zone must exist!");
     }
-    auto it_bridge_anchor = bridge_anchors.begin();
-    for (uint32_t bridge_id = 0; bridge_id < uint32_t(bridges.size()); ++ bridge_id) {
+    auto detect = [&](uint32_t bridge_id, Algorithm::WaveSeeds::const_iterator it_bridge_anchor) {
         Bridge &bridge = bridges[bridge_id];
         Polygons anchor_areas;
         int32_t last_anchor_id = -1;
@@ -401,6 +404,41 @@ void detect_bridge_directions(
             svg.draw(lines, "green", stroke_width);
             svg.draw(anchor_areas, "red");
         }
+    };
+    static const bool parallel_directions = infill_experiment("directions");
+    if (parallel_directions && bridges.size() >= 32) {
+        // Each bridge reads immutable zones and seeds and writes only its own
+        // angle. Preserve source order while letting idle layer workers help a
+        // layer containing many bridges.
+        std::vector<size_t> begins(bridges.size());
+        auto                it = bridge_anchors.begin();
+        for (size_t id = 0; id < bridges.size(); ++id) {
+            begins[id] = size_t(it - bridge_anchors.begin());
+            while (it != bridge_anchors.end() && it->src == id)
+                ++it;
+        }
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, bridges.size()), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t id = range.begin(); id < range.end(); ++id)
+                detect(uint32_t(id), bridge_anchors.begin() + begins[id]);
+        });
+        if (infill_validate()) {
+            auto reference_begin = bridge_anchors.begin();
+            for (uint32_t id = 0; id < uint32_t(bridges.size()); ++id) {
+                const auto expected = bridges[id].angle;
+                detect(id, reference_begin);
+                if (bridges[id].angle != expected)
+                    throw std::runtime_error("Parallel bridge direction differs from serial reference");
+                while (reference_begin != bridge_anchors.end() && reference_begin->src == id)
+                    ++reference_begin;
+            }
+        }
+    } else {
+        auto it = bridge_anchors.begin();
+        for (uint32_t id = 0; id < uint32_t(bridges.size()); ++id) {
+            detect(id, it);
+            while (it != bridge_anchors.end() && it->src == id)
+                ++it;
+        }
     }
 }
 
@@ -409,6 +447,7 @@ Surfaces merge_bridges(
     const std::vector<Algorithm::RegionExpansionEx>& bridge_expansions,
     const float closing_radius
 ) {
+    PreparationTimer timer(&infill_profile(), "external_merge_bridges");
     for (auto it = bridge_expansions.begin(); it != bridge_expansions.end(); ) {
         bridges[it->src_id].bridge_expansion_begin = it;
         uint32_t src_id = it->src_id;
@@ -456,6 +495,7 @@ ExpansionResult expand_expolygons(
     const ExPolygons& expolygons,
     std::vector<ExpansionZone>& expansion_zones
 ) {
+    PreparationTimer timer(&infill_profile(), "external_expand_bridges");
     using namespace Algorithm;
     WaveSeeds bridge_anchors;
     std::vector<RegionExpansionEx> bridge_expansions;
@@ -498,6 +538,7 @@ Surfaces expand_bridges_detect_orientations(
     const float closing_radius
 )
 {
+    PreparationTimer timer(&infill_profile(), "external_bridges");
     using namespace Slic3r::Algorithm;
 
     double thickness;
@@ -541,6 +582,7 @@ Surfaces expand_merge_surfaces(
     const double bridge_angle = -1
 )
 {
+    PreparationTimer timer(&infill_profile(), "external_expand_surfaces");
     using namespace Slic3r::Algorithm;
 
     double thickness;
@@ -582,6 +624,7 @@ Surfaces expand_merge_surfaces(
 
 void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Polygons *lower_layer_covered)
 {
+    PreparationTimer timer(&infill_profile(), "external_total");
     using namespace Slic3r::Algorithm;
 
 #ifdef SLIC3R_DEBUG_SLICE_PROCESSING
