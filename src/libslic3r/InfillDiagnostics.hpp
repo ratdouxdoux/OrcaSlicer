@@ -11,7 +11,7 @@ inline bool infill_experiment(const char* name)
 {
     static const std::string modes = [] {
         const char* value = std::getenv("ORCA_INFILL_EXPERIMENTS");
-        return std::string(",") + (value ? value : "none") + ",";
+        return std::string(",") + (value ? value : "gap") + ",";
     }();
     return modes == ",all," || modes.find(std::string(",") + name + ",") != std::string::npos;
 }

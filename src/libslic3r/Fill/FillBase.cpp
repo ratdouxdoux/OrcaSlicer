@@ -5,6 +5,7 @@
 #include "../ClipperUtils.hpp"
 #include "../EdgeGrid.hpp"
 #include "../Geometry.hpp"
+#include "../InfillDiagnostics.hpp"
 #include "../Geometry/Circle.hpp"
 #include "../Point.hpp"
 #include "../PrintConfig.hpp"
@@ -201,6 +202,14 @@ void Fill::_create_gap_fill(const Surface* surface, const FillParams& params, Ex
         (surface->surface_type == stInternalSolid && this->print_object_config->gap_fill_target.value != gftEverywhere))
         return;
 
+    // These cases cannot append gap-fill extrusions. Test them before building
+    // coverage polygons and medial axes; neither calculation has side effects.
+    const bool        unused          = !(params.density >= 1.f) || is_bridge(params.extrusion_role) || this->no_overlap_expolygons.empty();
+    static const bool skip_unused_gap = infill_experiment("gap");
+    if (unused && skip_unused_gap && !infill_validate())
+        return;
+    PreparationTimer timer(&infill_profile(), unused ? "gap_discarded" : "gap_used");
+    const size_t     original_count = out->entities.size();
     Flow new_flow = params.flow;
     ExPolygons unextruded_areas;
     unextruded_areas = diff_ex(this->no_overlap_expolygons, union_ex(out->polygons_covered_by_spacing(10)));
@@ -244,6 +253,8 @@ void Fill::_create_gap_fill(const Surface* surface, const FillParams& params, Ex
             out->append(gap);
         }
     }
+    if (unused && infill_validate() && out->entities.size() != original_count)
+        throw std::runtime_error("Discarded gap-fill calculation appended an extrusion");
 }
 
 // Calculate a new spacing to fill width with possibly integer number of lines,

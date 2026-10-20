@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "libslic3r/ExtrusionEntityCollection.hpp"
+#include "libslic3r/Fill/FillRectilinear.hpp"
 #include "libslic3r/MixedFilamentLayerTracker.hpp"
 #include "libslic3r/MixedFilamentChannelMap.hpp"
 #include "libslic3r/LayerGeometryBatch.hpp"
@@ -10,6 +11,8 @@
 #include <tbb/task_arena.h>
 #include <cstdlib>
 #include <atomic>
+#include <cmath>
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -21,6 +24,63 @@ ExPolygon rectangle(coord_t x0, coord_t y0, coord_t x1, coord_t y1)
     return ExPolygon(Polygon(Points{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}));
 }
 } // namespace
+
+TEST_CASE("Infill gap filling preserves density boundaries and bridge exclusions", "[CPUSlicing][InfillGap]")
+{
+    struct TestFill : FillRectilinear
+    {
+        using Fill::_create_gap_fill;
+    };
+    TestFill          fill;
+    PrintObjectConfig object_config;
+    PrintRegionConfig region_config;
+    object_config.gap_fill_target.value     = gftEverywhere;
+    region_config.filter_out_gap_fill.value = 0;
+    fill.print_object_config                = &object_config;
+    const ExPolygon gap                     = rectangle(0, 0, scale_(10.), scale_(0.4));
+    fill.no_overlap_expolygons              = {gap};
+    Surface    surface(stTop, gap);
+    FillParams params;
+    params.flow           = Flow(0.45f, 0.2f, 0.4f);
+    params.config         = &region_config;
+    params.extrusion_role = erTopSolidInfill;
+
+    for (float density : {0.f, 0.15f, std::nextafter(1.f, 0.f), std::numeric_limits<float>::quiet_NaN()}) {
+        params.density = density;
+        ExtrusionEntityCollection out;
+        fill._create_gap_fill(&surface, params, &out);
+        CHECK(out.entities.empty());
+    }
+    params.density = 1.f;
+    {
+        ExtrusionEntityCollection out;
+        fill._create_gap_fill(&surface, params, &out);
+        REQUIRE_FALSE(out.entities.empty());
+        CHECK(out.entities.front()->role() == erGapFill);
+    }
+    for (ExtrusionRole role : {erBridgeInfill, erInternalBridgeInfill, erOverhangPerimeter}) {
+        params.extrusion_role = role;
+        ExtrusionEntityCollection out;
+        fill._create_gap_fill(&surface, params, &out);
+        CHECK(out.entities.empty());
+    }
+    params.extrusion_role = erTopSolidInfill;
+    fill.no_overlap_expolygons.clear();
+    ExtrusionEntityCollection empty;
+    fill._create_gap_fill(&surface, params, &empty);
+    CHECK(empty.entities.empty());
+    fill.no_overlap_expolygons          = {gap};
+    object_config.gap_fill_target.value = gftNowhere;
+    fill._create_gap_fill(&surface, params, &empty);
+    CHECK(empty.entities.empty());
+    object_config.gap_fill_target.value = gftTopBottom;
+    surface.surface_type                = stInternalSolid;
+    fill._create_gap_fill(&surface, params, &empty);
+    CHECK(empty.entities.empty());
+    surface.surface_type = stTop;
+    fill._create_gap_fill(&surface, params, &empty);
+    CHECK_FALSE(empty.entities.empty());
+}
 
 TEST_CASE("Mixed channel snapshots preserve hidden rows and borrowed legacy edits", "[CPUSlicing][PaintPreparation]")
 {
