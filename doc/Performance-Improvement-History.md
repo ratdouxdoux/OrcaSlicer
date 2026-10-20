@@ -1,6 +1,6 @@
 # Snapmaker Orca performance improvement history
 
-Measured work from 12–16 October 2026, through source checkpoint `87930d936e` on `proposal_UI_changes_GPU_Accelerate`.
+Measured work from 12–16 October 2026, with a normal-slicing follow-up on 20 October, through source checkpoint `87930d936e` on `proposal_UI_changes_GPU_Accelerate`.
 
 The largest improvements came from removing repeated CPU geometry work, reusing immutable results within a slice, and parallelizing preparation while preserving ordered output. Vulkan provided a useful additional improvement for Local-Z clipping. Several other GPU experiments were correct but slower after transfers, synchronization and remaining CPU work were included.
 
@@ -8,7 +8,9 @@ Across the recorded beginning and end points, **Starry Night with Local-Z fell f
 
 **Without Local-Z, Starry Night fell from its earliest measured 114.85 to 72.76 seconds: 36.65% less time, or 1.58× faster.** Aggregate CPU work fell **42.9%**, and peak slicing private commit fell **7.95 → 3.91 GiB**. The main gains came from CPU shell reuse, painting preparation, tree-support processing, classic walls and seam caching. Local-Z GPU clipping contributes nothing to this workflow. This earlier ordinary baseline already contains the first CPU cleanup, so it does not measure every improvement from the project's beginning.
 
-This report covers preview memory, CPU slicing, Local-Z, Vulkan experiments, painting preparation, wall generation and G-code export. It consolidates the existing measurements; it does not represent a new benchmark run. Palette, color-calibration and other product features are outside its scope except where their behavior affects benchmark comparability.
+A new **unpainted, single-material comparison on 1MPolygonBridge** gives a smaller result: **62.59 → 60.58 seconds, or 3.2% less time**, with both GPU options off. Walls improved **33.6%** and export **8.3%**, while peak memory was essentially unchanged. Three runs per build compare the original pre-slicing-optimization baseline with the final CPU defaults. Output varies even between unchanged-baseline repeats, so this is an observed timing improvement, not a proven identical-output speedup. The [bridge comparison](#1mpolygonbridge-without-painting-or-local-z) explains the different workload and limitations.
+
+This report covers preview memory, CPU slicing, Local-Z, Vulkan experiments, painting preparation, wall generation and G-code export. It consolidates the earlier measurements and adds the 20 October bridge comparison. Palette, color-calibration and other product features are outside its scope except where their behavior affects benchmark comparability.
 
 ## Main measured results
 
@@ -42,7 +44,7 @@ Most retained CPU changes do not require Local-Z. They accelerate shared slicing
 
 These rows come from different controlled rounds and cannot be added together. The parser replay is a component measurement, not an isolated whole-export gain. Sources: [CPU geometry reuse](CPU-Geometry-Reuse-Results.md), [painting preparation](Painting-Preparation-Experiments.md), [tree-support follow-up](CPU-Overhang-Parallelism-Results.md), [seam caching](Vulkan-Shared-Geometry-Experiment.md), and [latest wall/export changes](Wall-Export-Experiments.md).
 
-Applicability depends on the workload. Painting-specific changes need a painted model; sharing across material regions needs eligible repeated geometry. Classic-wall changes do not accelerate Arachne, tree-support changes need that support path, seam caching benefits the alignment modes, and the velocity parser change applies to Klipper commands. Shared shell, wall, seam, export and preview-memory paths can also serve unpainted or single-material jobs, but this series does not establish a universal percentage for those jobs.
+Applicability depends on the workload. Painting-specific changes need a painted model; sharing across material regions needs eligible repeated geometry. Classic-wall changes do not accelerate Arachne, tree-support changes need that support path, seam caching benefits the alignment modes, and the velocity parser change applies to Klipper commands. The unpainted, single-material bridge follow-up measured a modest **3.2% whole-job reduction**, mainly alongside faster walls and export, with zero shared shell-projection reuse. These results do not establish a universal percentage for ordinary slicing.
 
 All these retained CPU improvements are enabled in normal builds without either GPU checkbox. Optional GPU seam visibility also runs without Local-Z, but its measured saving is only a few tenths of a second and it has not established a complete ordinary-slice gain. Local-Z planning/clipping, Local-Z wipe eligibility and the new Local-Z-only distance batch cache are inactive in an ordinary slice. The [ordinary cumulative comparison](#starry-night-without-local-z) separates the full historical change from the individual experiments above.
 
@@ -63,7 +65,7 @@ The main inputs are plate 1 of **STARRY NIGHT PRINT.3mf**, its separately saved 
 | Working set | Pages currently resident in physical RAM for the process. |
 | Private commit | Private memory requiring backing; not the same as resident RAM. MiB/GiB use powers of 1,024. |
 
-Most timing comparisons contain two observations per configuration; the U1 shortcut retry contains three. With two observations, the arithmetic mean and median coincide. Ranges are observed variation, not confidence intervals. Workloads ran sequentially in fresh output/data directories, with reference validation and stack sampling separated from timing unless explicitly described otherwise. The first U1 shortcut timing series was invalidated by a concurrent user slice and was excluded completely.
+Most timing comparisons contain two observations per configuration; the U1 shortcut retry and 20 October bridge comparison contain three. With two observations, the arithmetic mean and median coincide. Ranges are observed variation, not confidence intervals. Workloads ran sequentially in fresh output/data directories, with reference validation and stack sampling separated from timing unless explicitly described otherwise. The first U1 shortcut timing series was invalidated by a concurrent user slice and was excluded completely.
 
 Caches introduced here work **during the first slice**. They reuse an outline, mask, neighbor list or other immutable result when several consumers need it during that slice. They are not a disk cache requiring a previous successful slice.
 
@@ -587,6 +589,29 @@ Both GPU preferences were enabled at the final endpoint, but **Local-Z clipping 
 This is a historical comparison across builds and includes the later determinism fixes. Ordinary G-code still varies in some downstream infill between runs, including unchanged baselines, so complete output equivalence across these endpoints is not established. The exact preparation-boundary comparison and the per-operation checks provide narrower correctness evidence.
 
 Sources: [earliest ordinary process metrics](../build_logs/cpu_slicing_profile/starry_no_local_z_unprofiled_1/metrics.json), [earliest ordinary report](CPU-Slicing-Profile-Without-LocalZ.md#unprofiled-timing-cross-check), [final process metrics](../build_logs/wall_export_experiments_20261016/final_summary.json), and [latest stage breakdown](#latest-complete-stage-breakdown). Stage extraction uses the earlier run's `stdout.log` and `final1/ordinary/slice/stdout.log` / `final2/ordinary/slice/stdout.log` in the final experiment directory.
+
+### 1MPolygonBridge without painting or Local-Z
+
+This new 20 October comparison uses the user's unchanged **1MPolygonBridge.3mf**, containing **2,179,126 triangles**, no painting and one used filament. Saved settings are Snapmaker U1, 0.4 mm nozzle, 0.12 mm layers, classic walls, aligned seams and supports off; output has 737 layers. Neither Local-Z nor mixed recipes is active. Both builds use CPU-only slicing, so GPU acceleration contributes nothing to this comparison.
+
+The before build is the original pre-slicing-optimization checkpoint `9a791daff1` plus the common CLI-loading fix; the after build is the final retained CPU implementation at `87930d936e`. The baseline already includes the earlier preview-memory fixes. Three fresh-process runs per build executed sequentially in before / after / after / before / before / after order. The table reports medians; wall time includes loading and cleanup but excludes GUI preview construction.
+
+| Measurement | Before | After | Observed change |
+|---|---:|---:|---|
+| Complete CLI elapsed time | **62.59 s** | **60.58 s** | **2.01 s / 3.2% less time** |
+| Classic wall generation | 6.06 s | 4.02 s | 33.6% less time |
+| G-code export | 12.90 s | 11.83 s | 8.3% less time |
+| Aggregate process CPU time | 393.28 CPU-s | 368.94 CPU-s | 6.2% less CPU work |
+| Peak resident working set | 3,129.68 MiB | 3,139.15 MiB | Essentially unchanged; +0.3% |
+| Peak private commit | 3,282.05 MiB | 3,291.23 MiB | Essentially unchanged; +0.3% |
+
+Before totals were **62.09, 62.59 and 63.07 seconds**; after totals were **61.58, 60.08 and 60.58 seconds**. Walls and export show the main reductions. External-surface processing remains about **10.54 s**, infill and remaining finalization **9.19 s**, bridge-over-infill processing **6.42 s**, and vertical shells **5.78 s**. Initial mesh slicing is only **2.01 s**. Bridge processing's median increased from **5.96 s**; this stage did not improve in the comparison. These are enclosing stage intervals, not exclusive function timings.
+
+This workload has no painting, Local-Z or tree-support work to benefit from the larger historical optimizations. Every after run reports **zero shared shell projections reused**. Seam caching is active but alignment takes only about **0.067 s** in the first after run. This explains why ordinary painted Starry Night and an unpainted single-material model show very different gains.
+
+**Full output equivalence did not pass.** All six exported configuration blocks match exactly, but toolpaths vary within both builds. Before 1 estimates **242.88 g / 1d 2h 12m 14s**, with fewer internal-solid-infill commands; the other baseline runs estimate **244.78–244.79 g / 1d 2h 30m 30s–33s**, close to the after runs' **244.79 g / 1d 2h 30m 29s–32s**. No run was discarded. The unchanged-baseline variation prevents attributing every output difference to the optimizations, but does not prove the differences harmless. A separate run with the built-in preparation, wall/shell and export reference controls completed without a reported mismatch; its timing is excluded. Complete toolpath equivalence remains unresolved.
+
+See the [full bridge report](Normal-Slicing-Bridge-Benchmark.md) for all stages, individual runs, configuration, hashes and validation scope. Raw evidence: [timing summary](../build_logs/bridge_normal_20261020/summary.json) and [output checks](../build_logs/bridge_normal_20261020/output_checks.json).
 
 ### Memory from the initial investigation
 
