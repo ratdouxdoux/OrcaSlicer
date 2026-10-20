@@ -3,6 +3,7 @@
 #include "ClipperUtils.hpp"
 #include "Config.hpp"
 #include "I18N.hpp"
+#include "InfillDiagnostics.hpp"
 #include "format.hpp"
 
 #include "GCode/Thumbnails.hpp"
@@ -7528,8 +7529,14 @@ bool is_machine_flow_variant_option(const std::string &key)
 
 size_t get_config_idx(const ConfigBase &config, ConfigFlowDomain domain, unsigned int filament_id)
 {
-    const ConfigOptionEnumsGeneric* volume_types = enums_option(config, "filament_volume_type");
     const ConfigOptionStrings*      flow_support = strings_option(config, flow_support_key(domain));
+    static const bool               single_flow  = infill_experiment("flow");
+    // Process/printer variants have no per-filament segment offset. With at most
+    // one declared variant both a match and the fallback select index zero.
+    if (single_flow && (domain == ConfigFlowDomain::Process || domain == ConfigFlowDomain::Printer) &&
+        (flow_support == nullptr || flow_support->values.size() <= 1))
+        return 0;
+    const ConfigOptionEnumsGeneric* volume_types = enums_option(config, "filament_volume_type");
 
     switch (domain) {
     case ConfigFlowDomain::Process:

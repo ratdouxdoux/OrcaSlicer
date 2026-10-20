@@ -6,6 +6,8 @@
 #include "libslic3r/LocalesUtils.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <iostream>
 
 #include <cereal/types/polymorphic.hpp>
 #include <cereal/types/string.hpp> 
@@ -13,6 +15,46 @@
 #include <cereal/archives/binary.hpp>
 
 using namespace Slic3r;
+
+TEST_CASE("Single flow declarations preserve index fallbacks and filament offsets", "[Config][SingleFlowIndex]")
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_key_value("filament_volume_type", new ConfigOptionEnumsGeneric(std::vector<int>{fvtStandard, fvtHighFlow}));
+    for (auto domain : {ConfigFlowDomain::Process, ConfigFlowDomain::Printer}) {
+        const char* key = flow_support_key(domain);
+        for (const std::vector<std::string>& support : std::vector<std::vector<std::string>>{{}, {"standard"}, {"high_flow"}, {"unknown"}}) {
+            config.set_key_value(key, new ConfigOptionStrings(support));
+            for (unsigned filament : {0u, 1u, 10u})
+                CHECK(get_config_idx(config, domain, filament) == 0);
+        }
+        config.set_key_value(key, new ConfigOptionStrings(std::vector<std::string>{"standard", "high_flow"}));
+        CHECK(get_config_idx(config, domain, 0) == 0);
+        CHECK(get_config_idx(config, domain, 1) == 1);
+        CHECK(get_config_idx(config, domain, 10) == 0);
+        config.erase(key);
+        CHECK(get_config_idx(config, domain, 1) == 0);
+    }
+    config.set_key_value("filament_flow_step_size", new ConfigOptionInts(std::vector<int>{2, 2}));
+    config.set_key_value("filament_flow_support",
+                         new ConfigOptionStrings(std::vector<std::string>{"standard", "high_flow", "standard", "high_flow"}));
+    CHECK(get_config_idx(config, ConfigFlowDomain::Filament, 0) == 0);
+    CHECK(get_config_idx(config, ConfigFlowDomain::Filament, 1) == 3);
+}
+
+TEST_CASE("Measure repeated single-variant process lookups", "[.][SingleFlowLookupBenchmark]")
+{
+    FullPrintConfig config;
+    config.process_flow_support.values = {"standard"};
+    config.filament_volume_type.values = {fvtStandard, fvtHighFlow};
+    constexpr size_t count             = 2000000;
+    size_t           checksum          = 0;
+    const auto       start             = std::chrono::steady_clock::now();
+    for (size_t i = 0; i < count; ++i)
+        checksum += get_config_idx(config, ConfigFlowDomain::Process, unsigned(i % 3));
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    REQUIRE(checksum == 0);
+    std::cout << "Single flow lookup calls=" << count << " elapsed_ms=" << ms << '\n';
+}
 
 TEST_CASE("Project schema registry handles versions", "[Config][FlowVariant]")
 {
