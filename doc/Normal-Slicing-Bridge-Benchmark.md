@@ -117,9 +117,37 @@ The full output was hashed after normalizing the generated-at timestamp. A secon
 | After 2 | 7,950,395 | 682,592 | 244.79 g | 1d 2h 30m 29s |
 | After 3 | 7,950,385 | 682,567 | 244.79 g | 1d 2h 30m 30s |
 
-Before 1 differs materially from the other unchanged-baseline runs in internal solid infill and print estimate. The other baseline runs are close to the after runs, but remain unequal. The cause of these variations has not been localized; the repeated-baseline failure shows that a difference cannot simply be attributed to the new optimizations. It does not prove that every before/after difference is harmless.
+Before 1 differs materially from the other unchanged-baseline runs in internal solid infill and print estimate. The other baseline runs are close to the after runs, but remain unequal. The follow-up below localizes some variation to geometry before wall generation; the exact cause of the large infill outlier remains unresolved. The repeated-baseline failure shows that a difference cannot simply be attributed to the new optimizations. It does not prove that every before/after difference is harmless.
 
 A separate after-build run enabled `ORCA_SLICE_VALIDATE=1`, `ORCA_PREP_VALIDATE_REUSE=1`, `ORCA_WALL_SUPPORT=validate`, `ORCA_SHELL_VOLUME=validate` and `ORCA_SHELL_PROJECTION=validate`. It completed successfully with no reported reference mismatch. Its **65.59-second** runtime includes validation work and is excluded from the performance statistics. These checks cover exercised optimized operations, not complete output equivalence; inactive painting and shared-projection paths are not validated by this model. Seam reference validation was not enabled.
+
+### Follow-up: how much varies, and where it starts
+
+A diagnostic pass over the retained six G-code files grouped positive-extrusion commands by printed layer and extrusion role. The pass verified relative extrusion mode before summing positive E values. Its ordered hashes retain coordinates, extrusion, feed-rate text and command order, so a changed hash alone does not measure displaced geometry. Command-count differences are **net differences in counts**, not a count of all changed lines.
+
+| Comparison | Filament-use spread | Print-estimate spread | Total G-code line-count spread |
+|---|---:|---:|---:|
+| All three original-build repeats | 639.04 mm; 1.91 g at reported precision | 18 min 19 s | 224,086 |
+| Original repeats 2 and 3 | 2.64 mm; 0.01 g at reported precision | 3 s | 83 |
+| All three current-build repeats | 1.33 mm; all round to 244.79 g | 3 s | 239 |
+
+The original-build outlier is substantive: before 1 versus before 2 has **91,592 fewer internal-solid-infill extrusion commands**, approximately **13.4% fewer** than before 2. Summed positive coordinate-extrusion E in that role is **637.92 mm lower**, accounting for almost all of the approximately 636.40 mm difference in reported total filament use for that pair. Other roles have smaller positive and negative differences. This is not simply travel ordering, progress reporting or a timestamp.
+
+For the current build, the 1.33 mm spread is approximately **0.0016%** of 82.07 m of filament, and the print estimate varies by 3 seconds over about 26.5 hours. Nevertheless, the after 1/after 2 comparison has some differing positive-extrusion command sequences on **86 of 737 printed layers**; after 2/after 3 has **83**. Close totals do not prove identical local paths. Before 2/before 3 differs on 91 layers; before 1/before 2 differs on 525.
+
+Two additional current-build processes captured the prepared layer geometry at the end of `PrintObject::slice()`, before wall and infill generation. Both were intentionally stopped after the snapshot was closed and logged; these are diagnostic captures, not completed timing slices. They use the unchanged project and CPU-only defaults. Their snapshots differ on **58 of 737 layers**. Canonical comparison rotates each ring to a consistent starting point and sorts holes and polygon/surface groups while retaining winding and metadata; all 58 layers still differ. All 58 also have different net enclosed outline areas. The largest absolute net area difference is **0.4971 mm²**, at printed layer 111. This is a net area difference, not a spatial-displacement bound or a symmetric-difference area.
+
+Source inspection identifies an existing order-dependent mechanism in ordinary mesh slicing:
+
+1. [Triangle intersections](../src/libslic3r/TriangleMeshSlicer.cpp#L506) are appended to per-layer vectors under mutexes from a parallel triangle loop. Locking protects the container, but the append order depends on worker scheduling.
+2. [Loop chaining](../src/libslic3r/TriangleMeshSlicer.cpp#L1130) starts from the first available segment and takes the first available matching continuation. Later passes connect open contours and close gaps. Input order and unresolved ties can therefore affect the chosen representation or connections, with downstream geometry processing potentially amplifying a difference.
+3. The earlier source-face ordering fix applies to **slab projections used in painting**, not the ordinary `slice_make_lines` path. Both the original baseline and current source contain the ordinary append/chaining mechanism.
+
+The snapshots establish that some variation starts before infill and export. The append/chaining code supplies a concrete scheduling-sensitive lead, but no intervention has yet isolated which choice produces each changed boundary or the large before-1 infill outlier. The input's 2,398 open edges make ambiguous contour reconstruction relevant to investigate; they are not proof of the cause. A suitable next diagnostic is stable ordinary source-face/segment ordering, followed by repeated early-boundary and full-output comparisons.
+
+The observed Voronoi repair warning is not itself evidence of random behavior: its retry angles are fixed. The monotonic-infill path also constructs a local default-seeded generator. Neither finding justifies attributing this project's variation to a changing random seed. No GPU operation was active.
+
+Evidence: [per-layer extrusion comparison](../build_logs/bridge_normal_20261020/variation_summary.json), [early geometry comparison](../build_logs/bridge_normal_20261020/early_variation.json), and the capture manifests/logs in `early_capture1/` and `early_capture2/` under the experiment directory. No production code was changed during this investigation.
 
 ## Reproduction and evidence
 

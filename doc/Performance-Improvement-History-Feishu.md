@@ -534,6 +534,8 @@ This workload has no painting, Local-Z or tree-support work to benefit from the 
 
 **Full output equivalence did not pass.** All six exported configuration blocks match exactly, but toolpaths vary within both builds. Before 1 estimates **242.88 g / 1d 2h 12m 14s**, with fewer internal-solid-infill commands; the other baseline runs estimate **244.78–244.79 g / 1d 2h 30m 30s–33s**, close to the after runs' **244.79 g / 1d 2h 30m 29s–32s**. No run was discarded. The unchanged-baseline variation prevents attributing every output difference to the optimizations, but does not prove the differences harmless. A separate run with the built-in preparation, wall/shell and export reference controls completed without a reported mismatch; its timing is excluded. Complete toolpath equivalence remains unresolved.
 
+A follow-up quantifies the variation: the current build's three repeats differ by **1.33 mm of filament out of about 82.07 m**, all round to **244.79 g**, and span **3 seconds** of estimated printing time. The original outlier differs from the other baseline runs by about **1.91 g and 18 minutes**. Two additional early-geometry captures differ on **58 of 737 layer outlines before wall/infill generation**, including actual enclosed-area changes. Ordinary triangle intersections are accumulated in worker-dependent order and then chained greedily; this is a concrete existing determinism lead, separate from the earlier painting-slab ordering fix. The exact cause of the large infill outlier is still unproven. These diagnostic captures are excluded from timing.
+
 ### Memory from the initial investigation
 
 | Measurement | Before memory fixes | After memory fixes | Observed reduction |
