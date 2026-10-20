@@ -477,14 +477,16 @@ static FacetSliceType slice_facet_for_cut_mesh(
 template<typename TransformVertex>
 void slice_facet_at_zs(
     // Scaled or unscaled vertices. transform_vertex_fn may scale zs.
-    const std::vector<Vec3f>                         &mesh_vertices,
-    const TransformVertex                            &transform_vertex_fn,
-    const stl_triangle_vertex_indices                &indices,
-    const Vec3i32                                      &edge_ids,
+    const std::vector<Vec3f>&          mesh_vertices,
+    const TransformVertex&             transform_vertex_fn,
+    const stl_triangle_vertex_indices& indices,
+    const Vec3i32&                     edge_ids,
     // Scaled or unscaled zs. If vertices have their zs scaled or transform_vertex_fn scales them, then zs have to be scaled as well.
-    const std::vector<float>                         &zs,
-    std::vector<IntersectionLines>                   &lines,
-    std::array<std::mutex, 64>                       &lines_mutex)
+    const std::vector<float>&       zs,
+    std::vector<IntersectionLines>& lines,
+    std::array<std::mutex, 64>&     lines_mutex,
+    std::vector<std::vector<int>>*  source_faces,
+    int                             face_idx)
 {
     stl_vertex vertices[3] { transform_vertex_fn(mesh_vertices[indices(0)]), transform_vertex_fn(mesh_vertices[indices(1)]), transform_vertex_fn(mesh_vertices[indices(2)]) };
 
@@ -505,6 +507,8 @@ void slice_facet_at_zs(
             size_t slice_id = it - zs.begin();
             boost::lock_guard<std::mutex> l(lines_mutex[slice_id % lines_mutex.size()]);
             lines[slice_id].emplace_back(il);
+            if (source_faces)
+                (*source_faces)[slice_id].push_back(face_idx);
         }
     }
 }
@@ -520,16 +524,36 @@ static inline std::vector<IntersectionLines> slice_make_lines(
 {
     std::vector<IntersectionLines>  lines(zs.size(), IntersectionLines());
     std::array<std::mutex, 64>      lines_mutex;
-    tbb::parallel_for(
-        tbb::blocked_range<int>(0, int(indices.size())),
-        [&vertices, &transform_vertex_fn, &indices, &face_edge_ids, &zs, &lines, &lines_mutex, throw_on_cancel_fn](const tbb::blocked_range<int> &range) {
-            for (int face_idx = range.begin(); face_idx < range.end(); ++ face_idx) {
-                if ((face_idx & 0x0ffff) == 0)
-                    throw_on_cancel_fn();
-                slice_facet_at_zs(vertices, transform_vertex_fn, indices[face_idx], face_edge_ids[face_idx], zs, lines, lines_mutex);
+    const bool                      ordered = !preparation_diagnostic("ORCA_MESH_LEGACY_ORDER");
+    std::vector<std::vector<int>>   source_faces(ordered ? zs.size() : 0);
+    tbb::parallel_for(tbb::blocked_range<int>(0, int(indices.size())),
+                      [&vertices, &transform_vertex_fn, &indices, &face_edge_ids, &zs, &lines, &lines_mutex, &source_faces, ordered,
+                       throw_on_cancel_fn](const tbb::blocked_range<int>& range) {
+                          for (int face_idx = range.begin(); face_idx < range.end(); ++face_idx) {
+                              if ((face_idx & 0x0ffff) == 0)
+                                  throw_on_cancel_fn();
+                              slice_facet_at_zs(vertices, transform_vertex_fn, indices[face_idx], face_edge_ids[face_idx], zs, lines,
+                                                lines_mutex, ordered ? &source_faces : nullptr, face_idx);
+                          }
+                      });
+    // Mutex acquisition order must not select the seeds of greedy loop repair.
+    // A face emits at most one segment per plane, so unique face IDs reproduce
+    // serial emission exactly without changing coordinates or connectivity.
+    if (ordered)
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, lines.size()), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t layer = range.begin(); layer < range.end(); ++layer) {
+                throw_on_cancel_fn();
+                const auto&         faces = source_faces[layer];
+                std::vector<size_t> order(faces.size());
+                std::iota(order.begin(), order.end(), size_t(0));
+                std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return faces[a] < faces[b]; });
+                IntersectionLines sorted;
+                sorted.reserve(order.size());
+                for (size_t index : order)
+                    sorted.push_back(lines[layer][index]);
+                lines[layer] = std::move(sorted);
             }
-        }
-    );
+        });
     return lines;
 }
 
@@ -564,9 +588,8 @@ static inline IntersectionLines slice_make_lines(
 
 // For projecting triangle sets onto slice slabs.
 struct SlabLines {
-    // Transient source IDs only for slab projections, not ordinary mesh slicing.
-    // Stable face ordering recreates serial emission, including multiple lines
-    // from the same face, before greedy loop chaining.
+    // Slab projections may emit multiple lines from the same face. Stable face
+    // ordering preserves that emission order before greedy loop chaining.
     bool                             ordered = preparation_experiment("slab_order");
     std::vector<std::vector<size_t>> at_slice_faces, between_faces;
     void                             restore_face_order()

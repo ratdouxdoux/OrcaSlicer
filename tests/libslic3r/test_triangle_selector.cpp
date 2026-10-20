@@ -79,6 +79,37 @@ TEST_CASE("Painted slab projections preserve face order across worker counts", "
     }
 }
 
+TEST_CASE("Ordinary mesh slices preserve serial face order across worker counts", "[MeshSlicing][SliceOrder]")
+{
+    indexed_triangle_set mesh;
+    // Many disconnected, touching, open patches exercise greedy gap repair as
+    // well as general intersections and edges exactly on a slicing plane.
+    constexpr int side = 260;
+    for (int y = 0; y <= side; ++y)
+        for (int x = 0; x <= side; ++x)
+            mesh.vertices.emplace_back(float(x), float(y), float((x % 4) + 2 * (y % 3)) * 0.125f);
+    for (int y = 0; y < side; ++y)
+        for (int x = 0; x < side; ++x) {
+            if ((x + y) % 7 == 0)
+                continue;
+            const int a = y * (side + 1) + x;
+            mesh.indices.emplace_back(a, a + 1, a + side + 1);
+            mesh.indices.emplace_back(a + 1, a + side + 2, a + side + 1);
+        }
+    const std::vector<float> heights{0.f, 0.125f, 0.2f, 0.25f, 0.5f, 0.75f, 1.f};
+    for (bool mirror : {false, true}) {
+        MeshSlicingParamsEx params;
+        if (mirror)
+            params.trafo.scale(Vec3d(-1., 1., 1.));
+        auto            slice = [&] { return slice_mesh_ex(mesh, heights, params); };
+        tbb::task_arena serial(1), parallel(8);
+        const auto      expected = serial.execute(slice);
+        REQUIRE(std::any_of(expected.begin(), expected.end(), [](const ExPolygons& layer) { return !layer.empty(); }));
+        for (int repeat = 0; repeat < 4; ++repeat)
+            CHECK(parallel.execute(slice) == expected);
+    }
+}
+
 TEST_CASE("Triangle selector round-trips painted states above sixteen", "[TriangleSelector][MMUPaint]")
 {
     indexed_triangle_set its;
