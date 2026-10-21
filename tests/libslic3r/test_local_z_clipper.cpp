@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <random>
+#include <stdexcept>
 #include <tbb/parallel_for.h>
 
 using namespace Slic3r;
@@ -141,4 +142,70 @@ TEST_CASE("Local-Z indexed empty paths preserve winding, holes and rounding guar
     for (Polyline& line : translated)
         line.translate(Point((1 << 29) - 6000, 0));
     check_paths(masks, translated); // One ineligible mask disables the entire index.
+}
+
+TEST_CASE("Local-Z repeated masks cache exact ordered results without aliasing", "[LocalZ][CPUSlicing][LocalZCache]")
+{
+    ExPolygon ring = box(0, 0, 100, 100);
+    ring.holes.push_back(box(20, 20, 60, 60).contour);
+    ring.holes.back().reverse();
+    const ExPolygons masks{ring, box(200, 0, 100, 100)}, duplicate = masks;
+    ExPolygons       changed = masks;
+    changed.front().holes.clear();
+    ExPolygons reordered = masks;
+    std::reverse(reordered.begin(), reordered.end());
+    LocalZClipCache     cache;
+    const LocalZClipper first(masks, &cache), second(duplicate, &cache), other(changed, &cache), ordered(reordered, &cache);
+    CHECK(cache.statistics().masks == 3);
+    const Polylines subjects{Polyline(Points{{-10, 50}, {310, 50}}),
+                             Polyline(Points{{310, 50}, {-10, 50}}),
+                             Polyline(Points{{30, 30}, {70, 70}}),
+                             Polyline(Points{{0, 0}, {100, 0}, {100, 100}, {0, 0}}),
+                             Polyline(Points{{-10, -10}, {10, 10}, {10, 10}, {50, 50}, {310, 30}}),
+                             Polyline(Points{{400, 10}, {450, 10}, {450, 10}}),
+                             Polyline(Points{}),
+                             Polyline(Points{{0, 0}})};
+    for (const Polyline& path : subjects) {
+        const Polylines expected = intersection_pl(Polylines{path}, masks);
+        Polylines       result   = first.intersection(path);
+        REQUIRE(same_paths(result, expected));
+        result.clear(); // A caller cannot modify the cached value.
+        const size_t hits = cache.statistics().hits;
+        CHECK(same_paths(second.intersection(path), expected));
+        CHECK(cache.statistics().hits == hits + 1);
+        CHECK(same_paths(other.intersection(path), intersection_pl(Polylines{path}, changed)));
+        CHECK(same_paths(ordered.intersection(path), intersection_pl(Polylines{path}, reordered)));
+        CHECK(same_paths(first.difference(Polylines{path}), diff_pl(Polylines{path}, masks)));
+        CHECK(same_paths(second.difference(Polylines{path}), diff_pl(Polylines{path}, masks)));
+    }
+    CHECK(same_paths(first.difference(subjects), diff_pl(subjects, masks)));
+    CHECK(same_paths(second.difference(subjects), diff_pl(subjects, masks)));
+    Polylines reverse = subjects;
+    std::reverse(reverse.begin(), reverse.end());
+    CHECK(same_paths(second.difference(reverse), diff_pl(reverse, masks)));
+    std::vector<Polylines> results(64);
+    tbb::parallel_for(size_t(0), results.size(), [&](size_t i) { results[i] = second.intersection(subjects[i % subjects.size()]); });
+    for (size_t i = 0; i < results.size(); ++i)
+        CHECK(same_paths(results[i], intersection_pl(Polylines{subjects[i % subjects.size()]}, masks)));
+}
+
+TEST_CASE("Local-Z clipping cache falls back when its storage budget is exhausted", "[LocalZ][CPUSlicing][LocalZCache]")
+{
+    const ExPolygons masks{box(0, 0, 100, 100)};
+    for (size_t budget : {size_t(0), size_t(1024)}) {
+        LocalZClipCache     cache(budget);
+        const LocalZClipper first(masks, &cache), second(masks, &cache);
+        for (coord_t y = 1; y < 90; ++y) {
+            const Polyline  path(Points{{-10, y}, {110, y}});
+            const Polylines expected = intersection_pl(Polylines{path}, masks);
+            CHECK(same_paths(first.intersection(path), expected));
+            CHECK(same_paths(second.intersection(path), expected));
+            CHECK(cache.statistics().bytes <= budget);
+        }
+        CHECK(cache.statistics().entries < 10);
+        if (budget)
+            CHECK(cache.statistics().hits > 0);
+        else
+            CHECK(cache.statistics().entries == 0);
+    }
 }

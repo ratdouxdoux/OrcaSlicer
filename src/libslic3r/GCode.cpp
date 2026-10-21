@@ -5272,11 +5272,12 @@ LayerResult GCode::process_layer(const Print& print,
 
     // Local-Z phase-b can run with wipe tower enabled, but wiping-overrides remain unsupported
     // because that flow emits a separate purge/print pass that is not Local-Z aware yet.
-    const bool local_z_perimeter_runtime_supported = !is_anything_overridden;
-    bool       local_z_phase_b_requested_for_layer = false;
-    std::vector<LocalZLayerContext> local_z_layer_contexts;
+    const bool                                              local_z_perimeter_runtime_supported = !is_anything_overridden;
+    bool                                                    local_z_phase_b_requested_for_layer = false;
+    std::unique_ptr<LocalZClipCache>                        local_z_clip_cache;
+    std::vector<LocalZLayerContext>                         local_z_layer_contexts;
     std::vector<std::unique_ptr<ExtrusionEntityCollection>> local_z_clipped_collections;
-    size_t local_z_rejected_context_logs = 0;
+    size_t                                                  local_z_rejected_context_logs = 0;
     if (local_z_perimeter_runtime_supported) {
         local_z_layer_contexts.resize(layers.size());
         for (size_t layer_to_print_idx = 0; layer_to_print_idx < layers.size(); ++layer_to_print_idx) {
@@ -5417,14 +5418,18 @@ LayerResult GCode::process_layer(const Print& print,
             // Bind borrowed geometry after all mask vectors have reached their final
             // positions. These masks remain immutable during this process_layer call.
             if (ctx.enabled) {
-                ctx.base_exclude_clipper = LocalZClipper(
-                    ctx.mixed_masks_union_for_base_exclude.empty() ? ctx.mixed_masks_union : ctx.mixed_masks_union_for_base_exclude);
+                if (!local_z_clip_cache)
+                    local_z_clip_cache = std::make_unique<LocalZClipCache>();
+                ctx.base_exclude_clipper = LocalZClipper(ctx.mixed_masks_union_for_base_exclude.empty() ?
+                                                             ctx.mixed_masks_union :
+                                                             ctx.mixed_masks_union_for_base_exclude,
+                                                         local_z_clip_cache.get());
                 for (LocalZPassBucket& bucket : ctx.pass_buckets) {
                     const auto& masks = bucket.compensated_masks_by_extruder.empty() ? bucket.plan->painted_masks_by_extruder :
                                                                                        bucket.compensated_masks_by_extruder;
                     bucket.clippers_by_extruder.reserve(masks.size());
                     for (const ExPolygons& mask : masks)
-                        bucket.clippers_by_extruder.emplace_back(mask);
+                        bucket.clippers_by_extruder.emplace_back(mask, local_z_clip_cache.get());
                 }
             }
             if (ctx.enabled && !ctx.pass_buckets.empty())
