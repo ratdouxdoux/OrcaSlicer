@@ -3,8 +3,11 @@
 
 #include "BoundingBox.hpp"
 #include "ExPolygon.hpp"
+#include <memory>
 
 namespace Slic3r {
+
+class LocalZClipIndex;
 
 // Opt-in expensive reference clipping and base-path leak checks for development.
 bool local_z_validate_clipping();
@@ -30,12 +33,15 @@ public:
 
 private:
     friend class LocalZClipAcceleration;
-    const ExPolygons*        m_masks = nullptr;
-    BoundingBox              m_bounds;
-    std::vector<BoundingBox> m_polygon_bounds;
-    size_t                   m_path_count = 0;
+    const ExPolygons*                      m_masks = nullptr;
+    BoundingBox                            m_bounds;
+    std::vector<BoundingBox>               m_polygon_bounds;
+    size_t                                 m_path_count = 0;
+    std::shared_ptr<const LocalZClipIndex> m_empty_index;
+    uint32_t                               m_edge_count = 0;
 
     bool                       may_intersect(const BoundingBox& subject_bounds) const;
+    bool                       proven_empty(const Points& subject, bool difference) const;
     std::vector<const Points*> candidates(const BoundingBox& subject_bounds) const;
 };
 

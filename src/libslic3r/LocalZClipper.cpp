@@ -1,6 +1,7 @@
 #include "LocalZClipper.hpp"
 
 #include "ClipperUtils.hpp"
+#include "Compute/LocalZClipDecision.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -18,6 +19,20 @@
 
 namespace Slic3r {
 namespace {
+
+bool cpu_index_enabled()
+{
+    static const bool enabled = [] {
+        const char* value = std::getenv("ORCA_LOCAL_Z_CPU");
+        return value == nullptr || std::string(value) != "legacy";
+    }();
+    return enabled;
+}
+
+bool bounded(const Point& point)
+{
+    return point.x() >= -(1 << 29) && point.x() <= (1 << 29) && point.y() >= -(1 << 29) && point.y() <= (1 << 29);
+}
 
 // Development-only, process-wide export diagnostics. Timed intervals exclude
 // statistics/capture serialization. No clocks or geometry copies when disabled.
@@ -231,6 +246,54 @@ LocalZClipper::LocalZClipper(const ExPolygons& masks) : m_masks(&masks)
         m_polygon_bounds.push_back(bounds);
         m_bounds.merge(bounds);
     }
+    // Reuse the conservative integer classifier without packing an entire
+    // layer's queries or requiring Vulkan. Ambiguous boundary/rounding cases
+    // and nonempty results still use the original Clipper operation.
+    size_t edge_count = 0;
+    for (const ExPolygon& mask : masks) {
+        edge_count += mask.contour.points.size();
+        for (const Polygon& hole : mask.holes)
+            edge_count += hole.points.size();
+    }
+    if (!cpu_index_enabled() || edge_count < 32 || edge_count > (1u << 20))
+        return;
+    std::vector<ClipMaskEdge> edges;
+    edges.reserve(edge_count);
+    auto append_ring = [&edges](const Points& points) {
+        for (size_t i = 0; i < points.size(); ++i) {
+            const Point& a = points[i];
+            const Point& b = points[(i + 1) % points.size()];
+            if (!bounded(a) || !bounded(b))
+                return false;
+            edges.push_back({int32_t(a.x()), int32_t(a.y()), int32_t(b.x()), int32_t(b.y())});
+        }
+        return true;
+    };
+    for (const ExPolygon& mask : masks) {
+        if (!append_ring(mask.contour.points))
+            return;
+        for (const Polygon& hole : mask.holes)
+            if (!append_ring(hole.points))
+                return;
+    }
+    m_edge_count  = uint32_t(edges.size());
+    m_empty_index = std::make_shared<LocalZClipIndex>(edges, 0, m_edge_count);
+}
+
+bool LocalZClipper::proven_empty(const Points& subject, bool difference) const
+{
+    if (!m_empty_index || subject.size() < 2)
+        return false;
+    for (size_t i = 1; i < subject.size(); ++i) {
+        const Point& a = subject[i - 1];
+        const Point& b = subject[i];
+        if (!bounded(a) || !bounded(b) ||
+            m_empty_index->classify(
+                {{int32_t(a.x()), int32_t(a.y()), int32_t(b.x()), int32_t(b.y())}, 0, m_edge_count, uint32_t(difference), 0}) !=
+                uint32_t(ClipDecision::Empty))
+            return false;
+    }
+    return true;
 }
 
 bool LocalZClipper::may_intersect(const BoundingBox& subject_bounds) const
@@ -291,7 +354,7 @@ Polylines LocalZClipper::intersection(const Polyline& subject) const
     const auto bounds = get_extents<true>(subject.points);
     const auto masks  = may_intersect(bounds) ? candidates(bounds) : std::vector<const Points*>{};
     Polylines  result;
-    if (!masks.empty())
+    if (!masks.empty() && !proven_empty(subject.points, false))
         result = to_polylines(clip(ClipperUtils::SinglePathProvider(subject.points), masks, ClipperLib::ctIntersection));
     // Removing unrelated minima can change Clipper's tie ordering. Preserve the
     // old fragment order for equal starting scanlines with a full-mask query.
@@ -309,8 +372,10 @@ Polylines LocalZClipper::difference(const Polylines& subject) const
         bounds.merge(get_extents<true>(line.points));
     // Even with no candidate masks, let Clipper normalize path direction and
     // duplicate points exactly as before; returning the input would differ.
-    const auto masks  = candidates(bounds);
-    Polylines  result = to_polylines(clip(ClipperUtils::PolylinesProvider(subject), masks, ClipperLib::ctDifference));
+    const auto masks = candidates(bounds);
+    Polylines  result;
+    if (!std::all_of(subject.begin(), subject.end(), [this](const Polyline& line) { return proven_empty(line.points, true); }))
+        result = to_polylines(clip(ClipperUtils::PolylinesProvider(subject), masks, ClipperLib::ctDifference));
     if (m_masks != nullptr && masks.size() != m_path_count && has_scanline_ties(result))
         result = diff_pl(subject, *m_masks);
     if (local_z_validate_clipping() && m_masks != nullptr)

@@ -104,3 +104,41 @@ TEST_CASE("Local-Z prepared masks support independent concurrent queries", "[Loc
         CHECK(same_paths(result, expected));
     check_paths(masks, Polylines{subject});
 }
+
+TEST_CASE("Local-Z indexed empty paths preserve winding, holes and rounding guards", "[LocalZ][CPUSlicing]")
+{
+    ExPolygons masks;
+    for (coord_t i = 0; i < 12; ++i)
+        masks.push_back(box(i * 1000, 0, 800, 800));
+    masks.front().holes.push_back(box(200, 200, 400, 400).contour);
+    masks.front().holes.back().reverse();
+    // Opposite winding cancels under Clipper's nonzero fill rule.
+    masks.push_back(masks[2]);
+    masks.back().contour.reverse();
+    const Polylines subjects{Polyline(Points{{100, 100}, {150, 100}, {150, 150}}),
+                             Polyline(Points{{300, 300}, {400, 400}}),
+                             Polyline(Points{{100, 400}, {700, 400}}), // Endpoints inside, but crosses a hole.
+                             Polyline(Points{{2100, 100}, {2700, 700}}),
+                             Polyline(Points{{-100, -100}, {-50, -50}}),
+                             Polyline(Points{{1, 10}, {1, 100}}),
+                             Polyline(Points{{2, 10}, {2, 100}}),
+                             Polyline(Points{{3, 10}, {3, 100}}),
+                             Polyline(Points{{0, 10}, {0, 100}}),
+                             Polyline(Points{{100, 100}, {100, 100}, {150, 150}}),
+                             Polyline(Points{{100, 100}, {150, 100}, {150, 150}, {100, 100}})};
+    check_paths(masks, subjects);
+    const LocalZClipper prepared(masks);
+    tbb::parallel_for(size_t(0), size_t(64), [&](size_t i) {
+        const Polylines input{subjects[i % subjects.size()]};
+        // Catch assertions are not thread-safe; compare after joining.
+        if (!same_paths(prepared.difference(input), diff_pl(input, masks)))
+            throw std::runtime_error("Concurrent Local-Z empty classification mismatch");
+    });
+    for (ExPolygon& mask : masks) {
+        mask.translate(Point((1 << 29) - 6000, 0));
+    }
+    Polylines translated = subjects;
+    for (Polyline& line : translated)
+        line.translate(Point((1 << 29) - 6000, 0));
+    check_paths(masks, translated); // One ineligible mask disables the entire index.
+}
