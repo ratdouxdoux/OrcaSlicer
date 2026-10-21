@@ -1,6 +1,6 @@
 # Snapmaker Orca performance improvement history
 
-Measured work from 12–16 October 2026 through checkpoint `87930d936e`, followed by the 20 October bridge comparisons and V2 CPU changes through `3de8bfb94f` on `proposal_UI_changes_GPU_Accelerate_V2`.
+Measured work from 12–16 October 2026 through checkpoint `87930d936e`, followed by the 20 October bridge comparisons, V2 CPU changes and 21 October Local-Z path reuse through `720a634227` on `proposal_UI_changes_GPU_Accelerate_V2`.
 
 The largest improvements came from removing repeated CPU geometry work, reusing immutable results within a slice, and parallelizing preparation while preserving ordered output. Vulkan provided a useful additional improvement for Local-Z clipping. Several other GPU experiments were correct but slower after transfers, synchronization and remaining CPU work were included.
 
@@ -12,7 +12,9 @@ The first **unpainted, single-material comparison on 1MPolygonBridge** gives a s
 
 **A second, V2 round targets single-color slicing directly.** On the same bridge project, a fresh three-run comparison gives **67.64 → 58.11 seconds median, or 14.1% less time**, with CPU-only operation. External surfaces improve **58.1%**, infill/finalization **30.7%**, and peak private commit falls **155.6 MiB**. The current-session reference includes stable mesh ordering but disables the four new speedup groups. Machine conditions differ from the earlier bridge series, so these percentages must not be compounded.
 
-This report covers preview memory, CPU slicing, Local-Z, Vulkan experiments, painting preparation, wall generation and G-code export. It consolidates the earlier measurements and adds both 20 October bridge comparisons. Palette, color-calibration and other product features are outside its scope except where their behavior affects benchmark comparability.
+**The latest Local-Z terrain comparison removes most of the remaining export bottleneck:** direct reuse of paths proven to belong to each component pass reduces the complete slice **53.60 → 15.59 seconds**, export **41.60 → 3.06 seconds**, and Local-Z path preparation **39.00 → 0.55 seconds**. These are three-run medians with the same executable, unchanged project and CPU-only operation. Boundary cases retain clipping. The [path-reuse comparison](#guarded-direct-reuse-of-local-z-paths) includes full-model geometry checks, output differences and the separate U1 result.
+
+This report covers preview memory, CPU slicing, Local-Z, Vulkan experiments, painting preparation, wall generation and G-code export. It consolidates the earlier measurements and adds the 20 October bridge and 21 October Local-Z comparisons. Palette, color-calibration and other product features are outside its scope except where their behavior affects benchmark comparability.
 
 ## Main measured results
 
@@ -31,6 +33,7 @@ Each row compares the before and after configurations of **one experiment**. The
 | Painting preparation memory reduction | Ordinary / Local-Z Starry, peak private commit | 8.17 → 3.86 / 8.09 → 4.08 GiB | About half the slicing-process peak commit |
 | Latest wall/export changes | Ordinary / Local-Z Starry, complete CLI run | 78.78 → 72.76 / 110.18 → 105.97 s | 7.6% / 3.8% less elapsed time |
 | Single-color CPU V2 | Bridge, complete CLI process | 67.64 → 58.11 s | 14.1% less time; CPU-only |
+| Guarded Local-Z path reuse | Terrain, complete CLI process / export | 53.60 → 15.59 / 41.60 → 3.06 s | 70.9% less elapsed time; CPU-only; Local-Z path preparation falls 98.6% |
 
 ## Improvements that apply without Local-Z
 
@@ -734,3 +737,41 @@ Our export loop in `src/libslic3r/GCode.cpp` around line 5705 walks perimeter/in
 The next experiment should retain explicit mixed-region ownership through toolpath generation and directly reuse paths when an entire region shares one mixing schedule. Only boundary-crossing or more complex Local-Z cases should require clipping. This requires preserving connected-region gradient behavior, height limits, mask compensation, seam decisions, mixed infill, tool ordering and wipe-tower scheduling. Generating paths for separate regions may change toolpath topology, so the previous exact-clipping validation alone would not validate that redesign. No production code was changed during this comparison.
 
 Evidence and source snapshots are in `build_logs/orca_terrain_comparison_20261021/`, including `input_comparison.json`, `comparison_summary.json`, `ours_stage_summary.json`, `series.py`, and per-run logs/G-code. Orca input SHA-256: `1f5b155592e68c19553d77f99f20be95f2ab0dd5126ebdd1692af3ff536db8e9`; Orca DLL: `92bdf7493425b949934479164d0745ce5e28fe24c7a556af300792b788e94c8b`; current packaged fork DLL: `f1d318539269b4446751f45e3341a9ccaa2409c84f92cc79936921d80a39eec4`. The source snapshot is the upstream `v2.5.0-alpha` tag.
+
+### Guarded direct reuse of Local-Z paths
+
+The first implementation targets the remaining **Local-Z export** bottleneck. It verifies that every segment of a generated path belongs completely to the current compensated pass mask, then emits the existing geometry with the existing component height/flow calculation. Boundary crossings, holes, boundary touches, degenerate segments, unsupported coordinate ranges and oversized masks retain clipping. The same rule can retain complete base paths outside the exclusion mask. Ordinary export does not use this router.
+
+This is an export-side step toward region-owned emission, not a complete replacement of region generation or the Local-Z planner. Wall generation can merge compatible regions; a virtual filament ID alone is therefore insufficient proof. The bounded-integer spatial index proves ownership of the actual path, after seam placement, against each particular pass's masks. Different islands and cycles keep their existing schedules. Mask construction and per-path ownership checks still occur.
+
+Whole-path reuse preserves the generated vertices and direction instead of reproducing Clipper's direction and point normalization. Fitted arc metadata is discarded, matching the existing linear clipping contract. Width, role, reversal restrictions and inset metadata are copied; component volume scales by the existing `pass_height / source_height` ratio. Source paths remain immutable. The existing seam placement, boundary-fragment ordering, tool scheduling, Z placement and wipe-tower code remain in use. Height/perimeter modulation can remain separate stages, but this work does not port the advanced renderers from the separate FullSpectrum checkout or establish printer validation of those combinations.
+
+Six fresh terrain processes ran sequentially in reference / reuse / reuse / reference / reference / reuse order, using the same Release DLL and unchanged original project. Both GPU options were off. The reference disables only the new path reuse; the previously retained CPU index and exact clipping cache remain active. Validation, clipping counters and stack sampling were disabled for timed runs; both configurations used debug level 4. Normal desktop applications remained open, and clocks were not fixed.
+
+| Measurement, three-run medians | Reference | Path reuse | Observed reduction |
+|---|---:|---:|---:|
+| Complete CLI process | **53.60 s** | **15.59 s** | **70.9% / 3.44× faster** |
+| G-code export | **41.60 s** | **3.06 s** | **92.7%** |
+| Local-Z path preparation within export | **39.00 s** | **0.55 s** | **98.6%** |
+| Aggregate process CPU work | 96.95 CPU-s | 60.73 CPU-s | 37.4% |
+| Peak private commit | 775.71 MiB | 789.45 MiB | No reduction; 13.73 MiB higher median |
+
+Reference totals were **53.60, 54.09 and 53.10 seconds**; reuse totals were **15.59, 15.56 and 15.65 seconds**. Peak commit ranges overlap: 771.17–802.01 versus 781.35–791.77 MiB. Preparation is part of export, not an additional saving to add to it. Each enabled run directly reused approximately **105,000 paths**. In the full validation run, all **60,035 remaining clipping operations** produced empty results; every nonempty routed path in that run used direct reuse.
+
+The new export time is close to upstream Orca's earlier approximately 2–3-second export measurements. This does not make the two projects equivalent: the Orca file still has different painting, recipes, wall generation and other settings. Our complete slice remains about 15.6 seconds versus its earlier 11.0-second median. The remaining preparation stages, loading and export processing are outside the removed clipping bottleneck.
+
+One supplementary terrain run with both GPU options enabled took **16.05 seconds**, including **3.50 seconds export** and **0.80 seconds Local-Z preparation**. Vulkan ran on the NVIDIA GeForce RTX 5060 Laptop GPU, with 21 layers and zero fallback layers. Preparation included approximately 342 ms of accelerator work. This is a compatibility check with diagnostic counters enabled, not a repeated CPU/GPU benchmark; the large measured gain above requires no GPU.
+
+On the user's current U1 project, one fresh reference/reuse pair improved the complete slice **28.24 → 25.21 seconds**, export **11.96 → 9.70 seconds**, and Local-Z preparation **3.16 → 1.08 seconds**. Reuse covered **259,305 paths**. Both outputs report **160.39 g** and have matching Local-Z pass/wipe schedules. This is a separate current-project comparison, not an update to earlier historical U1 figures or a three-repeat performance claim.
+
+The exact clipping API remains unchanged. Its existing exact-order reference checks still apply to fallback paths. For whole-path reuse, `ORCA_LOCAL_Z_VALIDATE=1` independently checks full-mask intersection and subtraction: no segment may be discarded, and retained length must match within one scaled coordinate unit or a relative `1e-10`, whichever is larger. This is a geometric/volume contract, not whole-file G-code equality.
+
+The Release test selection passes **408,090 assertions in 39 cases**, including existing Local-Z planning tests, randomized whole-path coverage/volume checks, boundary fallback, holes, unsupported coordinates, seam-anchor/direction preservation, flow scaling and immutable source data. The three new reuse cases also pass **5,507 assertions** with full-mask validation enabled. Complete terrain and U1 slices with reference validation pass for **105,001** and **259,305** reused paths respectively, plus the exact reference checks for their fallback operations. Neither reports a base-path leak, local height mismatch, missing pass, wipe sequence mismatch or exhausted transition reserve. Validation runs are excluded from timing; the terrain run also overlapped the final build work at its beginning.
+
+All six timed terrain runs have identical Local-Z pass and wipe-tower schedules and report **45.85 g**. A modal output audit finds identical tool sequences and sets of physical Z/tool/role/height groups. U1's positive XY extrusion totals and command counts match, including the per-group totals to floating-point precision. Terrain positive XY extrusion differs by at most **0.13235 mm of filament out of approximately 14,426.67 mm** relative to reference run 1; unchanged reference repeats also vary. The third enabled terrain run has fewer incoming path operations, indicating upstream input variability as well. These totals are diagnostics, not a proof of complete G-code equivalence; the same-input geometry reference checks are the direct evidence for the changed operation.
+
+Path traversal intentionally changes because reuse preserves the generated direction. In terrain pair 1, non-extruding XY travel falls **195.95 → 163.89 m**, travel commands **82,674 → 61,475**, and estimated printing time **3 h 12 m 43 s → 3 h 4 m 18 s**, while extrusion totals remain effectively unchanged. U1 travel falls **1,573.99 → 1,569.07 m**, with **160.39 g** unchanged, and its estimate falls **25 h 19 m 6 s → 25 h 15 m 13 s**. The audit does not execute custom firmware macros, and these are slicer estimates rather than physically timed prints. Whole-file byte equality is neither obtained nor claimed.
+
+Normal builds enable reuse on the CPU without Vulkan or an additional build flag. `ORCA_LOCAL_Z_REUSE=0` selects the preceding clipping implementation for a fresh-process reference run; `1` or omission enables reuse. This control does not disable the previously retained CPU index and exact clipping cache. Evidence and reproduction scripts are under `build_logs/local_z_path_reuse_20261021/`.
+
+Implementation commit: `720a634227`. Release DLL SHA-256: `f502a753ec98f5e42d4040bdc2054a4ae5d5616def526e02f712322598ae33dc`. `run.py` and `series.py` reproduce the experiments; `results.json` contains individual runs and comparisons; `tests.log`, `tests-reference.log`, `validate_terrain/` and `u1_validate/` hold the reference evidence. `gcode_audit_before_1.json` and `gcode_audit_u1_reference.json` retain output grouping, extrusion and travel diagnostics. The development executable was rebuilt; already-open packaged GUI instances were not replaced or restarted.
