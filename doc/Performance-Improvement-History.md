@@ -661,3 +661,52 @@ Sources: [initial live audit](../build_logs/memory-investigation-43764.md), [pos
 U1 uses Local-Z and is a separate model from both Starry configurations. Its earliest clean CPU baseline already includes the earlier CPU reuse/support work: **38.55 seconds**, the median of three shortcut-retry runs. The final two-run mean with both GPU options enabled is **28.90 seconds**, an observed reduction of **9.65 seconds / 25.0%**. This is progress from a later checkpoint, not a pre-all-improvements baseline or a non-Local-Z result.
 
 As with the other historical comparisons, sample sizes differ and complete output equivalence across the interval is not established. Sources: [clean U1 baseline](U1-Paint-Shortcut-Results.md#clean-timing-results) and [final timings](Wall-Export-Experiments.md#final-selection-and-repeated-slice-timings).
+
+## Local-Z terrain clipping — 21 October 2026
+
+The painted terrain project `开启混色细分层高导致局部层高过小.3mf` exposes a different Local-Z workload from Starry Night. Its 532,548 triangles include 267,952 painted triangles. The saved configuration uses 0.2 mm nominal layers, two mixed passes on each of 21 affected layers, 0.04–0.16 mm mixed-pass heights, and Local-Z infill. The project was not repaired or resaved. Its SHA-256 is `0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63`.
+
+The initial current-build profile took **130.68 seconds**, including **116.95 seconds in G-code export**. An unsampled confirmation took **129.66 seconds**, with **117.02 seconds in export**. Painting and Local-Z preparation occupied approximately four seconds. The expensive work was repeated clipping of individual extrusion paths against the layer's mixed-color masks, using approximately one CPU core during export.
+
+Two CPU changes are enabled by default in normal builds, including builds without Vulkan:
+
+1. **Conservative empty-path classification.** Each sufficiently complex mask prepares the existing bounded-integer CPU spatial index. A query skips Clipper only when every segment is proven to produce an empty result. Hole winding, overlapping contours, boundary touches and rounding guards retain the original rules. Unsupported coordinates, oversized indexes and ambiguous cases fall back to Clipper. Nonempty results continue through Clipper; containment alone does not authorize returning the original polyline.
+2. **Exact result reuse across matching passes.** An export layer shares a cache between clippers whose complete polygon, hole and vertex sequences are identical. Keys include the clipping operation and every input point in order, with full equality checks after hashing. Only masks used by multiple clippers retain results. Results are copied back to callers, leaving seam placement, extrusion properties and mixed-pass flow-height calculations in their original sequence. The cache is discarded after the layer, has a 32 MiB accounted-storage budget and a 65,536-entry limit, and falls back to ordinary computation when full. Ordinary layers without active Local-Z do not allocate it.
+
+| Clipping operation in the instrumented profiles | Before | Combined |
+|---|---:|---:|
+| Intersections with mixed-pass masks | 75.16 s | 40.07 s |
+| Subtraction of mixed regions from base paths | 38.62 s | 1.49 s |
+| Complete G-code export | 116.95 s | 44.82 s |
+| Complete process | 130.68 s | 59.09 s |
+
+These are diagnostic runs, separate from the unsampled timing series. The original run made 110,010 intersection and 55,005 difference calls; the combined run made 109,944 and 54,972. Existing upstream variability changes some generated inputs between runs, so these counts are not claimed to be identical. The combined profile reused **54,972 results**. Its largest layer cache accounted for **1,345,736 bytes / 1.28 MiB**, excluding index storage and allocator overhead.
+
+The slowest layer, Z = 9.4 mm, fell from **28.54 to 11.02 seconds** of clipping preparation in those profiles. Empty base-path differences fell from **37.46 to 0.20 seconds**. Nonempty intersections remain the dominant export cost and still use Clipper.
+
+The repeated comparison alternates three reference and three enabled runs in fresh CLI processes. All six use the same final Release DLL, the unmodified project, and CPU geometry backends; `ORCA_LOCAL_Z_CPU=legacy` disables only the two changes above. Stack sampling, reference validation and clipping counters are off, with debug logging at level 4. Normal desktop applications remain open and clocks are not fixed. The final DLL SHA-256 is `a89ac2b272cc945cf891e58df4c4cb4ba4240a19b28be84b0abf6e91d5a709fb`.
+
+| Measurement, three-run medians | Reference | Enabled | Observed change |
+|---|---:|---:|---:|
+| Complete CLI process | 141.14 s | 58.57 s | **58.5% less time / 2.41× speedup** |
+| G-code export | 127.49 s | 44.30 s | **65.3% less time** |
+| Local-Z path preparation within export | 124.48 s | 41.35 s | **66.8% less time** |
+| Slowest layer's preparation, Z = 9.4 mm | 33.08 s | 10.94 s | **66.9% less time** |
+| Aggregate CPU work | 182.55 CPU-s | 104.20 CPU-s | **42.9% less work** |
+| Peak private commit | 776.82 MiB | 787.02 MiB | 10.20 MiB higher median; overlapping ranges |
+
+Complete-process reference runs were **142.66, 140.63 and 141.14 seconds**; enabled runs were **59.07, 58.57 and 57.59 seconds**. Peak private commit ranged from 762.59–808.73 MiB before and 781.91–787.20 MiB after. The cache therefore produces a substantial time saving, without evidence of a process-memory reduction. The nested export and preparation rows must not be added together. These paired timings supersede the earlier one-run diagnostic comparison for estimating this change's speedup; they are not cumulative reductions to add to previous optimizations.
+
+### Equivalence evidence and limits
+
+The final Release test selection passes **402,593 assertions in 36 cases**. Coverage includes exact fragment ordering, holes, winding cancellation, boundary guards, degenerate paths, unsupported coordinate ranges, concurrent queries, changed masks, reversed inputs, operation-specific cache keys, independent returned results, and storage exhaustion. A separate replay of **3,182 previously captured clipping cases** passes **8,667 assertions** without a changed result.
+
+A complete terrain slice with `ORCA_LOCAL_Z_VALIDATE=1` and both optimizations enabled checks **109,920 intersections and 54,960 differences**, including **54,960 cache hits**, against the original full-mask Clipper calculation. All **164,880 comparisons** pass exact fragment-count, ordering and integer-coordinate equality. There are no base-path leak, mixed-pass height or missing-path warnings. The earlier index-only full-model validation also passes. Validation deliberately executes both calculations and is excluded from performance measurements.
+
+Full G-code equality is a separate criterion: the two unchanged original runs already differ in motion output, with 1,015,087 versus 1,014,703 total lines and print estimates of 3 h 12 m 43 s versus 3 h 12 m 41 s. Both report 45.85 g. These totals do not establish geometric equivalence; the same-input reference checks above provide the direct evidence for the changed clipping operations. This work does not fix the source project's floating-region warning or establish printer validation of its chosen layer heights.
+
+All six final timing runs have identical Local-Z wipe-tower and mixed-pass schedules, and zero tracked Local-Z warnings. They all report 45.85 g and a cost of 1.16; print estimates span four seconds. The normalized full-file comparison fails, including between the three unchanged reference repeats. Thus exact clipping equivalence passes, while whole-file determinism remains unestablished. The comparison tool's nonzero exit denotes that full-file mismatch; all six slicer processes exit successfully without a timeout.
+
+Developer control `ORCA_LOCAL_Z_CPU` selects `legacy`, `index`, `cache`, or `all` in a fresh process; omission means `all`. `legacy` disables only these two new optimizations, retaining previous CPU improvements. Existing Local-Z Vulkan preferences are unchanged. `ORCA_LOCAL_Z_VALIDATE=1` performs reference checks; `ORCA_PREP_PROFILE=1` emits cache diagnostics and `ORCA_LOCAL_Z_PROFILE=<path>` writes clipping counters. No control needs to be set by end users.
+
+Atomic code commits: `db8987b950` (CPU empty-path index) and `a2a071be96` (exact clipping cache). Evidence, raw logs and the sequential experiment driver are retained under `build_logs/terrain_profile_20261021/`. `optimization_results.json` contains the per-run measurements and operation/schedule checks; `comparison.json` records the full-output comparison, including the mismatch; `tests-final.log`, `replay.log` and `validate_combined/` retain the correctness evidence. Reproduce the selected tests with `libslic3r_tests.exe "[LocalZ],[CPUSlicing],[ClipIndex]"`; run the terrain reference check with `ORCA_LOCAL_Z_VALIDATE=1` in a fresh slicer process.
