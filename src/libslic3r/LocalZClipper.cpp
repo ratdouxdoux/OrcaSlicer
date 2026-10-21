@@ -374,15 +374,15 @@ LocalZClipper::LocalZClipper(const ExPolygons& masks, LocalZClipCache* cache) : 
         m_bounds.merge(bounds);
     }
     // Reuse the conservative integer classifier without packing an entire
-    // layer's queries or requiring Vulkan. Ambiguous boundary/rounding cases
-    // and nonempty results still use the original Clipper operation.
+    // layer's queries or requiring Vulkan. The exact clipping API retains
+    // Clipper for nonempty results; export has a separate whole-path contract.
     size_t edge_count = 0;
     for (const ExPolygon& mask : masks) {
         edge_count += mask.contour.points.size();
         for (const Polygon& hole : mask.holes)
             edge_count += hole.points.size();
     }
-    if (!cpu_index_enabled() || edge_count < 32 || edge_count > (1u << 20))
+    if (!cpu_index_enabled() || edge_count < 3 || edge_count > (1u << 20))
         return;
     std::vector<ClipMaskEdge> edges;
     edges.reserve(edge_count);
@@ -419,6 +419,34 @@ bool LocalZClipper::proven_empty(const Points& subject, bool difference) const
                 {{int32_t(a.x()), int32_t(a.y()), int32_t(b.x()), int32_t(b.y())}, 0, m_edge_count, uint32_t(difference), 0}) !=
                 uint32_t(ClipDecision::Empty))
             return false;
+    }
+    return true;
+}
+
+bool LocalZClipper::can_reuse_whole_path(const Polyline& subject, bool difference) const
+{
+    if (!m_empty_index || !subject.is_valid())
+        return false;
+    for (size_t i = 1; i < subject.points.size(); ++i) {
+        const Point& a = subject.points[i - 1];
+        const Point& b = subject.points[i];
+        if (!bounded(a) || !bounded(b) ||
+            m_empty_index->classify(
+                {{int32_t(a.x()), int32_t(a.y()), int32_t(b.x()), int32_t(b.y())}, 0, m_edge_count, uint32_t(difference), 1}) !=
+                uint32_t(ClipDecision::KeepWhole))
+            return false;
+    }
+    if (local_z_validate_clipping()) {
+        // Independent full-mask Boolean checks: no discarded geometry and equal
+        // deposited length. Ordering may intentionally differ from Clipper.
+        const Polylines input{Polyline(subject.points)};
+        const Polylines discarded       = difference ? intersection_pl(input, *m_masks) : diff_pl(input, *m_masks);
+        const Polylines retained        = difference ? diff_pl(input, *m_masks) : intersection_pl(input, *m_masks);
+        double          retained_length = 0.;
+        for (const Polyline& line : retained)
+            retained_length += line.length();
+        if (has_segment(discarded) || std::abs(retained_length - subject.length()) > std::max(1., subject.length() * 1e-10))
+            throw std::runtime_error("Local-Z whole-path ownership differs from reference clipping");
     }
     return true;
 }

@@ -1,7 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/LocalZClipper.hpp"
+#include "libslic3r/LocalZPathRouter.hpp"
 
 #include <algorithm>
 #include <random>
@@ -9,6 +11,82 @@
 #include <tbb/parallel_for.h>
 
 using namespace Slic3r;
+
+TEST_CASE("Local-Z direct reuse preserves owned geometry and component volume", "[LocalZ][LocalZReuse]")
+{
+    const ExPolygons    masks{ExPolygon(Points{{0, 0}, {10000000, 0}, {10000000, 10000000}, {0, 10000000}})};
+    const LocalZClipper clipper(masks);
+    ExtrusionPath       source(erExternalPerimeter, 0.08, 0.4f, 0.2f);
+    source.polyline  = Polyline(Points{{1000000, 1000000}, {9000000, 1000000}, {9000000, 9000000}, {1000000, 1000000}});
+    source.inset_idx = 3;
+    source.set_reverse();
+    source.set_force_no_extrusion(true);
+    source.polyline.fitting_result.emplace_back(); // Existing clipping discards fitted arcs.
+    LocalZPathRouter router(true);
+    double           total_volume = 0.;
+    for (double height : {0.04, 0.16}) {
+        std::vector<ExtrusionPath> result;
+        router.append(source, &clipper, nullptr, height, result);
+        REQUIRE(result.size() == 1);
+        const auto& path = result.front();
+        CHECK(path.polyline.points == source.polyline.points); // Includes the authored seam and direction.
+        CHECK(path.polyline.fitting_result.empty());
+        CHECK(path.mm3_per_mm == Catch::Approx(source.mm3_per_mm * height / source.height));
+        CHECK(path.height == Catch::Approx(height));
+        CHECK(path.width == source.width);
+        CHECK(path.role() == source.role());
+        CHECK(path.inset_idx == source.inset_idx);
+        CHECK_FALSE(path.can_reverse());
+        CHECK(path.is_force_no_extrusion());
+        total_volume += path.total_volume();
+    }
+    CHECK(total_volume == Catch::Approx(source.total_volume()).epsilon(1e-6));
+    CHECK(source.height == 0.2f);
+    CHECK(source.mm3_per_mm == 0.08);
+    CHECK(source.polyline.fitting_result.size() == 1);
+    CHECK(router.statistics().reused == 2);
+    CHECK(router.statistics().clipped == 0);
+}
+
+TEST_CASE("Local-Z ownership requires all segments and both pass masks", "[LocalZ][LocalZReuse]")
+{
+    ExPolygon ring(Points{{0, 0}, {1000, 0}, {1000, 1000}, {0, 1000}});
+    ring.holes.emplace_back(Points{{400, 400}, {400, 600}, {600, 600}, {600, 400}});
+    const ExPolygons    masks{ring};
+    const ExPolygons    exclusion{ExPolygon(Points{{700, 0}, {1000, 0}, {1000, 1000}, {700, 1000}})};
+    const LocalZClipper clipper(masks), exclude(exclusion);
+    CHECK(clipper.can_reuse_whole_path(Polyline(Points{{100, 100}, {900, 100}})));
+    CHECK_FALSE(clipper.can_reuse_whole_path(Polyline(Points{{100, 500}, {900, 500}}))); // Crosses hole.
+    CHECK_FALSE(clipper.can_reuse_whole_path(Polyline(Points{{0, 100}, {0, 900}})));
+    CHECK_FALSE(clipper.can_reuse_whole_path(Polyline(Points{{1, 100}, {1, 900}})));
+    CHECK_FALSE(clipper.can_reuse_whole_path(Polyline(Points{{100, 100}, {100, 100}})));
+    CHECK_FALSE(clipper.can_reuse_whole_path(Polyline(Points{{1 << 30, 0}, {(1 << 30) + 10, 20}})));
+    for (const Points& points :
+         {Points{{100, 100}, {900, 100}}, Points{{100, 500}, {900, 500}}, Points{{0, 100}, {0, 900}}, Points{{1100, 100}, {1200, 100}}}) {
+        ExtrusionPath source(erInternalInfill, 0.07, 0.42f, 0.2f);
+        source.polyline = Polyline(points);
+        LocalZPathRouter           router(true), reference(false);
+        std::vector<ExtrusionPath> result, expected;
+        router.append(source, &clipper, &exclude, 0.04, result);
+        reference.append(source, &clipper, &exclude, 0.04, expected);
+        CHECK(router.statistics().reused == 0);
+        REQUIRE(result.size() == expected.size());
+        for (size_t i = 0; i < result.size(); ++i) {
+            CHECK(result[i].polyline.points == expected[i].polyline.points);
+            CHECK(result[i].height == expected[i].height);
+            CHECK(result[i].mm3_per_mm == expected[i].mm3_per_mm);
+        }
+    }
+    LocalZPathRouter router(true);
+    ExtrusionPath    base(erPerimeter, 0.08, 0.4f, 0.2f);
+    base.polyline = Polyline(Points{{1100, 100}, {1200, 100}});
+    std::vector<ExtrusionPath> result;
+    router.append(base, nullptr, &clipper, 0., result);
+    REQUIRE(result.size() == 1);
+    CHECK(router.statistics().reused == 1);
+    CHECK(result.front().height == base.height);
+    CHECK(result.front().mm3_per_mm == base.mm3_per_mm);
+}
 
 namespace {
 ExPolygon box(coord_t x, coord_t y, coord_t width, coord_t height)
@@ -38,6 +116,46 @@ void check_paths(const ExPolygons& masks, const Polylines& subjects)
     CHECK(same_paths(prepared.difference(subjects), diff_pl(subjects, masks)));
 }
 } // namespace
+
+TEST_CASE("Local-Z reused paths match independent full-mask coverage and volume", "[LocalZ][LocalZReuse]")
+{
+    ExPolygon ring = box(0, 0, 10000, 10000);
+    ring.holes.push_back(box(3500, 3500, 3000, 3000).contour);
+    ring.holes.back().reverse();
+    const ExPolygons                   masks{ring, box(8000, 0, 5000, 10000), box(-15000, 0, 5000, 10000)};
+    const LocalZClipper                clipper(masks);
+    std::mt19937                       random(518429);
+    std::uniform_int_distribution<int> coordinate(-16000, 14000);
+    LocalZPathRouter                   router(true);
+    for (size_t i = 0; i < 2000; ++i) {
+        ExtrusionPath source(erInternalInfill, 0.08, 0.4f, 0.2f);
+        source.polyline = Polyline(Points{{coordinate(random), coordinate(random)}, {coordinate(random), coordinate(random)}});
+        if (i % 4 == 0)
+            source.polyline.points.emplace_back(coordinate(random), coordinate(random));
+        const bool                 difference = i % 2 != 0;
+        const size_t               reused     = router.statistics().reused;
+        std::vector<ExtrusionPath> result;
+        router.append(source, difference ? nullptr : &clipper, difference ? &clipper : nullptr, 0.05, result);
+        const Polylines input{source.polyline};
+        const Polylines expected      = difference ? diff_pl(input, masks) : intersection_pl(input, masks);
+        double          result_length = 0., expected_length = 0., volume = 0.;
+        for (const auto& path : result) {
+            result_length += path.length();
+            volume += path.total_volume();
+        }
+        for (const auto& path : expected)
+            expected_length += path.length();
+        CHECK(result_length == Catch::Approx(expected_length).margin(1e-6));
+        CHECK(volume == Catch::Approx(unscale<double>(expected_length) * source.mm3_per_mm * 0.05 / source.height).margin(1e-12));
+        if (router.statistics().reused != reused) {
+            REQUIRE(result.size() == 1);
+            CHECK(result.front().polyline.points == source.polyline.points);
+            CHECK((difference ? intersection_pl(input, masks) : diff_pl(input, masks)).empty());
+        }
+    }
+    CHECK(router.statistics().reused > 50);
+    CHECK(router.statistics().clipped > 50);
+}
 
 TEST_CASE("Local-Z spatial clipping preserves exact ordered paths and boundary behavior", "[LocalZ][CPUSlicing]")
 {

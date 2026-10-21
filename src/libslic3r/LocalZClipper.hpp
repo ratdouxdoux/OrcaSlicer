@@ -47,6 +47,11 @@ public:
     Polylines difference(const Polylines& subject) const;
     bool      intersects(const Polyline& subject) const;
 
+    // Geometric ownership only: every segment survives the operation unchanged.
+    // Does not promise Clipper's fragment order, direction or point normalization.
+    // Boundary touches, unsupported coordinates and degenerate segments decline.
+    bool can_reuse_whole_path(const Polyline& subject, bool difference = false) const;
+
     // Export's intersection-then-difference operation. Optional process-wide
     // timing/capture is enabled by ORCA_LOCAL_Z_PROFILE / ORCA_LOCAL_Z_CAPTURE.
     static Polylines clip_path(const Polyline& subject, const LocalZClipper* include_masks, const LocalZClipper* exclude_masks);

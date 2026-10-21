@@ -307,6 +307,8 @@ set(lisbslic3r_sources
     MixedFilamentLayerTracker.hpp
     LocalZClipper.cpp
     LocalZClipper.hpp
+    LocalZPathRouter.cpp
+    LocalZPathRouter.hpp
     LocalZClipAcceleration.cpp
     LocalZClipAcceleration.hpp
     PolygonCompute.cpp
