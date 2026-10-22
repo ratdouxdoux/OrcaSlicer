@@ -1,0 +1,2639 @@
+{
+  "date": "2026-10-22",
+  "branch": "proposal_UI_changes_GPU_Accelerate_V2",
+  "production_commit": "cb2598dc302823ef6e999dc6ec9a61e35bb499f3",
+  "binaries": {
+    "release": {
+      "exe": "C:\\Users\\radug\\Downloads\\Snapmaker_Orca_Windows_V2.4.0_portable\\Snapmaker_Orca_Windows_V2.4.0_portable\\snapmaker-orca.exe",
+      "exe_sha256": "59377910a9e17c8cb9da591085ad5dcb89ccfcc480749164a3726eec86a8e063",
+      "dll_sha256": "70ed0ef486b85f54df3ad548fec597fc3dd0be1087f3672e5e89746d6448304c"
+    },
+    "optimized": {
+      "exe": "D:\\FullSpectrum\\ratdouxdoux-OrcaSlicer\\build-dev-release\\src\\Release\\snapmaker-orca.exe",
+      "exe_sha256": "4ba30843430196f5c47ec6ef4a887a50c91236f3775866a9664f06d9101b0e7a",
+      "dll_sha256": "f502a753ec98f5e42d4040bdc2054a4ae5d5616def526e02f712322598ae33dc"
+    }
+  },
+  "models": [
+    {
+      "id": "m01",
+      "name": "02-脸(1).3mf",
+      "sha256": "d7850ce5bec8744c96c0c01eddaa55a75bc828c48a8f8554d0e6b07a36b759cc",
+      "bytes": 1386204,
+      "release": {
+        "sha256": "00a3c9618c7112150fa8d3ea6424960fa36c960005f7d03988fe3c956bd40dbb",
+        "command_sha256": "efedb86f4849073d44cd488aa51d9fd4d724029809b794d5d7535c4f4bce61b6",
+        "bytes": 12787573,
+        "segments": 392427,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "0": 9800.97499999983,
+          "1": 359.0442500000001
+        },
+        "statistics": {
+          "total filament used [g]": "30.35",
+          "total filament cost": "0.61",
+          "total filament change": "24",
+          "estimated printing time (normal mode)": "1h 25m 54s"
+        }
+      },
+      "optimized": {
+        "sha256": "0dbcdabf0825c8b5bc8d82b884de16a53e175081b40e5c5b7a587e6a1b152b7e",
+        "command_sha256": "7a495c07bda09082159712970bb83301dbc4ed44ad0896e6671c5c9f3f0d9f16",
+        "bytes": 12796146,
+        "segments": 392428,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "0": 9800.97735999983,
+          "1": 359.0442500000001
+        },
+        "statistics": {
+          "total filament used [g]": "30.35",
+          "total filament cost": "0.61",
+          "total filament change": "24",
+          "estimated printing time (normal mode)": "1h 25m 54s"
+        }
+      },
+      "comparison": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {
+          "different_settings_to_system": [
+            "default_acceleration;exclude_object;gap_infill_speed;independent_support_layer_height;inner_wall_speed;internal_solid_infill_speed;outer_wall_acceleration;outer_wall_speed;seam_position;sparse_infill_density;sparse_infill_speed;support_object_xy_distance;support_top_z_distance;top_surface_speed;;;;;",
+            "default_acceleration;dithering_local_z_direct_multicolor;exclude_object;gap_infill_speed;independent_support_layer_height;inner_wall_speed;internal_solid_infill_speed;mixed_filament_height_lower_bound;outer_wall_acceleration;outer_wall_speed;seam_position;sparse_infill_density;sparse_infill_speed;support_object_xy_distance;support_top_z_distance;top_surface_speed;;;;;"
+          ],
+          "dithering_local_z_gradient_layer_height": [
+            null,
+            "0.2"
+          ],
+          "dithering_local_z_gradient_middle_filament_window": [
+            null,
+            "3%"
+          ],
+          "dithering_local_z_independent_layer_height": [
+            null,
+            "1"
+          ],
+          "dithering_local_z_preserve_first_layer": [
+            null,
+            "1"
+          ],
+          "filament_full_spectrum_material_id": [
+            null,
+            ";;;"
+          ],
+          "filament_transmission_distance": [
+            null,
+            "0,0,0,0"
+          ],
+          "fs_painted_zone_extra_perimeters": [
+            null,
+            "0"
+          ],
+          "fs_surface_paint_only": [
+            null,
+            "0"
+          ],
+          "mixed_filament_calibrated_colors": [
+            null,
+            "1"
+          ]
+        },
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.0023600000004080357,
+          "1": 0.0
+        },
+        "tolerance_mm": null,
+        "changed_groups": 1,
+        "sum_absolute_group_e_delta_mm": 0.00236
+      },
+      "spatial": {
+        "tolerance_mm": 0.01,
+        "missing_length_mm": 0.0,
+        "added_length_mm": 0.0640312423743213
+      }
+    },
+    {
+      "id": "m02",
+      "name": "10+STAR+FIDGET+TOY+29+colors.3mf",
+      "sha256": "aaf6641a03cfc8fcfbe2c3e12886d4cef355bec9f909d11f18d0a04500516cda",
+      "bytes": 189302,
+      "release": {
+        "sha256": "c41401a253e16f289ccd9142d65e3bfb1dcc7dfb3c713b99e0407d8f46653384",
+        "command_sha256": "2a9a13b5a3bb3897dfca77a710cdd951d67526bbbca76b760e4bea4a02b9d7fb",
+        "bytes": 9743252,
+        "segments": 261613,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "3": 11343.046749999996,
+          "0": 6828.673970000017,
+          "1": 9953.70921,
+          "2": 10931.894840000004
+        },
+        "statistics": {
+          "total filament used [g]": "116.54",
+          "total filament cost": "2.33",
+          "total filament change": "481",
+          "estimated printing time (normal mode)": "6h 6m 57s"
+        }
+      },
+      "optimized": {
+        "sha256": "0fc856d98bd9b604ed294984c02a28d04c40e4063dc1695275b67c62f25a62d4",
+        "command_sha256": "a376e573ff664322cf98969397146387fe1255d18727ddad95b079e390be2442",
+        "bytes": 22209987,
+        "segments": 580192,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "3": 14682.001430000008,
+          "2": 15691.806080000031,
+          "0": 12391.55014000007,
+          "1": 14024.222540000002
+        },
+        "statistics": {
+          "total filament used [g]": "169.42",
+          "total filament cost": "3.39",
+          "total filament change": "2146",
+          "estimated printing time (normal mode)": "17h 11m 22s"
+        }
+      },
+      "comparison": {
+        "same_commands": false,
+        "same_tool_sequence": false,
+        "same_layer_sequence": true,
+        "settings_differences": {
+          "different_settings_to_system": [
+            "dithering_local_z_infill;dithering_local_z_mode;exclude_object;independent_support_layer_height;mixed_filament_definitions;prime_volume;solid_infill_filament;sparse_infill_density;sparse_infill_pattern;wall_filament;wall_loops;wipe_tower_wall_type;hot_plate_temp;hot_plate_temp_initial_layer;hot_plate_temp;hot_plate_temp_initial_layer;hot_plate_temp;hot_plate_temp_initial_layer;hot_plate_temp;hot_plate_temp_initial_layer;",
+            "dithering_local_z_direct_multicolor;dithering_local_z_infill;dithering_local_z_mode;exclude_object;independent_support_layer_height;mixed_filament_definitions;mixed_filament_height_lower_bound;prime_volume;solid_infill_filament;sparse_infill_density;sparse_infill_pattern;wall_filament;wall_loops;wipe_tower_wall_type;hot_plate_temp;hot_plate_temp_initial_layer;hot_plate_temp;hot_plate_temp_initial_layer;hot_plate_temp;hot_plate_temp_initial_layer;hot_plate_temp;hot_plate_temp_initial_layer;"
+          ],
+          "dithering_local_z_direct_multicolor": [
+            "0",
+            "1"
+          ],
+          "dithering_local_z_gradient_layer_height": [
+            null,
+            "0.2"
+          ],
+          "dithering_local_z_gradient_middle_filament_window": [
+            null,
+            "3%"
+          ],
+          "dithering_local_z_independent_layer_height": [
+            null,
+            "1"
+          ],
+          "dithering_local_z_preserve_first_layer": [
+            null,
+            "1"
+          ],
+          "filament_full_spectrum_material_id": [
+            null,
+            ";;;"
+          ],
+          "filament_transmission_distance": [
+            null,
+            "0,0,0,0"
+          ],
+          "fs_painted_zone_extra_perimeters": [
+            null,
+            "0"
+          ],
+          "fs_surface_paint_only": [
+            null,
+            "0"
+          ],
+          "mixed_filament_calibrated_colors": [
+            null,
+            "1"
+          ]
+        },
+        "deposited_e_delta_mm_by_tool": {
+          "0": 5562.876170000053,
+          "1": 4070.5133300000016,
+          "2": 4759.911240000027,
+          "3": 3338.9546800000116
+        },
+        "tolerance_mm": null,
+        "changed_groups": 5122,
+        "sum_absolute_group_e_delta_mm": 76061.46194000001
+      }
+    },
+    {
+      "id": "m03",
+      "name": "SlicerProblem_Painting.3mf",
+      "sha256": "cbd990a0e288d560718fa32103f65e0cdf6385706dc99f0009f381a1c811bd05",
+      "bytes": 753109,
+      "release": {
+        "sha256": "47c4d26b51ade791aa4544a13f76c70dce2eb5b39100bd96e0e2be20012a63c4",
+        "command_sha256": "5019beaf4d666d1807e413993c5244c198668bff36a2712052159f3fb8fcef31",
+        "bytes": 2158629,
+        "segments": 54299,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "0": 2249.900270000001
+        },
+        "statistics": {
+          "total filament used [g]": "6.76",
+          "total filament cost": "0.14",
+          "estimated printing time (normal mode)": "17m 29s"
+        }
+      },
+      "optimized": {
+        "sha256": "28be168496492a3d185c08d6725ea8cb37ca44e011f246ebce6fa70c553814c4",
+        "command_sha256": "5019beaf4d666d1807e413993c5244c198668bff36a2712052159f3fb8fcef31",
+        "bytes": 2162389,
+        "segments": 54299,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "0": 2249.900270000001
+        },
+        "statistics": {
+          "total filament used [g]": "6.76",
+          "total filament cost": "0.14",
+          "estimated printing time (normal mode)": "17m 29s"
+        }
+      },
+      "comparison": {
+        "same_commands": true,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {
+          "dithering_local_z_direct_multicolor": [
+            "0",
+            "1"
+          ],
+          "dithering_local_z_gradient_layer_height": [
+            null,
+            "0.2"
+          ],
+          "dithering_local_z_gradient_middle_filament_window": [
+            null,
+            "3%"
+          ],
+          "dithering_local_z_independent_layer_height": [
+            null,
+            "1"
+          ],
+          "dithering_local_z_preserve_first_layer": [
+            null,
+            "1"
+          ],
+          "filament_full_spectrum_material_id": [
+            null,
+            ";"
+          ],
+          "filament_transmission_distance": [
+            null,
+            "0,0"
+          ],
+          "fs_painted_zone_extra_perimeters": [
+            null,
+            "0"
+          ],
+          "fs_surface_paint_only": [
+            null,
+            "0"
+          ],
+          "mixed_filament_calibrated_colors": [
+            null,
+            "1"
+          ],
+          "mixed_filament_height_lower_bound": [
+            "0.04",
+            "0.06"
+          ]
+        },
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.0
+        },
+        "tolerance_mm": null,
+        "changed_groups": 0,
+        "sum_absolute_group_e_delta_mm": 0
+      }
+    },
+    {
+      "id": "m04",
+      "name": "TEST1.3mf",
+      "sha256": "c2ef572756aa9e4bac0cfd5868255dbfd327c3acd7698aab6e4d83ed8eec3bea",
+      "bytes": 2738533,
+      "release": {
+        "sha256": "f8ce51b6d9fb70ee64f6cbe0a2204f7ba333fec6f22be94452d9e8b605b0800b",
+        "command_sha256": "fcd33f4172447d8f864639588cef17c4244d4c2a08e1668556c43eef1036fd73",
+        "bytes": 17947839,
+        "segments": 505611,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "0": 15118.472690000075,
+          "2": 7306.9920499999635,
+          "1": 570.6690399999997,
+          "3": 1716.679930000003
+        },
+        "statistics": {
+          "total filament used [g]": "73.75",
+          "total filament cost": "1.48",
+          "total filament change": "331",
+          "estimated printing time (normal mode)": "3h 43m 5s"
+        }
+      },
+      "optimized": {
+        "sha256": "dbca024043d3a978f71d061367f0085724c068c45bc7e95f55bf0d72002087aa",
+        "command_sha256": "44bf263793917c6ad6da17e243de159ad4001ec84aa0283099693eee11428666",
+        "bytes": 17935297,
+        "segments": 505611,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "0": 15118.472690000075,
+          "2": 7306.9920499999635,
+          "1": 570.6690399999997,
+          "3": 1716.679930000003
+        },
+        "statistics": {
+          "total filament used [g]": "73.75",
+          "total filament cost": "1.48",
+          "total filament change": "331",
+          "estimated printing time (normal mode)": "3h 43m 5s"
+        }
+      },
+      "comparison": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {
+          "different_settings_to_system": [
+            "accel_to_decel_enable;accel_to_decel_factor;bridge_acceleration;bridge_speed;default_acceleration;default_jerk;default_junction_deviation;enable_overhang_speed;enable_support;exclude_object;extrusion_rate_smoothing_external_perimeter_only;gap_infill_speed;independent_support_layer_height;infill_jerk;initial_layer_acceleration;initial_layer_infill_speed;initial_layer_jerk;initial_layer_speed;initial_layer_travel_speed;inner_wall_acceleration;inner_wall_jerk;inner_wall_speed;internal_bridge_speed;internal_solid_infill_acceleration;internal_solid_infill_speed;ironing_speed;max_volumetric_extrusion_rate_slope;max_volumetric_extrusion_rate_slope_segment_length;outer_wall_acceleration;outer_wall_jerk;outer_wall_speed;overhang_1_4_speed;overhang_2_4_speed;overhang_3_4_speed;overhang_4_4_speed;process_flow_support;reduce_crossing_wall;skeleton_infill_density;skin_infill_density;slow_down_layers;slowdown_for_curled_perimeters;small_area_infill_flow_compensation_model;small_perimeter_speed;small_perimeter_threshold;sparse_infill_acceleration;sparse_infill_density;sparse_infill_pattern;sparse_infill_speed;support_interface_pattern;support_interface_spacing;support_interface_speed;support_object_first_layer_gap;support_on_build_plate_only;support_speed;support_style;top_surface_acceleration;top_surface_jerk;top_surface_pattern;top_surface_speed;travel_acceleration;travel_jerk;travel_speed;wall_generator;wall_loops;;;;;",
+            "accel_to_decel_enable;accel_to_decel_factor;bridge_acceleration;bridge_speed;default_acceleration;default_jerk;default_junction_deviation;dithering_local_z_direct_multicolor;enable_overhang_speed;enable_support;exclude_object;extrusion_rate_smoothing_external_perimeter_only;gap_infill_speed;independent_support_layer_height;infill_jerk;initial_layer_acceleration;initial_layer_infill_speed;initial_layer_jerk;initial_layer_speed;initial_layer_travel_speed;inner_wall_acceleration;inner_wall_jerk;inner_wall_speed;internal_bridge_speed;internal_solid_infill_acceleration;internal_solid_infill_speed;ironing_speed;max_volumetric_extrusion_rate_slope;max_volumetric_extrusion_rate_slope_segment_length;mixed_filament_height_lower_bound;outer_wall_acceleration;outer_wall_jerk;outer_wall_speed;overhang_1_4_speed;overhang_2_4_speed;overhang_3_4_speed;overhang_4_4_speed;process_flow_support;reduce_crossing_wall;skeleton_infill_density;skin_infill_density;slow_down_layers;slowdown_for_curled_perimeters;small_area_infill_flow_compensation_model;small_perimeter_speed;small_perimeter_threshold;sparse_infill_acceleration;sparse_infill_density;sparse_infill_pattern;sparse_infill_speed;support_interface_pattern;support_interface_spacing;support_interface_speed;support_object_first_layer_gap;support_on_build_plate_only;support_speed;support_style;top_surface_acceleration;top_surface_jerk;top_surface_pattern;top_surface_speed;travel_acceleration;travel_jerk;travel_speed;wall_generator;wall_loops;;;;;"
+          ],
+          "dithering_local_z_gradient_layer_height": [
+            null,
+            "0.2"
+          ],
+          "dithering_local_z_gradient_middle_filament_window": [
+            null,
+            "3%"
+          ],
+          "dithering_local_z_independent_layer_height": [
+            null,
+            "1"
+          ],
+          "dithering_local_z_preserve_first_layer": [
+            null,
+            "1"
+          ],
+          "filament_full_spectrum_material_id": [
+            null,
+            ";;;"
+          ],
+          "filament_transmission_distance": [
+            null,
+            "0,0,0,0"
+          ],
+          "fs_painted_zone_extra_perimeters": [
+            null,
+            "0"
+          ],
+          "fs_surface_paint_only": [
+            null,
+            "0"
+          ],
+          "mixed_filament_calibrated_colors": [
+            null,
+            "1"
+          ]
+        },
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.0,
+          "1": 0.0,
+          "2": 0.0,
+          "3": 0.0
+        },
+        "tolerance_mm": null,
+        "changed_groups": 0,
+        "sum_absolute_group_e_delta_mm": 0
+      }
+    },
+    {
+      "id": "m05",
+      "name": "吴飞1.3mf",
+      "sha256": "503c61f03e52fb765ceaeaec4b8598fbe427f98a1a77400e038627bb3b7d2f6a",
+      "bytes": 2648004,
+      "release": {
+        "sha256": "1f9f589eaa74bec7355d73828e7a483c5a42ad4612f05a71453e7f76cf8a56ec",
+        "command_sha256": "fa7f78204ddd5ebfea12228f7ae427bcbba902f434eafe262d4c0e983bca247d",
+        "bytes": 75923321,
+        "segments": 2075255,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "3": 24129.228559999516,
+          "1": 32056.850809999716,
+          "0": 13816.981219999829,
+          "2": 8532.40357999999
+        },
+        "statistics": {
+          "total filament used [g]": "234.28",
+          "total filament cost": "4.69",
+          "total filament change": "1106",
+          "estimated printing time (normal mode)": "13h 33m 39s"
+        }
+      },
+      "optimized": {
+        "sha256": "ab8ec05f0e4197664e7869d7b7ca74e374671c2d4e6ab9ba48874aeac8c12992",
+        "command_sha256": "25f57a4a74b1331c57b8cec62b987e774a6309c08a79a6d16f4005456e076804",
+        "bytes": 75925354,
+        "segments": 2075262,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "3": 24129.229559999516,
+          "1": 32056.850809999716,
+          "0": 13816.981229999828,
+          "2": 8532.40357999999
+        },
+        "statistics": {
+          "total filament used [g]": "234.28",
+          "total filament cost": "4.69",
+          "total filament change": "1106",
+          "estimated printing time (normal mode)": "13h 33m 39s"
+        }
+      },
+      "comparison": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {
+          "dithering_local_z_direct_multicolor": [
+            "0",
+            "1"
+          ],
+          "dithering_local_z_gradient_layer_height": [
+            null,
+            "0.2"
+          ],
+          "dithering_local_z_gradient_middle_filament_window": [
+            null,
+            "3%"
+          ],
+          "dithering_local_z_independent_layer_height": [
+            null,
+            "1"
+          ],
+          "dithering_local_z_preserve_first_layer": [
+            null,
+            "1"
+          ],
+          "filament_full_spectrum_material_id": [
+            null,
+            ";;;"
+          ],
+          "filament_transmission_distance": [
+            null,
+            "0,0,0,0"
+          ],
+          "fs_painted_zone_extra_perimeters": [
+            null,
+            "0"
+          ],
+          "fs_surface_paint_only": [
+            null,
+            "0"
+          ],
+          "mixed_filament_calibrated_colors": [
+            null,
+            "1"
+          ],
+          "mixed_filament_height_lower_bound": [
+            "0.04",
+            "0.06"
+          ]
+        },
+        "deposited_e_delta_mm_by_tool": {
+          "0": 9.999999747378752e-06,
+          "1": 0.0,
+          "2": 0.0,
+          "3": 0.0010000000002037268
+        },
+        "tolerance_mm": null,
+        "changed_groups": 73,
+        "sum_absolute_group_e_delta_mm": 1.406110000000066
+      },
+      "spatial": {
+        "tolerance_mm": 0.01,
+        "missing_length_mm": 9.748178393632017,
+        "added_length_mm": 9.771927238786315
+      }
+    },
+    {
+      "id": "m06",
+      "name": "对不齐.3mf",
+      "sha256": "2fb8a2399e373fe313650e723c53b79cf0cb812fb1c8ccb13603680bd3781e40",
+      "bytes": 218983,
+      "release": {
+        "sha256": "aa35bd00f4274b13a0546f472b47215277c522089fa0611bcef3b08d77c21642",
+        "command_sha256": "0be323157f4ae666dad1021c508f3622abc5540795582ca1fac4d469bbeac2c8",
+        "bytes": 9781646,
+        "segments": 257845,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "0": 19180.40419999991
+        },
+        "statistics": {
+          "total filament used [g]": "60.94",
+          "total filament cost": "1.52",
+          "estimated printing time (normal mode)": "2h 4m 46s"
+        }
+      },
+      "optimized": {
+        "sha256": "6616c1b6811b3adb3e07b17506331b558807ddc0864529770d2aaaa6338e0e29",
+        "command_sha256": "0be323157f4ae666dad1021c508f3622abc5540795582ca1fac4d469bbeac2c8",
+        "bytes": 9784786,
+        "segments": 257845,
+        "arc_commands": 0,
+        "deposited_e_mm_by_tool": {
+          "0": 19180.40419999991
+        },
+        "statistics": {
+          "total filament used [g]": "60.94",
+          "total filament cost": "1.52",
+          "estimated printing time (normal mode)": "2h 4m 46s"
+        }
+      },
+      "comparison": {
+        "same_commands": true,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {
+          "dithering_local_z_direct_multicolor": [
+            "0",
+            "1"
+          ],
+          "dithering_local_z_gradient_layer_height": [
+            null,
+            "0.2"
+          ],
+          "dithering_local_z_gradient_middle_filament_window": [
+            null,
+            "3%"
+          ],
+          "dithering_local_z_independent_layer_height": [
+            null,
+            "1"
+          ],
+          "dithering_local_z_preserve_first_layer": [
+            null,
+            "1"
+          ],
+          "filament_full_spectrum_material_id": [
+            null,
+            ";;;;;;;;;"
+          ],
+          "filament_transmission_distance": [
+            null,
+            "0,0,0,0,0,0,0,0,0,0"
+          ],
+          "fs_painted_zone_extra_perimeters": [
+            null,
+            "0"
+          ],
+          "fs_surface_paint_only": [
+            null,
+            "0"
+          ],
+          "mixed_filament_calibrated_colors": [
+            null,
+            "1"
+          ],
+          "mixed_filament_height_lower_bound": [
+            "0.04",
+            "0.06"
+          ]
+        },
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.0
+        },
+        "tolerance_mm": null,
+        "changed_groups": 0,
+        "sum_absolute_group_e_delta_mm": 0
+      }
+    }
+  ],
+  "controls": {
+    "m01_release_repeat": {
+      "same_commands": true,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "tolerance_mm": null,
+      "changed_groups": 0,
+      "sum_absolute_group_e_delta_mm": 0
+    },
+    "m02_release_repeat": {
+      "same_commands": true,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0
+      },
+      "tolerance_mm": null,
+      "changed_groups": 0,
+      "sum_absolute_group_e_delta_mm": 0
+    },
+    "m05_release_repeat_spatial": {
+      "same_commands": false,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 9.999999747378752e-06,
+        "1": 0.0,
+        "2": 6.000000030326191e-05,
+        "3": 0.0
+      },
+      "tolerance_mm": 0.01,
+      "changed_groups": 20,
+      "sum_absolute_group_e_delta_mm": 0.04765000000000854,
+      "missing_length_mm": 0.0,
+      "added_length_mm": 0.0
+    },
+    "m02_reference_comparison": {
+      "same_commands": false,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0
+      },
+      "tolerance_mm": null,
+      "changed_groups": 0,
+      "sum_absolute_group_e_delta_mm": 0
+    },
+    "m02_gpu_comparison": {
+      "same_commands": true,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0
+      },
+      "tolerance_mm": null,
+      "changed_groups": 0,
+      "sum_absolute_group_e_delta_mm": 0
+    },
+    "m05_nocompact_comparison": {
+      "same_commands": false,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": -145.19045999999435,
+        "1": -20.11980000001131,
+        "2": -107.07137999999759,
+        "3": -89.67385999999897
+      },
+      "tolerance_mm": 0.01,
+      "changed_groups": 629,
+      "sum_absolute_group_e_delta_mm": 387.98014,
+      "missing_length_mm": 340875.05788101297,
+      "added_length_mm": 328942.88963690115
+    },
+    "m05_gpu_comparison": {
+      "same_commands": false,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": -145.19045999999435,
+        "1": -20.11980000001131,
+        "2": -107.07137999999759,
+        "3": -89.67385999999897
+      },
+      "tolerance_mm": null,
+      "changed_groups": 629,
+      "sum_absolute_group_e_delta_mm": 387.98014
+    },
+    "m05_compact_gpu_control": {
+      "same_commands": true,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0
+      },
+      "tolerance_mm": null,
+      "changed_groups": 0,
+      "sum_absolute_group_e_delta_mm": 0
+    },
+    "m05_fresh_cpu_gpu": {
+      "same_commands": true,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 0.0,
+        "3": 0.0
+      },
+      "tolerance_mm": null,
+      "changed_groups": 0,
+      "sum_absolute_group_e_delta_mm": 0
+    },
+    "m05_fresh_release_cpu": {
+      "same_commands": false,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 37.04553000001579,
+        "1": 94.0906400000531,
+        "2": 4.113340000008975,
+        "3": 47.14888999997493
+      },
+      "tolerance_mm": null,
+      "changed_groups": 5944,
+      "sum_absolute_group_e_delta_mm": 183.71179999999998
+    },
+    "m05_fresh_release_repeat": {
+      "same_commands": false,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 37.04553000001579,
+        "1": 94.0906400000531,
+        "2": 4.113340000008975,
+        "3": 47.15067999997336
+      },
+      "tolerance_mm": null,
+      "changed_groups": 5877,
+      "sum_absolute_group_e_delta_mm": 182.40019
+    },
+    "m05_fresh_release2_cpu": {
+      "same_commands": false,
+      "same_tool_sequence": true,
+      "same_layer_sequence": true,
+      "deposited_e_delta_mm_by_tool": {
+        "0": 0.0,
+        "1": 0.0,
+        "2": 0.0,
+        "3": -0.0017899999984365422
+      },
+      "tolerance_mm": null,
+      "changed_groups": 69,
+      "sum_absolute_group_e_delta_mm": 1.3610899999999828
+    }
+  },
+  "control_runs": {
+    "m01_release_repeat": {
+      "before": {
+        "sha256": "00a3c9618c7112150fa8d3ea6424960fa36c960005f7d03988fe3c956bd40dbb",
+        "command_sha256": "efedb86f4849073d44cd488aa51d9fd4d724029809b794d5d7535c4f4bce61b6",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "9815.98, 359.04, 0.00, 0.00",
+          "filament used [cm3]": "23.61, 0.86, 0.00, 0.00",
+          "filament used [g]": "29.28, 1.07, 0.00, 0.00",
+          "filament cost": "0.59, 0.02, 0.00, 0.00",
+          "total filament used [g]": "30.35",
+          "total filament cost": "0.61",
+          "total filament change": "24",
+          "total layers count": "312",
+          "estimated printing time (normal mode)": "1h 25m 54s",
+          "estimated first layer printing time (normal mode)": "19s"
+        }
+      },
+      "after": {
+        "sha256": "d6675c409be961f121af8bced8103ffd3584a5c5f8e28198e34bbe7485baf72a",
+        "command_sha256": "efedb86f4849073d44cd488aa51d9fd4d724029809b794d5d7535c4f4bce61b6",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "9815.98, 359.04, 0.00, 0.00",
+          "filament used [cm3]": "23.61, 0.86, 0.00, 0.00",
+          "filament used [g]": "29.28, 1.07, 0.00, 0.00",
+          "filament cost": "0.59, 0.02, 0.00, 0.00",
+          "total filament used [g]": "30.35",
+          "total filament cost": "0.61",
+          "total filament change": "24",
+          "total layers count": "312",
+          "estimated printing time (normal mode)": "1h 25m 54s",
+          "estimated first layer printing time (normal mode)": "19s"
+        }
+      }
+    },
+    "m02_release_repeat": {
+      "before": {
+        "sha256": "c41401a253e16f289ccd9142d65e3bfb1dcc7dfb3c713b99e0407d8f46653384",
+        "command_sha256": "2a9a13b5a3bb3897dfca77a710cdd951d67526bbbca76b760e4bea4a02b9d7fb",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.45mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "6828.67, 9953.71, 10931.90, 11358.05",
+          "filament used [cm3]": "16.42, 23.94, 26.29, 27.32",
+          "filament used [g]": "20.37, 29.69, 32.60, 33.88",
+          "filament cost": "0.41, 0.59, 0.65, 0.68",
+          "total filament used [g]": "116.54",
+          "total filament cost": "2.33",
+          "total filament change": "481",
+          "total layers count": "343",
+          "estimated printing time (normal mode)": "6h 6m 57s",
+          "estimated first layer printing time (normal mode)": "24s"
+        },
+        "deposited_by_role": {
+          "Outer wall": {
+            "e_mm": 33681.70713999976,
+            "length_mm": 1739973.8698389214,
+            "segments": 242309
+          },
+          "Prime tower": {
+            "e_mm": 5023.807100000017,
+            "length_mm": 111681.68900000033,
+            "segments": 7927
+          },
+          "Bottom surface": {
+            "e_mm": 4.268689999999999,
+            "length_mm": 112.13336620723157,
+            "segments": 39
+          },
+          "Gap infill": {
+            "e_mm": 0.08944,
+            "length_mm": 9.276399331375542,
+            "segments": 35
+          },
+          "Internal solid infill": {
+            "e_mm": 142.5747000000001,
+            "length_mm": 3345.557270224697,
+            "segments": 4066
+          },
+          "Sparse infill": {
+            "e_mm": 199.98911000000004,
+            "length_mm": 5132.181422145561,
+            "segments": 7181
+          },
+          "Internal Bridge": {
+            "e_mm": 2.8823499999999993,
+            "length_mm": 56.2950211918986,
+            "segments": 30
+          },
+          "Top surface": {
+            "e_mm": 2.00624,
+            "length_mm": 49.4614142566905,
+            "segments": 26
+          }
+        }
+      },
+      "after": {
+        "sha256": "3ac2cbe9cf530414b1762706757a8dddd62faf2236a301ac5c7624a259721413",
+        "command_sha256": "2a9a13b5a3bb3897dfca77a710cdd951d67526bbbca76b760e4bea4a02b9d7fb",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.45mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "6828.67, 9953.71, 10931.90, 11358.05",
+          "filament used [cm3]": "16.42, 23.94, 26.29, 27.32",
+          "filament used [g]": "20.37, 29.69, 32.60, 33.88",
+          "filament cost": "0.41, 0.59, 0.65, 0.68",
+          "total filament used [g]": "116.54",
+          "total filament cost": "2.33",
+          "total filament change": "481",
+          "total layers count": "343",
+          "estimated printing time (normal mode)": "6h 6m 57s",
+          "estimated first layer printing time (normal mode)": "24s"
+        },
+        "deposited_by_role": {
+          "Outer wall": {
+            "e_mm": 33681.70713999976,
+            "length_mm": 1739973.8698389214,
+            "segments": 242309
+          },
+          "Prime tower": {
+            "e_mm": 5023.807100000017,
+            "length_mm": 111681.68900000033,
+            "segments": 7927
+          },
+          "Bottom surface": {
+            "e_mm": 4.268689999999999,
+            "length_mm": 112.13336620723157,
+            "segments": 39
+          },
+          "Gap infill": {
+            "e_mm": 0.08944,
+            "length_mm": 9.276399331375542,
+            "segments": 35
+          },
+          "Internal solid infill": {
+            "e_mm": 142.5747000000001,
+            "length_mm": 3345.557270224697,
+            "segments": 4066
+          },
+          "Sparse infill": {
+            "e_mm": 199.98911000000004,
+            "length_mm": 5132.181422145561,
+            "segments": 7181
+          },
+          "Internal Bridge": {
+            "e_mm": 2.8823499999999993,
+            "length_mm": 56.2950211918986,
+            "segments": 30
+          },
+          "Top surface": {
+            "e_mm": 2.00624,
+            "length_mm": 49.4614142566905,
+            "segments": 26
+          }
+        }
+      }
+    },
+    "m05_release_repeat_spatial": {
+      "before": {
+        "sha256": "1f9f589eaa74bec7355d73828e7a483c5a42ad4612f05a71453e7f76cf8a56ec",
+        "command_sha256": "fa7f78204ddd5ebfea12228f7ae427bcbba902f434eafe262d4c0e983bca247d",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13816.98, 32056.85, 8532.40, 24144.23",
+          "filament used [cm3]": "33.23, 77.11, 20.52, 58.07",
+          "filament used [g]": "41.21, 95.61, 25.45, 72.01",
+          "filament cost": "0.82, 1.91, 0.51, 1.44",
+          "total filament used [g]": "234.28",
+          "total filament cost": "4.69",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 33m 39s",
+          "estimated first layer printing time (normal mode)": "19s"
+        }
+      },
+      "after": {
+        "sha256": "7254db67c7f8042989d2da2e0294064771d3816621862c56473672a822462e36",
+        "command_sha256": "737dc697b3100dab0e8a1670340e462abd54b5c6b66ac811f6a8dc815f16402a",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13816.98, 32056.85, 8532.40, 24144.23",
+          "filament used [cm3]": "33.23, 77.11, 20.52, 58.07",
+          "filament used [g]": "41.21, 95.61, 25.45, 72.01",
+          "filament cost": "0.82, 1.91, 0.51, 1.44",
+          "total filament used [g]": "234.28",
+          "total filament cost": "4.69",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 33m 39s",
+          "estimated first layer printing time (normal mode)": "19s"
+        }
+      }
+    },
+    "m02_reference_comparison": {
+      "before": {
+        "sha256": "84178dc15cfce3ddf96119b865015b647adb12405c99b2cee9090305622ffc74",
+        "command_sha256": "1ec0e193b09ae7aa54d66652bb733f4ab9fa916f20bba22f4a6f7fa72f239823",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.45mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "12391.55, 14024.22, 15691.81, 14697.00",
+          "filament used [cm3]": "29.81, 33.73, 37.74, 35.35",
+          "filament used [g]": "36.96, 41.83, 46.80, 43.83",
+          "filament cost": "0.74, 0.84, 0.94, 0.88",
+          "total filament used [g]": "169.42",
+          "total filament cost": "3.39",
+          "total filament change": "2146",
+          "total layers count": "343",
+          "estimated printing time (normal mode)": "17h 12m 45s",
+          "estimated first layer printing time (normal mode)": "24s"
+        },
+        "deposited_by_role": {
+          "Outer wall": {
+            "e_mm": 33681.11175999969,
+            "length_mm": 3882382.961968659,
+            "segments": 534804
+          },
+          "Prime tower": {
+            "e_mm": 22756.657900000042,
+            "length_mm": 505610.64800046384,
+            "segments": 34011
+          },
+          "Bottom surface": {
+            "e_mm": 4.26869,
+            "length_mm": 112.13336620723157,
+            "segments": 39
+          },
+          "Gap infill": {
+            "e_mm": 0.08944,
+            "length_mm": 9.276399331375542,
+            "segments": 35
+          },
+          "Internal solid infill": {
+            "e_mm": 142.5747000000001,
+            "length_mm": 3345.557270224697,
+            "segments": 4066
+          },
+          "Sparse infill": {
+            "e_mm": 199.98911000000004,
+            "length_mm": 5132.181422145561,
+            "segments": 7181
+          },
+          "Internal Bridge": {
+            "e_mm": 2.8823499999999993,
+            "length_mm": 56.2950211918986,
+            "segments": 30
+          },
+          "Top surface": {
+            "e_mm": 2.00624,
+            "length_mm": 49.4614142566905,
+            "segments": 26
+          }
+        }
+      },
+      "after": {
+        "sha256": "0fc856d98bd9b604ed294984c02a28d04c40e4063dc1695275b67c62f25a62d4",
+        "command_sha256": "a376e573ff664322cf98969397146387fe1255d18727ddad95b079e390be2442",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.45mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "12391.55, 14024.22, 15691.81, 14697.00",
+          "filament used [cm3]": "29.81, 33.73, 37.74, 35.35",
+          "filament used [g]": "36.96, 41.83, 46.80, 43.83",
+          "filament cost": "0.74, 0.84, 0.94, 0.88",
+          "total filament used [g]": "169.42",
+          "total filament cost": "3.39",
+          "total filament change": "2146",
+          "total layers count": "343",
+          "estimated printing time (normal mode)": "17h 11m 22s",
+          "estimated first layer printing time (normal mode)": "24s"
+        },
+        "deposited_by_role": {
+          "Outer wall": {
+            "e_mm": 33681.11175999969,
+            "length_mm": 3882382.961968659,
+            "segments": 534804
+          },
+          "Prime tower": {
+            "e_mm": 22756.657900000042,
+            "length_mm": 505610.64800046384,
+            "segments": 34011
+          },
+          "Bottom surface": {
+            "e_mm": 4.26869,
+            "length_mm": 112.13336620723157,
+            "segments": 39
+          },
+          "Gap infill": {
+            "e_mm": 0.08944,
+            "length_mm": 9.276399331375542,
+            "segments": 35
+          },
+          "Internal solid infill": {
+            "e_mm": 142.5747000000001,
+            "length_mm": 3345.557270224697,
+            "segments": 4066
+          },
+          "Sparse infill": {
+            "e_mm": 199.98911000000004,
+            "length_mm": 5132.181422145561,
+            "segments": 7181
+          },
+          "Internal Bridge": {
+            "e_mm": 2.8823499999999993,
+            "length_mm": 56.2950211918986,
+            "segments": 30
+          },
+          "Top surface": {
+            "e_mm": 2.00624,
+            "length_mm": 49.4614142566905,
+            "segments": 26
+          }
+        }
+      }
+    },
+    "m02_gpu_comparison": {
+      "before": {
+        "sha256": "0fc856d98bd9b604ed294984c02a28d04c40e4063dc1695275b67c62f25a62d4",
+        "command_sha256": "a376e573ff664322cf98969397146387fe1255d18727ddad95b079e390be2442",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.45mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "12391.55, 14024.22, 15691.81, 14697.00",
+          "filament used [cm3]": "29.81, 33.73, 37.74, 35.35",
+          "filament used [g]": "36.96, 41.83, 46.80, 43.83",
+          "filament cost": "0.74, 0.84, 0.94, 0.88",
+          "total filament used [g]": "169.42",
+          "total filament cost": "3.39",
+          "total filament change": "2146",
+          "total layers count": "343",
+          "estimated printing time (normal mode)": "17h 11m 22s",
+          "estimated first layer printing time (normal mode)": "24s"
+        },
+        "deposited_by_role": {
+          "Outer wall": {
+            "e_mm": 33681.11175999969,
+            "length_mm": 3882382.961968659,
+            "segments": 534804
+          },
+          "Prime tower": {
+            "e_mm": 22756.657900000042,
+            "length_mm": 505610.64800046384,
+            "segments": 34011
+          },
+          "Bottom surface": {
+            "e_mm": 4.26869,
+            "length_mm": 112.13336620723157,
+            "segments": 39
+          },
+          "Gap infill": {
+            "e_mm": 0.08944,
+            "length_mm": 9.276399331375542,
+            "segments": 35
+          },
+          "Internal solid infill": {
+            "e_mm": 142.5747000000001,
+            "length_mm": 3345.557270224697,
+            "segments": 4066
+          },
+          "Sparse infill": {
+            "e_mm": 199.98911000000004,
+            "length_mm": 5132.181422145561,
+            "segments": 7181
+          },
+          "Internal Bridge": {
+            "e_mm": 2.8823499999999993,
+            "length_mm": 56.2950211918986,
+            "segments": 30
+          },
+          "Top surface": {
+            "e_mm": 2.00624,
+            "length_mm": 49.4614142566905,
+            "segments": 26
+          }
+        }
+      },
+      "after": {
+        "sha256": "df94c8408db4acdac5afb70659acf13bf73de40abf756c6424ab4822f344e600",
+        "command_sha256": "a376e573ff664322cf98969397146387fe1255d18727ddad95b079e390be2442",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.45mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "12391.55, 14024.22, 15691.81, 14697.00",
+          "filament used [cm3]": "29.81, 33.73, 37.74, 35.35",
+          "filament used [g]": "36.96, 41.83, 46.80, 43.83",
+          "filament cost": "0.74, 0.84, 0.94, 0.88",
+          "total filament used [g]": "169.42",
+          "total filament cost": "3.39",
+          "total filament change": "2146",
+          "total layers count": "343",
+          "estimated printing time (normal mode)": "17h 11m 22s",
+          "estimated first layer printing time (normal mode)": "24s"
+        },
+        "deposited_by_role": {
+          "Outer wall": {
+            "e_mm": 33681.11175999969,
+            "length_mm": 3882382.961968659,
+            "segments": 534804
+          },
+          "Prime tower": {
+            "e_mm": 22756.657900000042,
+            "length_mm": 505610.64800046384,
+            "segments": 34011
+          },
+          "Bottom surface": {
+            "e_mm": 4.26869,
+            "length_mm": 112.13336620723157,
+            "segments": 39
+          },
+          "Gap infill": {
+            "e_mm": 0.08944,
+            "length_mm": 9.276399331375542,
+            "segments": 35
+          },
+          "Internal solid infill": {
+            "e_mm": 142.5747000000001,
+            "length_mm": 3345.557270224697,
+            "segments": 4066
+          },
+          "Sparse infill": {
+            "e_mm": 199.98911000000004,
+            "length_mm": 5132.181422145561,
+            "segments": 7181
+          },
+          "Internal Bridge": {
+            "e_mm": 2.8823499999999993,
+            "length_mm": 56.2950211918986,
+            "segments": 30
+          },
+          "Top surface": {
+            "e_mm": 2.00624,
+            "length_mm": 49.4614142566905,
+            "segments": 26
+          }
+        }
+      }
+    },
+    "m05_nocompact_comparison": {
+      "before": {
+        "sha256": "ab8ec05f0e4197664e7869d7b7ca74e374671c2d4e6ab9ba48874aeac8c12992",
+        "command_sha256": "25f57a4a74b1331c57b8cec62b987e774a6309c08a79a6d16f4005456e076804",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13816.98, 32056.85, 8532.40, 24144.23",
+          "filament used [cm3]": "33.23, 77.11, 20.52, 58.07",
+          "filament used [g]": "41.21, 95.61, 25.45, 72.01",
+          "filament cost": "0.82, 1.91, 0.51, 1.44",
+          "total filament used [g]": "234.28",
+          "total filament cost": "4.69",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 33m 39s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 13075.270050000003,
+            "length_mm": 427318.30653551227,
+            "segments": 940728
+          },
+          "Brim": {
+            "e_mm": 69.61179999999999,
+            "length_mm": 1553.3110421537137,
+            "segments": 2726
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 190.33917,
+            "length_mm": 6284.305702817705,
+            "segments": 16468
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      },
+      "after": {
+        "sha256": "396c362530518decaa0b31bf809f659b61e8cd022ecbc0f232529aa4124d62b3",
+        "command_sha256": "d1c2f077af36914fe540a725534d3838cde14e62bd0ca743fa244555a1714d46",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563859999995,
+            "length_mm": 415600.09065492643,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07693,
+            "length_mm": 1496.7518164000182,
+            "segments": 2743
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      }
+    },
+    "m05_gpu_comparison": {
+      "before": {
+        "sha256": "ab8ec05f0e4197664e7869d7b7ca74e374671c2d4e6ab9ba48874aeac8c12992",
+        "command_sha256": "25f57a4a74b1331c57b8cec62b987e774a6309c08a79a6d16f4005456e076804",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13816.98, 32056.85, 8532.40, 24144.23",
+          "filament used [cm3]": "33.23, 77.11, 20.52, 58.07",
+          "filament used [g]": "41.21, 95.61, 25.45, 72.01",
+          "filament cost": "0.82, 1.91, 0.51, 1.44",
+          "total filament used [g]": "234.28",
+          "total filament cost": "4.69",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 33m 39s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 13075.270050000003,
+            "length_mm": 427318.30653551227,
+            "segments": 940728
+          },
+          "Brim": {
+            "e_mm": 69.61179999999999,
+            "length_mm": 1553.3110421537137,
+            "segments": 2726
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 190.33917,
+            "length_mm": 6284.305702817705,
+            "segments": 16468
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      },
+      "after": {
+        "sha256": "8cdc194f6a1c68f1d35a2d93ceeea04b81b20b33e573362318b6eb807b345d5d",
+        "command_sha256": "d1c2f077af36914fe540a725534d3838cde14e62bd0ca743fa244555a1714d46",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563859999995,
+            "length_mm": 415600.09065492643,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07693,
+            "length_mm": 1496.7518164000182,
+            "segments": 2743
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      }
+    },
+    "m05_compact_gpu_control": {
+      "before": {
+        "sha256": "396c362530518decaa0b31bf809f659b61e8cd022ecbc0f232529aa4124d62b3",
+        "command_sha256": "d1c2f077af36914fe540a725534d3838cde14e62bd0ca743fa244555a1714d46",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563859999995,
+            "length_mm": 415600.09065492643,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07693,
+            "length_mm": 1496.7518164000182,
+            "segments": 2743
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      },
+      "after": {
+        "sha256": "8cdc194f6a1c68f1d35a2d93ceeea04b81b20b33e573362318b6eb807b345d5d",
+        "command_sha256": "d1c2f077af36914fe540a725534d3838cde14e62bd0ca743fa244555a1714d46",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563859999995,
+            "length_mm": 415600.09065492643,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07693,
+            "length_mm": 1496.7518164000182,
+            "segments": 2743
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      }
+    },
+    "m05_fresh_cpu_gpu": {
+      "before": {
+        "sha256": "d667514a4d9f91ddebea285012069ce1f8b147f814524b377a5226f00613be4b",
+        "command_sha256": "d1c2f077af36914fe540a725534d3838cde14e62bd0ca743fa244555a1714d46",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563859999995,
+            "length_mm": 415600.09065492643,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07693,
+            "length_mm": 1496.7518164000182,
+            "segments": 2743
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      },
+      "after": {
+        "sha256": "8cdc194f6a1c68f1d35a2d93ceeea04b81b20b33e573362318b6eb807b345d5d",
+        "command_sha256": "d1c2f077af36914fe540a725534d3838cde14e62bd0ca743fa244555a1714d46",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563859999995,
+            "length_mm": 415600.09065492643,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07693,
+            "length_mm": 1496.7518164000182,
+            "segments": 2743
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      }
+    },
+    "m05_fresh_release_cpu": {
+      "before": {
+        "sha256": "0d3f4f2abd9c712fa48da05974016c89feb382aa45eb47595edfbfcbed98afdd",
+        "command_sha256": "bd59e9d9219be8a63fa55346a6dd27f186cf8f78cf1f210590d438da352e8697",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13634.75, 31942.64, 8421.22, 24007.41",
+          "filament used [cm3]": "32.80, 76.83, 20.26, 57.74",
+          "filament used [g]": "40.67, 95.27, 25.12, 71.60",
+          "filament cost": "0.81, 1.91, 0.50, 1.43",
+          "total filament used [g]": "232.66",
+          "total filament cost": "4.65",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 28m 10s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563879999996,
+            "length_mm": 415600.0879202177,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07948,
+            "length_mm": 1496.8084971761427,
+            "segments": 2745
+          },
+          "Outer wall": {
+            "e_mm": 9913.152440000005,
+            "length_mm": 327253.3826316866,
+            "segments": 319435
+          },
+          "Gap infill": {
+            "e_mm": 259.66228000000024,
+            "length_mm": 11837.599534985346,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.510010000007,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.753620000000002,
+            "length_mm": 190.10165565799923,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35484000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 2994.793660000025,
+            "length_mm": 93659.01881439738,
+            "segments": 133320
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131082740921,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      },
+      "after": {
+        "sha256": "d667514a4d9f91ddebea285012069ce1f8b147f814524b377a5226f00613be4b",
+        "command_sha256": "d1c2f077af36914fe540a725534d3838cde14e62bd0ca743fa244555a1714d46",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563859999995,
+            "length_mm": 415600.09065492643,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07693,
+            "length_mm": 1496.7518164000182,
+            "segments": 2743
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      }
+    },
+    "m05_fresh_release_repeat": {
+      "before": {
+        "sha256": "0d3f4f2abd9c712fa48da05974016c89feb382aa45eb47595edfbfcbed98afdd",
+        "command_sha256": "bd59e9d9219be8a63fa55346a6dd27f186cf8f78cf1f210590d438da352e8697",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13634.75, 31942.64, 8421.22, 24007.41",
+          "filament used [cm3]": "32.80, 76.83, 20.26, 57.74",
+          "filament used [g]": "40.67, 95.27, 25.12, 71.60",
+          "filament cost": "0.81, 1.91, 0.50, 1.43",
+          "total filament used [g]": "232.66",
+          "total filament cost": "4.65",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 28m 10s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563879999996,
+            "length_mm": 415600.0879202177,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07948,
+            "length_mm": 1496.8084971761427,
+            "segments": 2745
+          },
+          "Outer wall": {
+            "e_mm": 9913.152440000005,
+            "length_mm": 327253.3826316866,
+            "segments": 319435
+          },
+          "Gap infill": {
+            "e_mm": 259.66228000000024,
+            "length_mm": 11837.599534985346,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.510010000007,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.753620000000002,
+            "length_mm": 190.10165565799923,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35484000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 2994.793660000025,
+            "length_mm": 93659.01881439738,
+            "segments": 133320
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131082740921,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      },
+      "after": {
+        "sha256": "3147df33e5640324533bee138d7ea47141c2573c2b7bcf15c8bd49c32d7cadf1",
+        "command_sha256": "b2e1d4e955ff78e48a8a5c0a19140304de599b0652810bc7cdefc35a33ad4e95",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563879999996,
+            "length_mm": 415600.0879202177,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07948,
+            "length_mm": 1496.8084971761427,
+            "segments": 2745
+          },
+          "Outer wall": {
+            "e_mm": 9913.152440000005,
+            "length_mm": 327253.3826316866,
+            "segments": 319435
+          },
+          "Gap infill": {
+            "e_mm": 259.66228000000024,
+            "length_mm": 11837.599534985346,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.510010000007,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.753620000000002,
+            "length_mm": 190.10165565799923,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35484000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.193850000024,
+            "length_mm": 99069.74330605127,
+            "segments": 144592
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131082740921,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      }
+    },
+    "m05_fresh_release2_cpu": {
+      "before": {
+        "sha256": "3147df33e5640324533bee138d7ea47141c2573c2b7bcf15c8bd49c32d7cadf1",
+        "command_sha256": "b2e1d4e955ff78e48a8a5c0a19140304de599b0652810bc7cdefc35a33ad4e95",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563879999996,
+            "length_mm": 415600.0879202177,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07948,
+            "length_mm": 1496.8084971761427,
+            "segments": 2745
+          },
+          "Outer wall": {
+            "e_mm": 9913.152440000005,
+            "length_mm": 327253.3826316866,
+            "segments": 319435
+          },
+          "Gap infill": {
+            "e_mm": 259.66228000000024,
+            "length_mm": 11837.599534985346,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.510010000007,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.753620000000002,
+            "length_mm": 190.10165565799923,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35484000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.193850000024,
+            "length_mm": 99069.74330605127,
+            "segments": 144592
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131082740921,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      },
+      "after": {
+        "sha256": "d667514a4d9f91ddebea285012069ce1f8b147f814524b377a5226f00613be4b",
+        "command_sha256": "d1c2f077af36914fe540a725534d3838cde14e62bd0ca743fa244555a1714d46",
+        "statistics": {
+          "external perimeters extrusion width": "0.42mm",
+          "perimeters extrusion width": "0.45mm",
+          "infill extrusion width": "0.45mm",
+          "solid infill extrusion width": "0.42mm",
+          "top infill extrusion width": "0.42mm",
+          "support material extrusion width": "0.42mm",
+          "first layer extrusion width": "0.50mm",
+          "filament used [mm]": "13671.79, 32036.73, 8425.33, 24054.56",
+          "filament used [cm3]": "32.88, 77.06, 20.27, 57.86",
+          "filament used [g]": "40.78, 95.55, 25.13, 71.74",
+          "filament cost": "0.82, 1.91, 0.50, 1.43",
+          "total filament used [g]": "233.20",
+          "total filament cost": "4.66",
+          "total filament change": "1106",
+          "total layers count": "600",
+          "estimated printing time (normal mode)": "13h 30m 37s",
+          "estimated first layer printing time (normal mode)": "19s"
+        },
+        "deposited_by_role": {
+          "Prime tower": {
+            "e_mm": 28150.627199999773,
+            "length_mm": 708040.7802977159,
+            "segments": 228313
+          },
+          "Support": {
+            "e_mm": 12720.563859999995,
+            "length_mm": 415600.09065492643,
+            "segments": 921567
+          },
+          "Brim": {
+            "e_mm": 67.07693,
+            "length_mm": 1496.7518164000182,
+            "segments": 2743
+          },
+          "Outer wall": {
+            "e_mm": 9913.152320000005,
+            "length_mm": 327253.3816358157,
+            "segments": 319433
+          },
+          "Gap infill": {
+            "e_mm": 259.6622400000002,
+            "length_mm": 11837.598222685143,
+            "segments": 38982
+          },
+          "Inner wall": {
+            "e_mm": 9482.509990000006,
+            "length_mm": 289966.587606423,
+            "segments": 252132
+          },
+          "Bottom surface": {
+            "e_mm": 8.75364,
+            "length_mm": 190.1015853944157,
+            "segments": 126
+          },
+          "Overhang wall": {
+            "e_mm": 108.35486000000004,
+            "length_mm": 4142.295047028519,
+            "segments": 9034
+          },
+          "Internal solid infill": {
+            "e_mm": 3177.194770000024,
+            "length_mm": 99069.77213341446,
+            "segments": 144596
+          },
+          "Bridge": {
+            "e_mm": 181.41670999999994,
+            "length_mm": 7487.131130761601,
+            "segments": 6276
+          },
+          "Sparse infill": {
+            "e_mm": 13602.604680000006,
+            "length_mm": 416007.5170430561,
+            "segments": 112645
+          },
+          "Support interface": {
+            "e_mm": 185.52472999999998,
+            "length_mm": 6125.293168184578,
+            "segments": 15909
+          },
+          "Top surface": {
+            "e_mm": 118.37505000000002,
+            "length_mm": 3794.270001863415,
+            "segments": 1291
+          },
+          "Internal Bridge": {
+            "e_mm": 197.59270000000004,
+            "length_mm": 4893.99171942489,
+            "segments": 2512
+          }
+        }
+      }
+    }
+  },
+  "preparation_validation": {
+    "model": "m05",
+    "environment": "ORCA_PREP_VALIDATE_REUSE=1",
+    "default_result": "Reused/compact painting selector changed ordered slab polygons",
+    "without_compact": "Completed with strict preparation validation enabled",
+    "interpretation": "Ordered slab equality failed; intermediate geometric significance is unresolved. Matched fresh on/off controls have identical executable G-code."
+  },
+  "checks": {
+    "input_hashes_unchanged": true,
+    "cpp_test_cases": 47,
+    "cpp_assertions": 462293,
+    "python_tests": 7,
+    "gpu_device": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "wu_fei_seam_queries": [
+      163298,
+      160510
+    ],
+    "wu_fei_seam_tolerance_mismatches": 0,
+    "wu_fei_seam_max_error": 2.98023e-07
+  }
+}
