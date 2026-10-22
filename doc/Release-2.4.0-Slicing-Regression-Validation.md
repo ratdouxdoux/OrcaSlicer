@@ -47,6 +47,32 @@ In a control run of the same optimized executable, `ORCA_LOCAL_Z_REUSE=0` and `O
 
 The plot projects deposited paths into XY. Blue is the model and red is the prime tower; the dashed rectangle is the 270 × 270 mm plate. It does not compare the different sublayer schedules hidden by that projection. Two released-build runs produced identical executable commands, so the large difference is not explained by ordinary repeat variance.
 
+### Star project with SML disabled and overlap checks
+
+A copy of the original 3MF was made with only `dithering_local_z_mode` changed from `1` to `0`; all other archive members and setting values were verified unchanged. Both actual GUIs sliced that copy. These are estimated **printing** times, not slicing wall times:
+
+| Build | SML / Local-Z | Tool changes | Filament | Estimated printing time |
+| --- | --- | ---: | ---: | --- |
+| Released 2.4.0 | On, saved solver | 481 | 116.54 g | 6h 06m 57s |
+| Optimized V2 | On, forced direct solver | 2,146 | 169.42 g | 17h 11m 22s |
+| Released 2.4.0 | Off | 189 | 107.64 g | 3h 31m 17s |
+| Optimized V2 | Off | 189 | 107.64 g | 3h 31m 18s |
+
+Turning SML off in V2 removes **1,957 tool changes** and reduces estimated printing time by **13h 40m 04s**. V2 with SML on is **11h 04m 25s** longer than released 2.4.0 with its saved SML solver. With SML off the two builds differ by one estimated second. Their tool/layer sequences match, with only two changed first-layer outer-wall groups and +0.00009 mm of total positive XY filament extrusion in V2.
+
+The overlap diagnostic inspected all **580,192 positive XY extrusion segments** in the optimized SML-on output, separating the model from the tower. It found:
+
+- **No positive-length model centerline retracing at the same physical Z**, including different tools and differently segmented collinear paths.
+- **No cross-tool interior centerline crossings at the same Z**, excluding endpoint contacts within 0.001 mm.
+- **No overlapping reported vertical extrusion spans along coincident model centerlines** beyond 0.001001 mm of vertical overlap, for coincident lengths above 0.01 mm. Repeated XY paths on successive non-overlapping sublayers are expected.
+- **84 short prime-tower retraces of 0.25 mm each**, totaling **21 mm**, all with the same tool. Released SML-on output also has short tower retraces: 23 totaling 5.75 mm. The optimized SML-off output has no exact positive-length retraces in either model or tower.
+
+These checks cover centerlines and reported layer heights. They do not test every overlap between finite-width beads, near-parallel paths, or every nozzle-travel collision. Normal neighboring extrusion beads deliberately overlap slightly. Six synthetic diagnostic fixtures verified detection of partial and reversed retraces, vertical overlap versus adjacent layers, and interior crossings versus endpoint contact.
+
+The material increase is overwhelmingly in the tower. Positive XY model extrusion is **34,033.518 mm of filament in released SML-on output versus 34,032.922 mm in V2**, a difference of just -0.595 mm. Tower deposition grows from approximately **14.98 g to 67.87 g**, using the projects' 1.75 mm diameter and 1.24 g/cm³ density. This accounts for essentially all of the total +52.88 g increase. Meanwhile the model's centerline travel grows from **1.749 km to 3.891 km** because the same material is deposited through more, thinner passes; without SML it is **0.943 km**. Additional passes and tool changes therefore lengthen printing without requiring duplicate model extrusion at the same height.
+
+[Follow-up measurements](Star-SML-Overlap-Comparison.json) contain the output hashes, statistics and overlap counts. The original project was not changed.
+
 ### Face project has one extra short segment
 
 At Z 22.76 mm, tool 1 gains a 0.064031 mm internal-solid-infill segment, consuming an additional 0.00236 mm of filament length. Other deposited segments and the tool/layer sequences match. Two release runs have identical executable commands. The discrepancy is tiny, but remains a recorded comparison finding rather than an assumed nondeterministic difference; two baseline runs do not exclude all possible variation.
