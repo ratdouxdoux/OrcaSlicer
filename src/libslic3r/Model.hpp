@@ -1635,6 +1635,9 @@ public:
     bool         delete_object(ObjectID id);
     bool         delete_object(ModelObject* object);
     void         clear_objects();
+    // Install staged geometry while retaining this project's materials, custom
+    // G-code, metadata and crash-recovery bookkeeping. Source objects are consumed.
+    void         replace_objects(Model&& source);
     // BBS: backup, reuse objects
     void         collect_reusable_objects(std::vector<ObjectBase *> & objects);
     void         set_object_backup_id(ModelObject const & object, int uuid);

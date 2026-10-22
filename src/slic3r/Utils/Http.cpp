@@ -121,6 +121,7 @@ struct Http::priv
     std::string headers;
 	size_t limit;
 	bool cancel;
+    bool follow_redirects = true;
     std::unique_ptr<form_file> putFile;
 
 	std::thread io_thread;
@@ -440,7 +441,7 @@ std::string Http::priv::body_size_error()
 
 void Http::priv::http_perform()
 {
-	::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, follow_redirects ? 1L : 0L);
 	::curl_easy_setopt(curl, CURLOPT_POSTREDIR, CURL_REDIR_POST_ALL);
 	::curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writecb);
 	::curl_easy_setopt(curl, CURLOPT_WRITEDATA, static_cast<void*>(this));
@@ -524,8 +525,10 @@ void Http::priv::http_perform()
 	}
 }
 
-Http::Http(const std::string &url) : p(new priv(url)) {
+Http::Http(const std::string &url, bool use_extra_headers) : p(new priv(url)) {
 
+    if (!use_extra_headers)
+        return;
     std::lock_guard<std::mutex> l(g_mutex);
 	for (auto it = extra_headers.begin(); it != extra_headers.end(); it++)
 		this->header(it->first, it->second);
@@ -786,6 +789,23 @@ Http Http::post(std::string url)
 	Http http{std::move(url)};
 	curl_easy_setopt(http.p->curl, CURLOPT_POST, 1L);
 	return http;
+}
+
+Http Http::post_external(std::string url)
+{
+    Http http{url, false};
+    http.p->follow_redirects = false;
+    // The legacy printer transport allows self-signed certificates. External
+    // API credentials require normal certificate and hostname verification.
+    curl_easy_setopt(http.p->curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(http.p->curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(http.p->curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_DEFAULT);
+#ifdef _WIN32
+    // The bundled curl uses OpenSSL; it otherwise has no Windows CA bundle.
+    curl_easy_setopt(http.p->curl, CURLOPT_SSL_OPTIONS, static_cast<long>(CURLSSLOPT_NATIVE_CA));
+#endif
+    curl_easy_setopt(http.p->curl, CURLOPT_POST, 1L);
+    return http;
 }
 
 Http Http::put(std::string url)

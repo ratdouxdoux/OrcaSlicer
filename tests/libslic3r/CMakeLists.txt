@@ -67,4 +67,20 @@ if (WIN32)
 endif()
 
 catch_discover_tests(${_TEST_NAME}_tests TEST_PREFIX "${_TEST_NAME}: " EXTRA_ARGS ${CATCH_EXTRA_ARGS})
+
+add_executable(ai_print_assistant_tests
+    test_ai_print_assistant.cpp
+    test_ai_model_tools.cpp
+    test_ai_slice_tools.cpp
+    test_ai_chat_markdown.cpp
+    ../../src/slic3r/Utils/AIChatMarkdown.cpp
+    ../../src/slic3r/Utils/AIPrintAssistantChat.cpp
+    ../../src/slic3r/Utils/AIPrintAssistantProvider.cpp)
+target_link_libraries(ai_print_assistant_tests PRIVATE ${TEST_LINK_LIBS})
+target_compile_definitions(ai_print_assistant_tests PRIVATE AI_ASSISTANT_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources")
+if(WIN32)
+    target_link_libraries(ai_print_assistant_tests PRIVATE bcrypt.lib crypt32.lib)
+endif()
+set_property(TARGET ai_print_assistant_tests PROPERTY FOLDER "tests")
+catch_discover_tests(ai_print_assistant_tests TEST_PREFIX "ai_assistant: " PROPERTIES LABELS "fast")
 # add_test(${_TEST_NAME}_tests ${_TEST_NAME}_tests ${CATCH_EXTRA_ARGS})

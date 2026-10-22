@@ -14,6 +14,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/3DBed.hpp
     GUI/3DScene.cpp
     GUI/3DScene.hpp
+    GUI/AIPrintAssistantDialog.cpp
+    GUI/AIPrintAssistantDialog.hpp
+    GUI/AIModelTools.cpp
+    GUI/AIModelTools.hpp
     GUI/AboutDialog.cpp
     GUI/AboutDialog.hpp
     GUI/AmsMappingPopup.cpp
@@ -609,6 +613,12 @@ set(SLIC3R_GUI_SOURCES
     Utils/Frustum.hpp
     Utils/HexFile.cpp
     Utils/HexFile.hpp
+    Utils/AIPrintAssistantProvider.cpp
+    Utils/AIPrintAssistantChat.cpp
+    Utils/AIPrintAssistantChat.hpp
+    Utils/AIChatMarkdown.cpp
+    Utils/AIChatMarkdown.hpp
+    Utils/AIPrintAssistantProvider.hpp
     Utils/Http.cpp
     Utils/Http.hpp
     Utils/InstanceID.cpp

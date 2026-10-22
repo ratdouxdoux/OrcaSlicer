@@ -659,6 +659,20 @@ void Model::clear_objects()
     next_object_backup_id = 1;
 }
 
+void Model::replace_objects(Model&& source)
+{
+    if (&source == this)
+        return;
+    // clear_objects() resets the backup IDs. Retain them for surviving objects
+    // so a staged edit does not create a new crash-recovery identity.
+    for (ModelObject* object : objects)
+        delete object;
+    objects = std::move(source.objects);
+    source.objects.clear();
+    for (ModelObject* object : objects)
+        object->set_model(this);
+}
+
 // BBS: backup, reuse objects
 void Model::collect_reusable_objects(std::vector<ObjectBase*>& objects)
 {

@@ -1,4 +1,5 @@
 #include "MainFrame.hpp"
+#include "AIPrintAssistantDialog.hpp"
 
 #include <wx/panel.h>
 #include <wx/notebook.h>
@@ -454,7 +455,9 @@ DPIFrame(NULL, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, BORDERLESS_FRAME_
 #endif // __WINDOWS__
 
 
-    sizer->Add(m_main_sizer, 1, wxEXPAND);
+    m_workspace_sizer = new wxBoxSizer(wxHORIZONTAL);
+    m_workspace_sizer->Add(m_main_sizer, 1, wxEXPAND);
+    sizer->Add(m_workspace_sizer, 1, wxEXPAND);
     SetSizerAndFit(sizer);
     // initialize layout from config
     update_layout();
@@ -703,6 +706,18 @@ DPIFrame(NULL, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, BORDERLESS_FRAME_
     // bind events from DiffDlg
 
     bind_diff_dialog();
+}
+
+void MainFrame::toggle_ai_print_assistant()
+{
+    if (!m_ai_assistant) {
+        m_ai_assistant = create_ai_print_assistant(this, m_plater, [this] { toggle_ai_print_assistant(); });
+        m_workspace_sizer->Add(m_ai_assistant, 0, wxEXPAND);
+    } else {
+        if (m_ai_assistant->IsShown()) suspend_ai_print_assistant(m_ai_assistant);
+        m_ai_assistant->Show(!m_ai_assistant->IsShown());
+    }
+    Layout();
 }
 
 void MainFrame::bind_diff_dialog()
@@ -1009,6 +1024,7 @@ void MainFrame::update_layout()
 // Called when closing the application and when switching the application language.
 void MainFrame::shutdown(bool isRecreate)
 {
+    if (m_ai_assistant) suspend_ai_print_assistant(m_ai_assistant);
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << "MainFrame::shutdown enter";
     m_shutting_down = true;
     // BBS: backup
@@ -2354,6 +2370,7 @@ void MainFrame::on_sys_color_changed()
     for (auto tab : wxGetApp().model_tabs_list)
         tab->sys_color_changed();
     wxGetApp().plate_tab->sys_color_changed();
+    update_ai_print_assistant_theme(m_ai_assistant);
 
     MenuFactory::sys_color_changed(m_menubar);
 
@@ -2999,6 +3016,13 @@ void MainFrame::init_menubar_as_editor()
         "", nullptr, []() { return true; }, this, 1);
     //parent_menu->Insert(1, preference_item);
 #endif
+    if (editMenu && m_plater) {
+        editMenu->AppendSeparator();
+        append_menu_item(editMenu, wxID_ANY, _L("AI assistant"), _L("Open the assistant chat sidebar"),
+            [this](wxCommandEvent&) { toggle_ai_print_assistant(); }, "", nullptr,
+            [this]() { return m_plater && m_plater->printer_technology() == ptFFF; }, this);
+    }
+
     // Help menu
     auto helpMenu = generate_help_menu();
 
@@ -4160,6 +4184,7 @@ void MainFrame::technology_changed()
 // Update the UI based on the current preferences.
 void MainFrame::update_ui_from_settings()
 {
+    update_ai_print_assistant_theme(m_ai_assistant);
     if (m_plater)
         m_plater->update_ui_from_settings();
     for (auto tab: wxGetApp().tabs_list)

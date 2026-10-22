@@ -81,6 +81,9 @@ public:
 	// for a GET and a POST request respectively.
 	static Http get(std::string url);
 	static Http post(std::string url);
+    // Verify TLS certificates for third-party services; do not inherit printer/
+    // account headers or forward API credentials through redirects.
+    static Http post_external(std::string url);
 	static Http put(std::string url);
 	static Http del(std::string url);
 
@@ -198,7 +201,7 @@ public:
 
 	static std::string get_filename_from_url(const std::string &url);
 private:
-	Http(const std::string &url);
+	Http(const std::string &url, bool use_extra_headers = true);
 
 	std::unique_ptr<priv> p;
 };

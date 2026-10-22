@@ -107,6 +107,8 @@ class MainFrame : public DPIFrame
 #endif
     wxMenuItem* m_menu_item_reslice_now { nullptr };
     wxSizer*    m_main_sizer{ nullptr };
+    wxSizer*    m_workspace_sizer{ nullptr };
+    wxWindow*   m_ai_assistant{ nullptr };
 
     size_t      m_last_selected_tab;
 
@@ -205,6 +207,7 @@ protected:
 
 public:
     MainFrame();
+    void toggle_ai_print_assistant();
     ~MainFrame() = default;
 
     //BBS GUI refactor

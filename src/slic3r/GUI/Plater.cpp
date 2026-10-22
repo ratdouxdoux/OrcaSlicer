@@ -24216,6 +24216,11 @@ bool Plater::is_background_process_slicing() const
     return p->m_is_slicing;
 }
 
+bool Plater::is_background_process_running() const
+{
+    return p->background_process.running();
+}
+
 //BBS: update slicing context
 void Plater::update_slicing_context_to_current_partplate()
 {

@@ -364,6 +364,13 @@ set(lisbslic3r_sources
     PrintBase.cpp
     PrintBase.hpp
     PrintConfig.cpp
+    AIPrintAssistant.cpp
+    AISliceTools.cpp
+    AISliceTools.hpp
+    AIModelTools.cpp
+    AIModelTools.hpp
+    AIPrintAssistantCatalog.cpp
+    AIPrintAssistant.hpp
     PrintConfig.hpp
     Print.cpp
     Print.hpp
