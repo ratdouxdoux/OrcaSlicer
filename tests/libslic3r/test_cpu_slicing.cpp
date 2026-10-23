@@ -1,10 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include "libslic3r/ExtrusionEntityCollection.hpp"
 #include "libslic3r/Fill/FillRectilinear.hpp"
 #include "libslic3r/MixedFilamentLayerTracker.hpp"
 #include "libslic3r/MixedFilamentChannelMap.hpp"
 #include "libslic3r/LayerGeometryBatch.hpp"
+#include "libslic3r/LocalZMaskTimeline.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Support/TreeSupport.hpp"
@@ -17,6 +19,7 @@
 #include <string>
 
 using namespace Slic3r;
+using Catch::Approx;
 
 namespace {
 ExPolygon rectangle(coord_t x0, coord_t y0, coord_t x1, coord_t y1)
@@ -24,6 +27,65 @@ ExPolygon rectangle(coord_t x0, coord_t y0, coord_t x1, coord_t y1)
     return ExPolygon(Polygon(Points{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}));
 }
 } // namespace
+
+TEST_CASE("Independent Local-Z passes partition changing material ownership", "[LocalZ][Ownership]")
+{
+    const auto box = [](double x0, double y0, double x1, double y1) { return rectangle(scale_(x0), scale_(y0), scale_(x1), scale_(y1)); };
+    const ExPolygons            small{box(0, 0, 3, 4)}, large{box(0, 0, 8, 4)};
+    std::vector<LocalZMaskSlab> input;
+    SECTION("unchanged footprint keeps the full thick pass") { input = {{0, .1, .2, small}, {1, .2, .3, small}, {2, .3, .4, small}}; }
+    SECTION("growth cannot inherit the earlier material's thickness")
+    {
+        input = {{0, .1, .2, small}, {1, .2, .3, large}, {2, .3, .4, large}};
+    }
+    SECTION("shrinking area is completed on its last owning layer")
+    {
+        input = {{0, .1, .2, large}, {1, .2, .3, small}, {2, .3, .4, small}};
+    }
+    SECTION("departing island and returning island have separate spans")
+    {
+        input = {{0, .1, .2, large}, {1, .2, .3, small}, {2, .3, .4, large}};
+    }
+    SECTION("split and merge with a hole and disconnected island")
+    {
+        ExPolygon ring = box(0, 0, 8, 4);
+        Polygon   hole = box(3, 1, 5, 3).contour;
+        hole.reverse();
+        ring.holes.push_back(hole);
+        input = {{0, .1, .2, large}, {1, .2, .3, {ring, box(10, 0, 12, 4)}}, {2, .3, .4, large}};
+    }
+    SECTION("no ownership across an empty slab") { input = {{0, .1, .2, large}, {1, .2, .3, {}}, {2, .3, .4, large}}; }
+    SECTION("short end pieces keep their actual thickness") { input = {{0, .18, .2, small}, {1, .2, .28, large}, {2, .28, .301, small}}; }
+    const auto output = partition_local_z_mask_span(input);
+    REQUIRE_FALSE(output.empty());
+    double expected_volume = 0.0, actual_volume = 0.0;
+    for (const auto& slab : input) {
+        expected_volume += area(slab.masks) * (slab.z_hi - slab.z_lo);
+        ExPolygons   coverage;
+        const double middle = (slab.z_lo + slab.z_hi) / 2;
+        for (const auto& span : output)
+            if (span.z_lo < middle && span.z_hi > middle)
+                append(coverage, span.masks);
+        CHECK(area(diff_ex(slab.masks, coverage)) < 1.0);
+        CHECK(area(diff_ex(coverage, slab.masks)) < 1.0);
+    }
+    for (size_t i = 0; i < output.size(); ++i) {
+        const auto& span = output[i];
+        CHECK(span.z_hi > span.z_lo);
+        CHECK(span.z_hi == Approx(input[span.layer_id].z_hi));
+        CHECK(area(diff_ex(span.masks, input[span.layer_id].masks)) < 1.0);
+        actual_volume += area(span.masks) * (span.z_hi - span.z_lo);
+        for (size_t j = 0; j < i; ++j)
+            if (std::min(span.z_hi, output[j].z_hi) > std::max(span.z_lo, output[j].z_lo) + EPSILON)
+                CHECK(area(intersection_ex(span.masks, output[j].masks)) < 1.0);
+    }
+    CHECK(actual_volume == Approx(expected_volume));
+    if (input[0].masks == input[1].masks && input[1].masks == input[2].masks) {
+        REQUIRE(output.size() == 1);
+        CHECK(output.front().z_lo == Approx(.1));
+        CHECK(output.front().z_hi == Approx(.4));
+    }
+}
 
 TEST_CASE("Infill gap filling preserves density boundaries and bridge exclusions", "[CPUSlicing][InfillGap]")
 {

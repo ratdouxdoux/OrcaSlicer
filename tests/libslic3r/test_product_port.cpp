@@ -702,6 +702,77 @@ TEST_CASE("SML restores direct independent heights for painted two and three fil
         CHECK(counts[1][component] > 5);
 }
 
+TEST_CASE("SML roof painting cannot claim thickness below its historical footprint", "[ProductPort][LocalZ][Ownership][Slice]")
+{
+    const std::vector<std::string> colors{"#008FA9", "#AE537F", "#FFFF00", "#FFFFFF"};
+    MixedFilamentManager           manager;
+    manager.add_custom_filament(1, 2, 75, colors);
+    auto& mix                      = manager.mixed_filaments().back();
+    mix.gradient_component_ids     = "12";
+    mix.gradient_component_weights = "25/75";
+    mix.distribution_mode          = int(MixedFilament::LayerCycle);
+    auto config                    = DynamicPrintConfig::full_print_config();
+    config.set_num_extruders(4);
+    config.set_num_filaments(4);
+    config.set("mixed_filament_definitions", manager.serialize_custom_entries());
+    config.set("layer_height", .08);
+    config.set("initial_layer_print_height", .20);
+    config.set("mixed_filament_height_lower_bound", .06);
+    config.set("dithering_local_z_mode", true);
+    SECTION("painted regions only") { config.set("dithering_local_z_whole_objects", false); }
+    SECTION("whole-object scope with fixed material guards") { config.set("dithering_local_z_whole_objects", true); }
+
+    config.set("top_shell_layers", 9);
+    config.set("top_shell_thickness", .8);
+    config.option<ConfigOptionStrings>("filament_colour")->values  = colors;
+    config.option<ConfigOptionFloats>("filament_diameter")->values = {1.75, 1.75, 1.75, 1.75};
+    config.option<ConfigOptionFloats>("max_layer_height")->values  = {.30, .30, .30, .30};
+    Model model;
+    auto* object = model.add_object();
+    object->config.set("extruder", 1);
+    auto*            volume = object->add_volume(make_cube(8., 8., 3.));
+    TriangleSelector selector(volume->mesh());
+    const auto&      mesh         = volume->mesh().its;
+    const float      roof_z       = volume->mesh().bounding_box().max.z();
+    bool             painted_roof = false;
+    for (size_t i = 0; i < mesh.indices.size(); ++i) {
+        const auto& t = mesh.indices[i];
+        if (mesh.vertices[t[0]].z() == roof_z && mesh.vertices[t[1]].z() == roof_z && mesh.vertices[t[2]].z() == roof_z) {
+            selector.set_facet(int(i), static_cast<EnforcerBlockerType>(5));
+            painted_roof = true;
+            break;
+        }
+    }
+    REQUIRE(painted_roof);
+    volume->mmu_segmentation_facets.set(selector);
+    object->add_instance();
+    object->ensure_on_bed();
+    Print print;
+    print.set_status_silent();
+    print.apply(model, config);
+    auto* printed = print.get_object(0);
+    printed->slice();
+    const auto& intervals = printed->local_z_intervals();
+    const auto& plans     = printed->local_z_sublayer_plan();
+    REQUIRE_FALSE(plans.empty());
+    size_t corrected = 0;
+    for (const auto& pass : plans) {
+        if (!pass.masks_are_compensated)
+            continue;
+        ++corrected;
+        CHECK(pass.flow_height == Approx(pass.z_hi - pass.z_lo));
+        CHECK(pass.print_z <= intervals[pass.layer_id].z_hi + EPSILON);
+        for (const auto& interval : intervals) {
+            if (std::min(pass.z_hi, interval.z_hi) <= std::max(pass.z_lo, interval.z_lo) + EPSILON)
+                continue;
+            const auto owned = offset_ex(interval.managed_masks, float(scale_(.10)));
+            for (const auto& mask : pass.painted_masks_by_extruder)
+                CHECK(area(diff_ex(mask, owned)) * SCALING_FACTOR * SCALING_FACTOR < 1e-5);
+        }
+    }
+    CHECK(corrected > 0);
+}
+
 TEST_CASE("Gradient design previews retain full transitions at the minimum print cycle", "[ProductPort][Gradient]")
 {
     MixedFilament row;

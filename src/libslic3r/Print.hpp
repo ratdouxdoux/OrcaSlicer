@@ -85,6 +85,8 @@ struct SubLayerPlan
     double flow_height { 0.0 };
     size_t dependency_group { 0 };
     size_t dependency_order { 0 };
+    bool                    masks_are_compensated{false};
+    unsigned int            independent_extruder{0}; // One-based, retained even when a guarded footprint is temporarily empty.
     std::vector<ExPolygons> painted_masks_by_extruder;
     std::vector<ExPolygons> fixed_painted_masks_by_extruder;
     ExPolygons              base_masks;

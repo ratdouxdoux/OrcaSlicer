@@ -10,6 +10,7 @@
 #include "I18N.hpp"
 #include "LocalZOrderOptimizer.hpp"
 #include "LocalZClipper.hpp"
+#include "LocalZMaskTimeline.hpp"
 #include "ShortestPath.hpp"
 #include "Thread.hpp"
 #include "Time.hpp"
@@ -56,8 +57,6 @@ PrintRegion::PrintRegion(const PrintRegionConfig &config) : PrintRegion(config, 
 PrintRegion::PrintRegion(PrintRegionConfig &&config) : PrintRegion(std::move(config), config.hash()) {}
 
 namespace {
-
-constexpr double LOCAL_Z_PERIMETER_MASK_EXPAND_MM = 0.10;
 
 struct LocalZWipeTowerToolchange
 {
@@ -228,8 +227,10 @@ static std::vector<LocalZWipeTowerPassRef> collect_local_z_wipe_tower_passes(con
 
                 ExPolygons compensated;
                 if (!mixed_raw_masks.empty()) {
-                    ExPolygons compensated_mixed = local_z_compensate_masks_for_wipe_tower(mixed_raw_masks, local_z_perimeter_mask_expand,
-                                                                                           true);
+                    ExPolygons compensated_mixed = plan.masks_are_compensated ?
+                                                       mixed_raw_masks :
+                                                       local_z_compensate_masks_for_wipe_tower(mixed_raw_masks,
+                                                                                               local_z_perimeter_mask_expand, true);
                     if (!fixed_compensated_guard.empty())
                         compensated_mixed = diff_ex(compensated_mixed, fixed_compensated_guard);
                     if (!compensated_mixed.empty())

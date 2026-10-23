@@ -7,6 +7,7 @@
 #include "GCode.hpp"
 #include "LocalZOrderOptimizer.hpp"
 #include "LocalZClipper.hpp"
+#include "LocalZMaskTimeline.hpp"
 #include "LocalZPathRouter.hpp"
 #include "Exception.hpp"
 #include "ExtrusionEntity.hpp"
@@ -5195,7 +5196,6 @@ LayerResult GCode::process_layer(const Print& print,
         return 0;
     };
     // Compensate perimeter clipping at mixed-mask boundaries to avoid cracks from exact centerline clipping.
-    constexpr double LOCAL_Z_PERIMETER_MASK_EXPAND_MM = 0.10;
     // Keep base exclusion smaller than mixed-pass inclusion to guarantee a slight overlap
     // instead of a moat at the boundary.
     constexpr double LOCAL_Z_BASE_MASK_EXPAND_MM      = 0.04;
@@ -5297,14 +5297,16 @@ LayerResult GCode::process_layer(const Print& print,
                         continue;
                     pass_has_raw_masks = true;
                     raw_mask_polygon_count += mixed_raw_masks.size() + fixed_raw_masks.size();
-                    if (!mixed_raw_masks.empty())
+                    if (!mixed_raw_masks.empty() && !plan.masks_are_compensated)
                         append(raw_mixed_masks_union, mixed_raw_masks);
                     if (!fixed_raw_masks.empty())
                         append(raw_mixed_masks_union, fixed_raw_masks);
 
                     ExPolygons compensated;
                     if (!mixed_raw_masks.empty()) {
-                        ExPolygons compensated_mixed = local_z_compensate_masks(mixed_raw_masks, local_z_perimeter_mask_expand, true);
+                        ExPolygons compensated_mixed = plan.masks_are_compensated ?
+                                                           mixed_raw_masks :
+                                                           local_z_compensate_masks(mixed_raw_masks, local_z_perimeter_mask_expand, true);
                         if (!fixed_compensated_guard.empty())
                             compensated_mixed = diff_ex(compensated_mixed, fixed_compensated_guard);
                         if (!compensated_mixed.empty())

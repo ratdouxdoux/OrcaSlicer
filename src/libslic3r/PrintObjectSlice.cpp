@@ -20,6 +20,7 @@
 #include "PreparationDiagnostics.hpp"
 #include "MixedFilamentChannelMap.hpp"
 #include "LayerGeometryBatch.hpp"
+#include "LocalZMaskTimeline.hpp"
 #include "MultiMaterialSegmentation.hpp"
 #include "Print.hpp"
 #include "SVG.hpp"
@@ -2580,15 +2581,11 @@ static void export_local_z_plan_debug(const PrintObject& print_object, coordf_t 
         json << "  \"sublayers\": [\n";
         for (size_t i = 0; i < plans.size(); ++i) {
             const SubLayerPlan &plan = plans[i];
-            json << "    {\"layer_id\": " << plan.layer_id
-                 << ", \"pass_index\": " << plan.pass_index
-                 << ", \"split_interval\": " << (plan.split_interval ? "true" : "false")
-                 << ", \"z_lo\": " << plan.z_lo
-                 << ", \"z_hi\": " << plan.z_hi
-                 << ", \"print_z\": " << plan.print_z
-                 << ", \"flow_height\": " << plan.flow_height
-                 << ", \"base_mask_count\": " << plan.base_masks.size()
-                 << ", \"painted_mask_counts\": [";
+            json << "    {\"layer_id\": " << plan.layer_id << ", \"pass_index\": " << plan.pass_index
+                 << ", \"split_interval\": " << (plan.split_interval ? "true" : "false") << ", \"z_lo\": " << plan.z_lo
+                 << ", \"z_hi\": " << plan.z_hi << ", \"print_z\": " << plan.print_z << ", \"flow_height\": " << plan.flow_height
+                 << ", \"masks_are_compensated\": " << (plan.masks_are_compensated ? "true" : "false")
+                 << ", \"base_mask_count\": " << plan.base_masks.size() << ", \"painted_mask_counts\": [";
             for (size_t eidx = 0; eidx < plan.painted_masks_by_extruder.size(); ++eidx) {
                 json << plan.painted_masks_by_extruder[eidx].size();
                 if (eidx + 1 < plan.painted_masks_by_extruder.size())
@@ -3265,6 +3262,24 @@ static void build_local_z_plan(PrintObject&                                print
         channel_count = std::max(channel_count, channels.size());
     const std::vector<int> mixed_rows = mixed_filament_channel_rows(mixed_mgr, num_physical, channel_count);
 
+    // A pending independent pass must finish before another row switches the
+    // next interval to the shared scheduler; otherwise resetting its cursor
+    // would abandon thickness whose base paths have already been suppressed.
+    std::vector<uint8_t> independent_eligible(segmentation.size(), 0);
+    for (size_t layer = 0; layer < segmentation.size(); ++layer) {
+        bool active = false, eligible = true;
+        for (size_t channel = 0; channel < segmentation[layer].size(); ++channel) {
+            const int row = mixed_rows[channel];
+            if (row < 0 || size_t(row) >= mixed_definitions.size() || segmentation[layer][channel].empty() || row_uses_local_z[row] == 0 ||
+                !local_z_eligible_mixed_definition(mixed_definitions[row]))
+                continue;
+            active   = true;
+            eligible = eligible && (row_is_gradient_definition[row] != 0 ||
+                                    (local_z_independent_layer_height && !row_independent_direct_cadences[row].empty()));
+        }
+        independent_eligible[layer] = active && eligible;
+    }
+
     // Only immutable geometry is prepared in parallel. Cadence, gradient state,
     // error accumulation, dependency IDs and plan emission remain ordered below.
     struct PreparedLocalZGeometry
@@ -3623,7 +3638,7 @@ static void build_local_z_plan(PrintObject&                                print
             std::vector<SubLayerPlan> independent_plans;
             independent_plans.reserve(std::max<size_t>(2, active_mixed_definitions * 2));
             for (size_t row_idx = 0; row_idx < row_active_this_layer.size(); ++row_idx) {
-                if (row_active_this_layer[row_idx] == 0 || row_state_masks[row_idx].empty())
+                if (row_active_this_layer[row_idx] == 0)
                     continue;
 
                 IndependentCadenceState& state = row_independent_states[row_idx];
@@ -3649,6 +3664,7 @@ static void build_local_z_plan(PrintObject&                                print
                     plan.flow_height      = flow_height;
                     plan.dependency_group = row_idx + 1;
                     plan.dependency_order = state.emitted_passes++;
+                    plan.independent_extruder = target_extruder;
                     plan.painted_masks_by_extruder.assign(num_physical, ExPolygons());
                     plan.fixed_painted_masks_by_extruder.assign(num_physical, ExPolygons());
                     append(plan.painted_masks_by_extruder[target_extruder - 1], row_state_masks[row_idx]);
@@ -3714,7 +3730,7 @@ static void build_local_z_plan(PrintObject&                                print
                         break;
                 }
 
-                const bool continues_next_layer = layer_id + 1 < print_object.layer_count() &&
+                const bool continues_next_layer = layer_id + 1 < print_object.layer_count() && independent_eligible[layer_id + 1] != 0 &&
                                                   mixed_filament_local_z_should_subdivide_layer(layer_id + 1, local_z_whole_objects,
                                                                                                 local_z_preserve_first_layer) &&
                                                   row_is_active_on_layer(row_idx, layer_id + 1);
@@ -4381,6 +4397,142 @@ static void build_local_z_plan(PrintObject&                                print
                                     << " max_input_points=" << max_batch_input_points
                                     << " max_retained_points=" << max_batch_retained_points
                                     << " retained_vertex_bytes=" << max_batch_retained_points * sizeof(Point);
+        // An independent pass can span several nominal layers. Its current-layer
+        // footprint is not valid for that whole height if painting changes. Keep
+        // the original cadence, but partition each pass by historical ownership.
+        // This also closes departing islands before fixed material takes over.
+        PreparationTimer                       ownership_timer(&prep_profile, "ownership_history");
+        std::vector<std::vector<SubLayerPlan>> by_layer(intervals.size());
+        std::vector<ExPolygons>                layer_base_masks(intervals.size());
+        double                                 max_pass_height = 0.0;
+        for (const SubLayerPlan& plan : plans)
+            max_pass_height = std::max(max_pass_height, plan.flow_height);
+        std::map<std::pair<size_t, size_t>, ExPolygons> history;
+        std::map<std::pair<size_t, size_t>, ExPolygons> compensated_history;
+        std::map<size_t, ExPolygons>                    fixed_guards;
+        auto                                            historical_mask = [&](size_t source_layer, size_t row) -> const ExPolygons& {
+            const auto key   = std::make_pair(source_layer, row);
+            auto       found = history.find(key);
+            if (found != history.end())
+                return found->second;
+            ExPolygons masks;
+            for (size_t channel = 0; channel < segmentation[source_layer].size(); ++channel)
+                if (mixed_rows[channel] == int(row))
+                    append(masks, segmentation[source_layer][channel]);
+            if (masks.size() > 1)
+                masks = union_ex(masks);
+            if (local_z_whole_objects && !masks.empty()) {
+                auto guard = fixed_guards.find(source_layer);
+                if (guard == fixed_guards.end()) {
+                    ExPolygons fixed;
+                    for (const ExPolygons& owned : collect_local_z_fixed_state_masks_by_extruder(segmentation[source_layer], num_physical))
+                        append(fixed, owned);
+                    guard = fixed_guards.emplace(source_layer, offset_ex(union_ex(fixed), float(scale_(0.10)))).first;
+                }
+                if (!guard->second.empty())
+                    masks = diff_ex(masks, guard->second);
+            }
+            if (validate_geometry && masks != prepare_geometry(source_layer, nullptr).row_masks[row])
+                throw std::runtime_error("Local-Z ownership history changed prepared row masks");
+            return history.emplace(key, std::move(masks)).first->second;
+        };
+        size_t changed_ownership_passes = 0;
+        for (SubLayerPlan& plan : plans) {
+            throw_on_cancel();
+            if (!plan.base_masks.empty())
+                layer_base_masks[plan.layer_id] = std::move(plan.base_masks);
+            while (!history.empty() &&
+                   intervals[history.begin()->first.first].z_hi < intervals[plan.layer_id].z_lo - max_pass_height - EPSILON) {
+                compensated_history.erase(history.begin()->first);
+                fixed_guards.erase(history.begin()->first.first);
+                history.erase(history.begin());
+            }
+            const bool independent = intervals[plan.layer_id].independent_layer_height && plan.dependency_group > 0 &&
+                                     plan.dependency_group <= mixed_definitions.size();
+            if (!independent) {
+                by_layer[plan.layer_id].emplace_back(std::move(plan));
+                continue;
+            }
+            const size_t row         = plan.dependency_group - 1;
+            size_t       first_layer = plan.layer_id;
+            while (first_layer > 0 && intervals[first_layer - 1].z_hi > plan.z_lo + EPSILON)
+                --first_layer;
+            const auto& last_mask = historical_mask(plan.layer_id, row);
+            bool        changed   = false;
+            for (size_t source = first_layer; source < plan.layer_id; ++source)
+                changed = changed || historical_mask(source, row) != last_mask;
+            if (!changed) {
+                if (!last_mask.empty())
+                    by_layer[plan.layer_id].emplace_back(std::move(plan));
+                continue;
+            }
+            ++changed_ownership_passes;
+            std::vector<LocalZMaskSlab> slabs;
+            for (size_t source = first_layer; source <= plan.layer_id; ++source) {
+                const double lo = std::max(plan.z_lo, intervals[source].z_lo);
+                const double hi = std::min(plan.z_hi, intervals[source].z_hi);
+                if (hi <= lo + EPSILON)
+                    continue;
+                const auto key         = std::make_pair(source, row);
+                auto       compensated = compensated_history.find(key);
+                if (compensated == compensated_history.end()) {
+                    const auto& raw  = historical_mask(source, row);
+                    ExPolygons  mask = offset_ex(raw, float(scale_(LOCAL_Z_PERIMETER_MASK_EXPAND_MM)));
+                    if (mask.empty())
+                        mask = raw;
+                    compensated = compensated_history.emplace(key, std::move(mask)).first;
+                }
+                slabs.push_back({source, lo, hi, compensated->second});
+            }
+            const size_t extruder = plan.independent_extruder - 1;
+            if (extruder >= num_physical)
+                throw std::runtime_error("Invalid independent Local-Z target filament");
+            for (LocalZMaskSlab& span : partition_local_z_mask_span(slabs)) {
+                SubLayerPlan part = plan;
+                part.layer_id     = span.layer_id;
+                part.z_lo         = span.z_lo;
+                part.z_hi = part.print_z   = span.z_hi;
+                part.flow_height           = span.z_hi - span.z_lo;
+                part.masks_are_compensated = true;
+                part.painted_masks_by_extruder.assign(num_physical, ExPolygons());
+                part.painted_masks_by_extruder[extruder] = std::move(span.masks);
+                part.base_masks.clear();
+                by_layer[part.layer_id].emplace_back(std::move(part));
+            }
+        }
+        plans.clear();
+        for (size_t layer = 0; layer < by_layer.size(); ++layer) {
+            auto& layer_plans = by_layer[layer];
+            std::stable_sort(layer_plans.begin(), layer_plans.end(),
+                             [](const SubLayerPlan& a, const SubLayerPlan& b) { return a.print_z < b.print_z; });
+            LocalZInterval& interval    = intervals[layer];
+            interval.first_sublayer_idx = plans.size();
+            interval.sublayer_count     = layer_plans.size();
+            interval.sublayer_height    = interval.base_height;
+            for (size_t i = 0; i < layer_plans.size(); ++i) {
+                SubLayerPlan& part = layer_plans[i];
+                if (i + 1 == layer_plans.size())
+                    part.base_masks = std::move(layer_base_masks[layer]);
+                part.pass_index          = i;
+                part.dependency_order    = i;
+                interval.sublayer_height = std::min(interval.sublayer_height, part.flow_height);
+                plans.emplace_back(std::move(part));
+            }
+        }
+        total_generated_sublayer_cnt    = plans.size();
+        split_passes_total              = 0;
+        split_passes_with_painted_masks = 0;
+        for (const SubLayerPlan& plan : plans) {
+            if (!plan.split_interval)
+                continue;
+            ++split_passes_total;
+            if (std::any_of(plan.painted_masks_by_extruder.begin(), plan.painted_masks_by_extruder.end(),
+                            [](const ExPolygons& masks) { return !masks.empty(); }) ||
+                std::any_of(plan.fixed_painted_masks_by_extruder.begin(), plan.fixed_painted_masks_by_extruder.end(),
+                            [](const ExPolygons& masks) { return !masks.empty(); }))
+                ++split_passes_with_painted_masks;
+        }
+        BOOST_LOG_TRIVIAL(debug) << "Local-Z ownership history split_passes=" << changed_ownership_passes;
         print_object.set_local_z_plan(std::move(intervals), std::move(plans));
         export_local_z_plan_debug(print_object, min_sublayer_height);
         BOOST_LOG_TRIVIAL(warning) << "Local-Z plan built"
