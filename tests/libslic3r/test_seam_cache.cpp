@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include "libslic3r/GCode/SeamAlignmentSearch.hpp"
 #include <cstdlib>
+#include <limits>
 #include <optional>
 #include <string>
 using namespace Slic3r;
@@ -53,6 +54,15 @@ TEST_CASE("Borrowed seam neighborhoods preserve order across hits and eviction",
         CHECK(search.neighbors(0, query, 2.5f).data() == data);
         CHECK(search.neighbors(1, query, 2.5f).empty());
         CHECK(search.neighbors(0, query, 0) == find_nearby_points(*layer.points_tree, query, 0.f));
+        // Cache admission retains the CPU tree's behavior for degenerate queries.
+        for (float radius :
+             {-1.f, std::numeric_limits<float>::max(), std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+            const auto reference = find_nearby_points(*layer.points_tree, query, radius);
+            CHECK(search.neighbors(0, query, radius) == reference);
+            CHECK(search.neighbors(0, query, radius) == reference);
+        }
+        const Vec3f invalid_center(std::numeric_limits<float>::quiet_NaN(), 2, 0);
+        CHECK(search.neighbors(0, invalid_center, 1.f) == find_nearby_points(*layer.points_tree, invalid_center, 1.f));
         for (size_t i = 0; i < 131074; ++i)
             REQUIRE(search.neighbors(0, Vec3f(float(i + 100), 0, 0), 0.25f).empty());
         CHECK(search.neighbors(0, query, 2.5f) == expected);

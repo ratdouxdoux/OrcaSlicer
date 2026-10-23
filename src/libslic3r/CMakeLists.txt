@@ -305,14 +305,12 @@ set(lisbslic3r_sources
     FullSpectrumICCPolynomialEstimator.cpp
     MixedFilament.hpp
     MixedFilamentLayerTracker.hpp
+    LocalZClipDecision.cpp
+    LocalZClipDecision.hpp
     LocalZClipper.cpp
     LocalZClipper.hpp
     LocalZPathRouter.cpp
     LocalZPathRouter.hpp
-    LocalZClipAcceleration.cpp
-    LocalZClipAcceleration.hpp
-    PolygonCompute.cpp
-    PolygonCompute.hpp
     GCode/SeamAlignmentSearch.cpp
     GCode/SeamAlignmentSearch.hpp
     filament_mixer.cpp
@@ -503,9 +501,6 @@ endif ()
 add_library(libslic3r STATIC ${lisbslic3r_sources} 
     ${OpenVDBUtils_SOURCES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${lisbslic3r_sources})
-
-add_subdirectory(Compute)
-target_link_libraries(libslic3r PRIVATE orca_vulkan_compute)
 
 if (SLIC3R_STATIC)
     set(CGAL_Boost_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)

@@ -1,4 +1,3 @@
-#include "PolygonCompute.hpp"
 #include "PreparationDiagnostics.hpp"
 #include "PaintedLayerOutlineCache.hpp"
 #include "TriangleSelector.hpp"
@@ -1207,7 +1206,6 @@ static void cut_segmented_layers(const std::vector<ExPolygons>        &input_exp
     const float interlocking_cut_width = interlocking_depth > 0.f ? std::max(cut_width - interlocking_depth, 0.f) : 0.f;
     tbb::parallel_for(tbb::blocked_range<size_t>(0, segmented_regions.size()),
     [&segmented_regions, &input_expolygons, &cut_width, &interlocking_depth, &throw_on_cancel_callback](const tbb::blocked_range<size_t> &range) {
-        PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
         for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++layer_idx) {
             throw_on_cancel_callback();
             const float  region_cut_width       = ((layer_idx % 2 == 0) && (interlocking_depth != 0.f)) ? interlocking_depth : cut_width;
@@ -1402,7 +1400,6 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
     };
     if (preparation_experiment("occlusion")) {
         tbb::parallel_for(tbb::blocked_range<size_t>(0, num_facets_states * num_layers), [&](const tbb::blocked_range<size_t>& range) {
-            PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
             for (size_t index = range.begin(); index < range.end(); ++index) {
                 throw_on_cancel_callback();
                 trim_occluded(index / num_layers, index % num_layers);
@@ -1470,7 +1467,6 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
     };
 
     auto propagate_group = [&](size_t begin, size_t end, size_t group_idx) {
-        PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
         const size_t        layer_idx_offset = (group_idx & 1) * num_layers;
         for (size_t layer_idx = begin; layer_idx < end; ++layer_idx) {
             // Lazily retain a small prefix per direction, shared by colors.
@@ -1566,7 +1562,6 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
     triangles_by_color_merged.assign(num_facets_states, std::vector<ExPolygons>(num_layers));
     tbb::parallel_for(tbb::blocked_range<size_t>(0, num_layers), [&triangles_by_color_merged, &triangles_by_color_bottom, &triangles_by_color_top, &num_layers, &throw_on_cancel_callback,
                                                                   &shell_triangles_by_color_top, &shell_triangles_by_color_bottom](const tbb::blocked_range<size_t> &range) {
-        PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
         for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++ layer_idx) {
             throw_on_cancel_callback();
             ExPolygons painted_exploys;
@@ -1980,7 +1975,6 @@ static std::vector<std::vector<ExPolygons>> merge_segmented_layers(const std::ve
 
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - Merging segmented layers in parallel - Begin";
     tbb::parallel_for(tbb::blocked_range<size_t>(0, num_layers), [&segmented_regions, &top_and_bottom_layers, &segmented_regions_merged, &num_facets_states, &throw_on_cancel_callback](const tbb::blocked_range<size_t> &range) {
-        PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
         for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++layer_idx) {
             assert(segmented_regions[layer_idx].size() == num_facets_states);
             for (size_t extruder_id = 0; extruder_id < num_facets_states; ++extruder_id) {
@@ -2205,7 +2199,6 @@ static std::vector<std::vector<ExPolygons>> segmentation_by_painting_impl(
     // Merge all regions and remove small holes
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - Slices preprocessing in parallel - Begin";
     tbb::parallel_for(tbb::blocked_range<size_t>(0, num_layers), [&layers, &input_expolygons, &throw_on_cancel_callback](const tbb::blocked_range<size_t> &range) {
-        PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
         for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++layer_idx) {
             throw_on_cancel_callback();
             ExPolygons ex_polygons;
@@ -2273,7 +2266,6 @@ static std::vector<std::vector<ExPolygons>> segmentation_by_painting_impl(
                                                                              &edge_grids, &painted_lines, &painted_lines_mutex,
                                                                              &input_expolygons, &throw_on_cancel_callback](
                                                                                 const tbb::blocked_range<size_t>& range) {
-            PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
             for (size_t extruder_idx = range.begin(); extruder_idx < range.end(); ++extruder_idx) {
                 throw_on_cancel_callback();
                 if (selector && !selector->has_facets(EnforcerBlockerType(extruder_idx)))
@@ -2292,7 +2284,6 @@ static std::vector<std::vector<ExPolygons>> segmentation_by_painting_impl(
 
                 const Transform3f tr = print_object.trafo().cast<float>() * mv->get_matrix().cast<float>();
                 tbb::parallel_for(tbb::blocked_range<size_t>(0, custom_facets.indices.size()), [&tr, &custom_facets, &print_object, &layers, &edge_grids, &input_expolygons, &painted_lines, &painted_lines_mutex, &extruder_idx](const tbb::blocked_range<size_t> &range) {
-                    PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
                     for (size_t facet_idx = range.begin(); facet_idx < range.end(); ++facet_idx) {
                         float min_z = std::numeric_limits<float>::max();
                         float max_z = std::numeric_limits<float>::lowest();
@@ -2388,7 +2379,6 @@ static std::vector<std::vector<ExPolygons>> segmentation_by_painting_impl(
                                                                   &num_facets_states, &throw_on_cancel_callback, split_islands,
                                                                   &islands_mode, &checked_island_layers, &fast_island_layers,
                                                                   profile](const tbb::blocked_range<size_t>& range) {
-        PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Paint);
         for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++layer_idx) {
             throw_on_cancel_callback();
             PreparationTimer layer_timer(profile, "side_layer");

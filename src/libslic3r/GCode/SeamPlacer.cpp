@@ -10,14 +10,9 @@
 #include <random>
 #include <algorithm>
 #include <queue>
-#include <chrono>
-#include <cstdlib>
-#include <cstring>
-#include <stdexcept>
 
 #include "libslic3r/AABBTreeLines.hpp"
 #include "libslic3r/KDTreeIndirect.hpp"
-#include "libslic3r/Compute/SeamVisibility.hpp"
 #include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/BoundingBox.hpp"
@@ -1045,107 +1040,7 @@ void SeamPlacer::calculate_candidates_visibility(const PrintObject* po, const Se
 {
     using namespace SeamPlacerImpl;
 
-    std::vector<PrintObjectSeamData::LayerSeams>& layers             = m_seam_per_object[po].layers;
-    const auto                                    mode               = VulkanSeamVisibility::mode_from_settings();
-    const bool                                    validate           = mode == VulkanSeamVisibility::Mode::Validate;
-    const bool                                    use_vulkan         = mode != VulkanSeamVisibility::Mode::Cpu;
-    const auto                                    started            = std::chrono::steady_clock::now();
-    auto                                          milliseconds_since = [](auto start) {
-        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-    };
-    size_t total_queries = 0;
-    for (const auto& layer : layers)
-        total_queries += layer.points.size();
-    if (use_vulkan && total_queries != 0) {
-        const auto&                     indices = global_model_info.mesh_samples_tree.node_indices();
-        std::vector<SeamVisibilityNode> nodes(indices.size());
-        for (size_t i = 0; i < indices.size(); ++i) {
-            const size_t sample = indices[i];
-            if (sample == size_t(-1))
-                continue;
-            const Vec3f& p = global_model_info.mesh_samples.positions[sample];
-            const Vec3f& n = global_model_info.mesh_samples.normals[sample];
-            nodes[i]       = {{p.x(), p.y(), p.z(), global_model_info.mesh_samples_visibility[sample]}, {n.x(), n.y(), n.z(), 1.0f}};
-        }
-        const char* device_filter = std::getenv("ORCA_VULKAN_DEVICE");
-        std::string error;
-        auto backend = VulkanSeamVisibility::create(nodes, global_model_info.mesh_samples_radius, device_filter ? device_filter : "", error);
-        bool                             success = bool(backend);
-        size_t                           checked = 0, different = 0, mismatched = 0;
-        float                            max_error    = 0;
-        double                           reference_ms = 0;
-        std::vector<SeamVisibilityQuery> queries;
-        std::vector<SeamCandidate*>      destinations;
-        std::vector<float>               values;
-        queries.reserve(VulkanSeamVisibility::BATCH_CAPACITY);
-        destinations.reserve(VulkanSeamVisibility::BATCH_CAPACITY);
-        auto flush = [&] {
-            if (queries.empty() || !success)
-                return;
-            if (po->print()->canceled())
-                throw CanceledException();
-            success = backend->compute(queries, values, error);
-            if (!success)
-                return;
-            if (validate) {
-                const auto         reference_start = std::chrono::steady_clock::now();
-                std::vector<float> reference(queries.size());
-                tbb::parallel_for(tbb::blocked_range<size_t>(0, reference.size()), [&](const auto& range) {
-                    for (size_t i = range.begin(); i < range.end(); ++i)
-                        reference[i] = global_model_info.calculate_point_visibility(destinations[i]->position);
-                });
-                reference_ms += milliseconds_since(reference_start);
-                for (size_t i = 0; i < values.size(); ++i) {
-                    ++checked;
-                    if (std::memcmp(&values[i], &reference[i], sizeof(float)) != 0)
-                        ++different;
-                    const float delta = std::abs(values[i] - reference[i]);
-                    max_error         = std::max(max_error, delta);
-                    // Independent float32 implementations need not round identically.
-                    // Any larger discrepancy is a failed experiment, not a silent fallback.
-                    if (!std::isfinite(reference[i]) || delta > 2e-6f)
-                        ++mismatched;
-                }
-            }
-            for (size_t i = 0; i < values.size(); ++i)
-                destinations[i]->visibility = values[i];
-            queries.clear();
-            destinations.clear();
-        };
-        if (success) {
-            for (auto& layer : layers) {
-                if (!success)
-                    break;
-                for (auto& point : layer.points) {
-                    queries.push_back({point.position.x(), point.position.y(), point.position.z(), 0});
-                    destinations.push_back(&point);
-                    if (queries.size() == VulkanSeamVisibility::BATCH_CAPACITY) {
-                        flush();
-                        if (!success)
-                            break;
-                    }
-                }
-            }
-            flush();
-        }
-        if (success) {
-            const auto        timing = backend->timing();
-            const std::string device = backend->device_name();
-            backend.reset(); // Include teardown in the total measured cost.
-            BOOST_LOG_TRIVIAL(info) << "Seam visibility backend=vulkan device=\"" << device << "\" queries=" << total_queries
-                                    << " total_ms=" << milliseconds_since(started) << " setup_ms=" << timing.setup_ms
-                                    << " dispatch_readback_ms=" << timing.dispatch_readback_ms << " reference_ms=" << reference_ms
-                                    << " checked=" << checked << " bit_differences=" << different << " mismatches=" << mismatched
-                                    << " max_error=" << max_error;
-            if (mismatched)
-                throw std::runtime_error("Vulkan seam visibility differs from CPU reference beyond tolerance");
-            return;
-        }
-        if (validate)
-            throw std::runtime_error("Vulkan seam validation unavailable: " + error);
-        BOOST_LOG_TRIVIAL(warning) << "Seam visibility Vulkan fallback: " << error;
-        // Recompute all points if any batch failed; do not retain partial GPU results.
-    }
+    std::vector<PrintObjectSeamData::LayerSeams>& layers = m_seam_per_object[po].layers;
     tbb::parallel_for(tbb::blocked_range<size_t>(0, layers.size()), [&layers, &global_model_info](tbb::blocked_range<size_t> r) {
         for (size_t layer_idx = r.begin(); layer_idx < r.end(); ++layer_idx) {
             for (auto& perimeter_point : layers[layer_idx].points) {
@@ -1153,8 +1048,6 @@ void SeamPlacer::calculate_candidates_visibility(const PrintObject* po, const Se
             }
         }
     });
-    if (use_vulkan || std::getenv("ORCA_SEAM_VISIBILITY"))
-        BOOST_LOG_TRIVIAL(info) << "Seam visibility backend=cpu queries=" << total_queries << " total_ms=" << milliseconds_since(started);
 }
 
 void SeamPlacer::calculate_overhangs_and_layer_embedding(const PrintObject* po)

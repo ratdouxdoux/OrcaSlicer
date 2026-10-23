@@ -57,7 +57,6 @@ public:
     static Polylines clip_path(const Polyline& subject, const LocalZClipper* include_masks, const LocalZClipper* exclude_masks);
 
 private:
-    friend class LocalZClipAcceleration;
     const ExPolygons*                      m_masks = nullptr;
     BoundingBox                            m_bounds;
     std::vector<BoundingBox>               m_polygon_bounds;

@@ -1,4 +1,3 @@
-#include "PolygonCompute.hpp"
 #include "InfillDiagnostics.hpp"
 #include "Exception.hpp"
 #include "Print.hpp"
@@ -334,7 +333,6 @@ void PrintObject::make_perimeters()
         tbb::parallel_for(
             tbb::blocked_range<size_t>(0, m_layers.size() - 1),
             [this, &region, region_id](const tbb::blocked_range<size_t>& range) {
-                PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Walls);
                 for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++ layer_idx) {
                     m_print->throw_if_canceled();
                     LayerRegion &layerm                     = *m_layers[layer_idx]->get_region(region_id);
@@ -393,7 +391,6 @@ void PrintObject::make_perimeters()
     tbb::parallel_for(
         tbb::blocked_range<size_t>(0, m_layers.size()),
         [this](const tbb::blocked_range<size_t>& range) {
-            PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Walls);
             for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++ layer_idx) {
                 m_print->throw_if_canceled();
                 m_layers[layer_idx]->make_perimeters();
@@ -1691,7 +1688,6 @@ void PrintObject::discover_vertical_shells()
         tbb::parallel_for(
             tbb::blocked_range<size_t>(0, num_layers, grain_size),
             [this, &cache_top_botom_regions](const tbb::blocked_range<size_t>& range) {
-                PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Shells);
                 const std::initializer_list<SurfaceType> surfaces_bottom { stBottom, stBottomBridge };
                 const size_t num_regions = this->num_printing_regions();
                 for (size_t idx_layer = range.begin(); idx_layer < range.end(); ++ idx_layer) {
@@ -1770,7 +1766,6 @@ void PrintObject::discover_vertical_shells()
             tbb::parallel_for(
                 tbb::blocked_range<size_t>(0, num_layers, grain_size),
                 [this, region_id, &cache_top_botom_regions](const tbb::blocked_range<size_t>& range) {
-                    PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Shells);
                     const std::initializer_list<SurfaceType> surfaces_bottom { stBottom, stBottomBridge };
                     for (size_t idx_layer = range.begin(); idx_layer < range.end(); ++ idx_layer) {
                         m_print->throw_if_canceled();
@@ -1802,7 +1797,6 @@ void PrintObject::discover_vertical_shells()
             [this, region_id, &cache_top_botom_regions, reuse_volume, validate_volume, &reserve_geometry_cache,
              top_bottom_surfaces_all_regions, reuse_projection, validate_projection,
              &projection_hits](const tbb::blocked_range<size_t>& range) {
-                PolygonComputeScope compute_scope(PolygonComputeScope::Stage::Shells);
                 // printf("discover_vertical_shells from %d to %d\n", range.begin(), range.end());
                 for (size_t idx_layer = range.begin(); idx_layer < range.end(); ++ idx_layer) {
                     m_print->throw_if_canceled();

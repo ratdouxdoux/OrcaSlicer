@@ -69,7 +69,6 @@ def main():
         "local_z_validation": os.environ.get("ORCA_LOCAL_Z_VALIDATE") == "1",
         "local_z_profile": os.environ.get("ORCA_LOCAL_Z_PROFILE", ""),
         "local_z_capture": os.environ.get("ORCA_LOCAL_Z_CAPTURE", ""),
-        "local_z_clip": os.environ.get("ORCA_LOCAL_Z_CLIP", "cpu"),
         "local_z_path_reuse": os.environ.get("ORCA_LOCAL_Z_REUSE", "1"),
         "seam_alignment": os.environ.get("ORCA_SEAM_ALIGNMENT", "cache"),
         "wall_support": os.environ.get("ORCA_WALL_SUPPORT", "cache"),
@@ -77,11 +76,6 @@ def main():
         "shell_projection": os.environ.get("ORCA_SHELL_PROJECTION", "cache"),
         "paint_islands": os.environ.get("ORCA_PAINT_ISLANDS", "cpu"),
         "tree_overhang_filter": os.environ.get("ORCA_TREE_OVERHANG_FILTER", "parallel"),
-        "seam_neighbors_prefetch": os.environ.get("ORCA_SEAM_NEIGHBORS_PREFETCH", "seeds"),
-        "polygon_compute": os.environ.get("ORCA_POLYGON_COMPUTE", "cpu"),
-        "polygon_stages": os.environ.get("ORCA_POLYGON_STAGES", ""),
-        "seam_visibility": os.environ.get("ORCA_SEAM_VISIBILITY", "cpu"),
-        "vulkan_device": os.environ.get("ORCA_VULKAN_DEVICE", ""),
         "logical_processors": os.cpu_count(), "samples": [],
     }
     with (output / "stdout.log").open("wb") as stdout, (output / "stderr.log").open("wb") as stderr:

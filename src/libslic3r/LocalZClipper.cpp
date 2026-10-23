@@ -1,7 +1,7 @@
 #include "LocalZClipper.hpp"
 
 #include "ClipperUtils.hpp"
-#include "Compute/LocalZClipDecision.hpp"
+#include "LocalZClipDecision.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -374,7 +374,7 @@ LocalZClipper::LocalZClipper(const ExPolygons& masks, LocalZClipCache* cache) : 
         m_bounds.merge(bounds);
     }
     // Reuse the conservative integer classifier without packing an entire
-    // layer's queries or requiring Vulkan. The exact clipping API retains
+    // layer's queries. The exact clipping API retains
     // Clipper for nonempty results; export has a separate whole-path contract.
     size_t edge_count = 0;
     for (const ExPolygon& mask : masks) {
