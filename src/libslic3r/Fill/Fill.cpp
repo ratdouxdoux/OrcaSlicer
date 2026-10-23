@@ -15,6 +15,7 @@
 #include "FillRectilinear.hpp"
 #include "FillLightning.hpp"
 #include "FillConcentricInternal.hpp"
+#include "NarrowRoofInfill.hpp"
 #include "FillTpmsD.hpp"
 #include "FillTpmsFK.hpp"
 #include "FillConcentric.hpp"
@@ -1127,6 +1128,14 @@ std::vector<SurfaceFill> group_fills(const Layer& layer, LockRegionParam& lock_p
     // resolved above; splitting discarded solid surfaces cannot change them.
     if (!sparse_anchors && layer.object()->config().detect_narrow_internal_solid_infill) {
         PreparationTimer narrow_timer(&infill_profile(), "narrow_solid_split");
+        std::set<std::pair<int, int>> materials;
+        for (const LayerRegion* region : layer.regions())
+            if (!region->slices.empty())
+                materials.emplace(region->region().config().wall_filament.value, region->region().config().solid_infill_filament.value);
+        const bool                                                 partitioned = materials.size() > 1;
+        ExPolygons                                                 solid_domain;
+        bool                                                       solid_domain_ready = false;
+        std::map<std::tuple<int, double, double, int>, ExPolygons> roof_cache;
         size_t           surface_fills_size = surface_fills.size();
         for (size_t i = 0; i < surface_fills_size; i++) {
             if (surface_fills[i].surface.surface_type != stInternalSolid)
@@ -1136,18 +1145,51 @@ std::vector<SurfaceFill> group_fills(const Layer& layer, LockRegionParam& lock_p
             ExPolygons narrow_infill;
             split_solid_surface(layer.id(), surface_fills[i], normal_infill, narrow_infill);
 
-			if (narrow_infill.empty()) {
-				// BBS: has no narrow expolygon
-				continue;
-			} else if (normal_infill.empty()) {
-				// BBS: all expolygons are narrow, directly change the fill pattern
-				surface_fills[i].params.pattern = ipConcentricInternal;
-			}
-			else {
-				// BBS: some expolygons are narrow, spilit surface_fills[i] and rearrange the expolygons
-				params = surface_fills[i].params;
-				params.pattern = ipConcentricInternal;
-				surface_fills.emplace_back(params);
+            if (partitioned && !narrow_infill.empty()) {
+                const auto&  region_config = layer.regions()[surface_fills[i].region_id]->region().config();
+                const int    roof_layers   = region_config.top_shell_layers.value;
+                const double roof_depth    = region_config.top_shell_thickness.value;
+                if (roof_layers > 0) {
+                    const auto key   = std::make_tuple(roof_layers, roof_depth, surface_fills[i].params.spacing,
+                                                       region_config.wall_loops.value);
+                    auto       entry = roof_cache.find(key);
+                    if (entry == roof_cache.end()) {
+                        // Neighbouring fill surfaces may still be generated in
+                        // parallel, so the roof query reads immutable outlines.
+                        const ExPolygons covered = roof_covered_outline(layer, roof_layers, roof_depth);
+                        if (diff_ex(layer.lslices, covered).empty())
+                            entry = roof_cache.emplace(key, ExPolygons()).first;
+                        else {
+                            if (!solid_domain_ready) {
+                                ExPolygons sparse_or_void;
+                                for (const LayerRegion* region : layer.regions())
+                                    for (const Surface& surface : region->fill_surfaces.surfaces)
+                                        if (surface.surface_type == stInternal || surface.surface_type == stInternalVoid)
+                                            sparse_or_void.push_back(surface.expolygon);
+                                solid_domain       = sparse_or_void.empty() ? layer.lslices : diff_ex(layer.lslices, sparse_or_void);
+                                solid_domain_ready = true;
+                            }
+                            const double     wall_band    = region_config.wall_loops.value * surface_fills[i].params.spacing;
+                            const ExPolygons inside_walls = intersection_ex(solid_domain,
+                                                                            offset_ex(layer.lslices, -float(scale_(wall_band))));
+                            entry = roof_cache.emplace(key, broad_roof_support(inside_walls, covered, surface_fills[i].params.spacing)).first;
+                        }
+                    }
+                    keep_partitioned_roof_infill_straight(normal_infill, narrow_infill, entry->second, surface_fills[i].params.spacing * .5);
+                }
+            }
+
+            if (narrow_infill.empty()) {
+                // BBS: has no narrow expolygon
+                continue;
+            } else if (normal_infill.empty()) {
+                // BBS: all expolygons are narrow, directly change the fill pattern
+                surface_fills[i].params.pattern = ipConcentricInternal;
+            } else {
+                // BBS: some expolygons are narrow, spilit surface_fills[i] and rearrange the expolygons
+                params         = surface_fills[i].params;
+                params.pattern = ipConcentricInternal;
+                surface_fills.emplace_back(params);
 				surface_fills.back().region_id = surface_fills[i].region_id;
 				surface_fills.back().surface.surface_type = stInternalSolid;
 				surface_fills.back().surface.thickness = surface_fills[i].surface.thickness;
@@ -1157,7 +1199,7 @@ std::vector<SurfaceFill> group_fills(const Layer& layer, LockRegionParam& lock_p
 			    surface_fills.back().expolygons = std::move(narrow_infill);
 			    // BBS: delete the narrow expolygons from old surface_fills
                 surface_fills[i].expolygons = std::move(normal_infill);
-			}
+            }
         }
     }
 

@@ -7,6 +7,7 @@
 #include "libslic3r/MixedFilamentChannelMap.hpp"
 #include "libslic3r/LayerGeometryBatch.hpp"
 #include "libslic3r/LocalZMaskTimeline.hpp"
+#include "libslic3r/Fill/NarrowRoofInfill.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Support/TreeSupport.hpp"
@@ -85,6 +86,69 @@ TEST_CASE("Independent Local-Z passes partition changing material ownership", "[
         CHECK(output.front().z_lo == Approx(.1));
         CHECK(output.front().z_hi == Approx(.4));
     }
+}
+
+TEST_CASE("Painted roof detection respects shell depth at steps and the object top", "[Infill][RoofPartition]")
+{
+    struct TestLayer : Layer
+    {
+        explicit TestLayer(size_t id) : Layer(id, nullptr, .2, .2 * (id + 1), .2 * id + .1) {}
+    };
+    std::vector<std::unique_ptr<TestLayer>> layers;
+    const ExPolygons                        base{rectangle(0, 0, scale_(20.), scale_(20.))};
+    const ExPolygons                        tower{rectangle(scale_(5.), scale_(5.), scale_(15.), scale_(15.))};
+    for (size_t i = 0; i < 7; ++i) {
+        layers.emplace_back(std::make_unique<TestLayer>(i));
+        layers.back()->lslices = i < 4 ? base : tower;
+        if (i > 0) {
+            layers[i - 1]->upper_layer = layers[i].get();
+            layers[i]->lower_layer     = layers[i - 1].get();
+        }
+    }
+    // The step's top is layer 3, so a three-layer shell reaches layer 1, not 0.
+    CHECK(area(roof_covered_outline(*layers[0], 3, 0.)) == Approx(area(base)));
+    CHECK(area(roof_covered_outline(*layers[1], 3, 0.)) == Approx(area(tower)));
+    CHECK(area(roof_covered_outline(*layers[0], 3, .61)) == Approx(area(tower)));
+    CHECK(area(roof_covered_outline(*layers[0], 3, .6)) == Approx(area(base)));
+    // Reaching the final existing outline must not invent an extra shell layer.
+    CHECK(area(roof_covered_outline(*layers[3], 3, 0.)) == Approx(area(tower)));
+    CHECK(roof_covered_outline(*layers[4], 3, 0.).empty());
+    CHECK(roof_covered_outline(*layers[6], 3, 0.).empty());
+}
+
+TEST_CASE("Painted roof pockets use straight fill without removing narrow ribs", "[Infill][RoofPartition]")
+{
+    const ExPolygon  body   = rectangle(0, 0, scale_(20.), scale_(20.));
+    const ExPolygon  rib    = rectangle(scale_(30.), 0, scale_(31.2), scale_(10.));
+    const ExPolygon  pocket = rectangle(scale_(5.), scale_(5.), scale_(6.), scale_(6.));
+    const ExPolygons outline{body, rib};
+    ExPolygons       normal, narrow{pocket, rib};
+    const ExPolygons broad = broad_roof_support(outline, {}, .42);
+    keep_partitioned_roof_infill_straight(normal, narrow, broad);
+    CHECK(area(diff_ex(ExPolygons{pocket}, normal)) < 1.0);
+    CHECK(area(intersection_ex(ExPolygons{pocket}, narrow)) < 1.0);
+    CHECK(area(diff_ex(ExPolygons{rib}, narrow)) < 1.0);
+    CHECK(area(intersection_ex(ExPolygons{rib}, normal)) < 1.0);
+    ExPolygons covered = normal;
+    append(covered, narrow);
+    CHECK(area(union_ex(covered)) == Approx(pocket.area() + rib.area()));
+    CHECK(broad_roof_support(outline, outline, .42).empty());
+    // A hole remains excluded; the correction must never invent extrusion.
+    ExPolygon holed = body;
+    Polygon   hole  = pocket.contour;
+    hole.reverse();
+    holed.holes.push_back(hole);
+    CHECK(area(intersection_ex(broad_roof_support({holed}, {}, .42), ExPolygons{pocket})) < 1.0);
+
+    // Infill overlaps the inner wall slightly; this must not make a broad roof
+    // pocket look like a genuine narrow rib just because it crosses that band.
+    const ExPolygon edge_pocket  = rectangle(scale_(.8), scale_(5.), scale_(1.8), scale_(6.));
+    const ExPolygon inside_walls = rectangle(scale_(.84), scale_(.84), scale_(19.16), scale_(19.16));
+    normal.clear();
+    narrow = {edge_pocket, rib};
+    keep_partitioned_roof_infill_straight(normal, narrow, broad_roof_support({inside_walls, rib}, {}, .42), .21);
+    CHECK(area(diff_ex(ExPolygons{edge_pocket}, normal)) < 1.0);
+    CHECK(area(diff_ex(ExPolygons{rib}, narrow)) < 1.0);
 }
 
 TEST_CASE("Infill gap filling preserves density boundaries and bridge exclusions", "[CPUSlicing][InfillGap]")
