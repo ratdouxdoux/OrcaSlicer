@@ -3,6 +3,8 @@
 
 #include "../ClipperUtils.hpp"
 #include "../Layer.hpp"
+#include <algorithm>
+#include <unordered_map>
 
 namespace Slic3r {
 
@@ -21,6 +23,58 @@ inline ExPolygons roof_covered_outline(const Layer& layer, int roof_layers, doub
         surface = surface->upper_layer;
     }
     return covered;
+}
+
+// A medial-axis junction can become isolated after its other branches are
+// pruned. Do not let a sub-width stub carve a break across otherwise printable
+// roof infill. Reclaim its complete footprint only inside a fillable region;
+// preserve real junction links, closed paths and gaps outside that region.
+template<class FillableForRetained>
+inline size_t reclaim_roof_gap_stubs(ThickPolylines& paths, const FillableForRetained& fillable_for_retained, double scaled_width_padding)
+{
+    if (paths.empty())
+        return 0;
+    std::unordered_map<Point, size_t, PointHash> endpoints;
+    for (const ThickPolyline& path : paths)
+        if (path.points.size() >= 2) {
+            ++endpoints[path.first_point()];
+            ++endpoints[path.last_point()];
+        }
+    std::vector<Polygons> candidates(paths.size());
+    size_t                count = 0;
+    for (size_t i = 0; i < paths.size(); ++i) {
+        const ThickPolyline& path = paths[i];
+        if (path.points.size() < 2 || path.width.empty() || path.first_point() == path.last_point() || endpoints[path.first_point()] > 1 ||
+            endpoints[path.last_point()] > 1)
+            continue;
+        const double width = *std::max_element(path.width.begin(), path.width.end());
+        if (path.length() < width) {
+            candidates[i] = offset(Polyline(path.points), float((width + scaled_width_padding) * .5 + 10.));
+            count += !candidates[i].empty();
+        }
+    }
+    // Start by reclaiming all candidates. Restoring an unfillable candidate
+    // can block a neighbour too, so repeat until the actual retained gap-fill
+    // footprint leaves every reclaimed stub inside the final infill boundary.
+    while (count > 0) {
+        ThickPolylines retained;
+        for (size_t i = 0; i < paths.size(); ++i)
+            if (candidates[i].empty())
+                retained.push_back(paths[i]);
+        const ExPolygons fillable = fillable_for_retained(retained);
+        bool             restored = false;
+        for (Polygons& candidate : candidates)
+            if (!candidate.empty() && !diff_ex(candidate, fillable).empty()) {
+                candidate.clear();
+                --count;
+                restored = true;
+            }
+        if (!restored) {
+            paths = std::move(retained);
+            break;
+        }
+    }
+    return count;
 }
 
 // Internal colour boundaries can make a broad roof appear narrow to a single

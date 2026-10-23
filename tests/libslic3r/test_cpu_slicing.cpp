@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <atomic>
 #include <cmath>
+#include <fstream>
 #include <limits>
 #include <optional>
 #include <string>
@@ -86,6 +87,69 @@ TEST_CASE("Independent Local-Z passes partition changing material ownership", "[
         CHECK(output.front().z_lo == Approx(.1));
         CHECK(output.front().z_hi == Approx(.4));
     }
+}
+
+TEST_CASE("Roof gap recovery preserves connected paths and unfillable features", "[Infill][RoofPartition][GapStub]")
+{
+    const auto line = [](std::initializer_list<Point> points, double width) {
+        ThickPolyline path;
+        path.points = points;
+        path.width.assign(2 * (path.points.size() - 1), scale_(width));
+        return path;
+    };
+    const auto          p    = [](double x, double y) { return Point(scale_(x), scale_(y)); };
+    const ThickPolyline stub = line({p(5, 5), p(5, 5.08)}, .8);
+    ThickPolylines      paths{stub,
+                         line({p(6, 2), p(6, 8)}, .5),
+                         line({p(7, 5), p(7, 5.08)}, .8),
+                         line({p(7, 5.08), p(7, 8)}, .5),
+                         line({p(8, 5), p(8.05, 5), p(8.05, 5.05), p(8, 5)}, .8),
+                         line({p(1, 5), p(1, 5.08)}, .8)};
+    const ExPolygons    fillable{rectangle(scale_(4.), scale_(1.), scale_(9.), scale_(9.))};
+    CHECK(reclaim_roof_gap_stubs(paths, [](const ThickPolylines&) { return ExPolygons{}; }, 0.) == 0);
+    CHECK(reclaim_roof_gap_stubs(paths, [&](const ThickPolylines&) { return fillable; }, scale_(.02)) == 1);
+    REQUIRE(paths.size() == 5);
+    CHECK(paths.front().points == Points{p(6, 2), p(6, 8)});
+    CHECK(reclaim_roof_gap_stubs(paths, [&](const ThickPolylines&) { return fillable; }, scale_(.02)) == 0);
+    // A rejected candidate can prevent a neighbouring candidate from being
+    // filled too. Neither may be discarded after the first tentative pass.
+    paths = {line({p(4.2, 5), p(4.2, 5.08)}, .8), line({p(4.8, 5), p(4.8, 5.08)}, .8), line({p(6, 6), p(6, 6.08)}, .8)};
+    const auto after_retained_gaps = [&](const ThickPolylines& retained) {
+        Polygons occupied;
+        for (const ThickPolyline& path : retained)
+            append(occupied, offset(Polyline(path.points), float(path.width.front() * .5 + 10.)));
+        return diff_ex(fillable, occupied);
+    };
+    CHECK(reclaim_roof_gap_stubs(paths, after_retained_gaps, 0.) == 1);
+    REQUIRE(paths.size() == 2);
+    CHECK(paths[0].first_point() == p(4.2, 5));
+    CHECK(paths[1].first_point() == p(4.8, 5));
+    // A stub crossing the infill boundary must not be dropped, even if its
+    // centre is inside: this could be a real gap between walls.
+    paths = {stub};
+    CHECK(reclaim_roof_gap_stubs(
+              paths, [&](const ThickPolylines&) { return ExPolygons{rectangle(scale_(4.9), scale_(4.), scale_(6.), scale_(6.))}; }, 0.) ==
+          0);
+}
+
+TEST_CASE("Sawtoothed painted roof leaves no isolated wide gap stubs in printable infill", "[Infill][RoofPartition][GapStub]")
+{
+    std::ifstream fixture(std::string(TEST_DATA_DIR) + "/painted_roof_gap.txt");
+    REQUIRE(fixture.good());
+    Points  contour;
+    coord_t x, y;
+    while (fixture >> x >> y)
+        contour.emplace_back(x, y);
+    REQUIRE(contour.size() == 203);
+    ExPolygon      gap(Polygon(std::move(contour)));
+    ThickPolylines paths;
+    gap.medial_axis(scale_(.2 * .45 * (1. - INSET_OVERLAP_TOLERANCE)), scale_(2. * (.45 - .08 * (1. - .25 * PI))), &paths);
+    REQUIRE_FALSE(paths.empty());
+    const ExPolygons fillable{rectangle(scale_(13.4), scale_(-1.), scale_(14.8), scale_(3.3))};
+    CHECK(reclaim_roof_gap_stubs(paths, [&](const ThickPolylines&) { return fillable; }, scale_(.08 * (1. - .25 * PI))) >= 4);
+    // The genuine gap at the bend lies outside the printable roof rectangle.
+    CHECK_FALSE(paths.empty());
+    CHECK(reclaim_roof_gap_stubs(paths, [&](const ThickPolylines&) { return fillable; }, scale_(.08 * (1. - .25 * PI))) == 0);
 }
 
 TEST_CASE("Painted roof detection respects shell depth at steps and the object top", "[Infill][RoofPartition]")

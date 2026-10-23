@@ -1,5 +1,7 @@
 #include "PerimeterGenerator.hpp"
+#include "Fill/NarrowRoofInfill.hpp"
 #include <cstdlib>
+#include <optional>
 #include <stdexcept>
 #include "AABBTreeLines.hpp"
 #include "BridgeDetector.hpp"
@@ -1227,6 +1229,18 @@ void PerimeterGenerator::process_classic()
     for (const Surface &surface : all_surfaces)
         surface_exp.push_back(surface.expolygon);
     std::vector<size_t> surface_order = chain_expolygons(surface_exp);
+    const Layer*        roof_layer = compatible_regions != nullptr && !compatible_regions->empty() ? compatible_regions->front()->layer() :
+                                                                                                     nullptr;
+    bool                partitioned_roof = false;
+    if (roof_layer != nullptr && config->top_shell_layers.value > 0) {
+        for (const LayerRegion* region : roof_layer->regions())
+            if (!region->slices.empty() && (region->region().config().wall_filament != config->wall_filament ||
+                                            region->region().config().solid_infill_filament != config->solid_infill_filament)) {
+                partitioned_roof = true;
+                break;
+            }
+    }
+    std::optional<ExPolygons> roof_scope;
     for (size_t order_idx = 0; order_idx < surface_order.size(); order_idx++) {
         const Surface &surface = all_surfaces[surface_order[order_idx]];
         // detect how many perimeters must be generated for this island
@@ -1578,6 +1592,33 @@ void PerimeterGenerator::process_classic()
 
         } // for each loop of an island
 
+        // create one more offset to be used as boundary for fill
+        // we offset by half the perimeter spacing (to get to the actual infill boundary)
+        // and then we offset back and forth by half the infill spacing to only consider the
+        // non-collapsing regions
+        coord_t inset = (loop_number < 0) ? 0 :
+                        (loop_number == 0) ?
+                                            // one loop
+                            ext_perimeter_spacing / 2 :
+                            // two or more loops?
+                            perimeter_spacing / 2;
+
+        // only apply infill overlap if we actually have one perimeter
+        coord_t infill_peri_overlap     = 0;
+        coord_t top_infill_peri_overlap = 0;
+        if (inset > 0) {
+            if (this->layer_id == 0 || this->upper_slices == nullptr) {
+                infill_peri_overlap = coord_t(
+                    scale_(this->config->top_bottom_infill_wall_overlap.get_abs_value(unscale<double>(inset + solid_infill_spacing / 2))));
+            } else {
+                infill_peri_overlap = coord_t(
+                    scale_(this->config->infill_wall_overlap.get_abs_value(unscale<double>(inset + solid_infill_spacing / 2))));
+                top_infill_peri_overlap = coord_t(
+                    scale_(this->config->top_bottom_infill_wall_overlap.get_abs_value(unscale<double>(inset + solid_infill_spacing / 2))));
+            }
+            inset -= infill_peri_overlap;
+        }
+
         // fill gaps
         if (! gaps.empty()) {
             // collapse 
@@ -1615,6 +1656,31 @@ void PerimeterGenerator::process_classic()
                     return p.length() < scale_(config->filter_out_gap_fill.value);
                 }), polylines.end());
 
+            if (partitioned_roof && std::any_of(polylines.begin(), polylines.end(), [](const ThickPolyline& path) {
+                    return !path.width.empty() && path.length() < *std::max_element(path.width.begin(), path.width.end());
+                })) {
+                if (!roof_scope)
+                    roof_scope = diff_ex(roof_layer->lslices, roof_covered_outline(*roof_layer, config->top_shell_layers.value,
+                                                                                   config->top_shell_thickness.value));
+                if (!roof_scope->empty()) {
+                    const coord_t min_fill_spacing = coord_t(solid_infill_spacing * (1. - INSET_OVERLAP_TOLERANCE));
+                    reclaim_roof_gap_stubs(
+                        polylines,
+                        [&](const ThickPolylines& retained) {
+                            ExtrusionEntityCollection retained_fill;
+                            variable_width(retained, erGapFill, solid_infill_flow, retained_fill.entities);
+                            const ExPolygons remaining = retained.empty() ? last :
+                                                                            diff_ex(last, retained_fill.polygons_covered_by_width(10.f));
+                            Polygons         simplified;
+                            for (const ExPolygon& ex : remaining)
+                                ex.simplify_p(m_scaled_resolution, &simplified);
+                            return intersection_ex(offset2_ex(union_ex(simplified), float(-inset - min_fill_spacing / 2.),
+                                                              float(min_fill_spacing / 2.)),
+                                                   *roof_scope);
+                        },
+                        scale_(solid_infill_flow.height() * (1. - .25 * PI)));
+                }
+            }
 
             if (! polylines.empty()) {
 				ExtrusionEntityCollection gap_fill;
@@ -1633,30 +1699,6 @@ void PerimeterGenerator::process_classic()
 			}
         }
 
-        // create one more offset to be used as boundary for fill
-        // we offset by half the perimeter spacing (to get to the actual infill boundary)
-        // and then we offset back and forth by half the infill spacing to only consider the
-        // non-collapsing regions
-        coord_t inset = 
-            (loop_number < 0) ? 0 :
-            (loop_number == 0) ?
-                // one loop
-                ext_perimeter_spacing / 2 :
-                // two or more loops?
-                perimeter_spacing / 2;
-        
-        // only apply infill overlap if we actually have one perimeter
-        coord_t infill_peri_overlap = 0;
-        coord_t top_infill_peri_overlap = 0;
-        if (inset > 0) {
-            if(this->layer_id == 0 || this->upper_slices == nullptr){
-                infill_peri_overlap = coord_t(scale_(this->config->top_bottom_infill_wall_overlap.get_abs_value(unscale<double>(inset + solid_infill_spacing / 2))));
-            }else{
-                infill_peri_overlap = coord_t(scale_(this->config->infill_wall_overlap.get_abs_value(unscale<double>(inset + solid_infill_spacing / 2))));
-                top_infill_peri_overlap = coord_t(scale_(this->config->top_bottom_infill_wall_overlap.get_abs_value(unscale<double>(inset + solid_infill_spacing / 2))));
-            }
-            inset -= infill_peri_overlap;
-        }
         // simplify infill contours according to resolution
         Polygons pp;
         for (ExPolygon &ex : last)
