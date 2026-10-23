@@ -1,5 +1,7 @@
 # Vulkan Local-Z empty-path clipping experiment
 
+**Current status (23 October 2026):** Vulkan slicing acceleration has been removed from this branch, including both GPU preferences, experimental GPU backends, shaders and build-tool provisioning. CPU slicing optimizations remain enabled. GPU instructions and measurements below are historical and require the earlier revisions; the normal release build no longer needs Vulkan tools.
+
 This experiment follows the seam-visibility prototype. Its target is time spent in the sequential G-code generator, rather than summed CPU time in an already parallel stage. It is opt-in: both the Vulkan build option and runtime acceleration remain disabled by default.
 
 On the original Starry Night project, two alternating CPU/Vulkan timing pairs reduced complete slicing from a median **182.71 s to 160.42 s (12.2%)** on the RTX 5060 Laptop GPU. Export fell from **83.45 s to 65.06 s (22.0%)**. These are complete application runs, including GPU initialization, transfers, CPU fallback, and shutdown. The sample is small and individual times vary; it is evidence of a useful improvement on this model, not a prediction for every project.

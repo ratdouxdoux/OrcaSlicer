@@ -1,5 +1,7 @@
 # Vulkan compute acceleration for Snapmaker Orca
 
+**Current status (23 October 2026):** Vulkan slicing acceleration has been removed from this branch, including both GPU preferences, experimental GPU backends, shaders and build-tool provisioning. CPU slicing optimizations remain enabled. GPU instructions and measurements below are historical and require the earlier revisions; the normal release build no longer needs Vulkan tools.
+
 Date: 2026-10-13. Source baseline: `9a791daff1`.
 
 Status: design proposal and source audit. No GPU slicing backend has been implemented or benchmarked as part of this document. Candidate benefits below are engineering hypotheses, not measured speedups. The existing CPU implementation remains the correctness reference and fallback.

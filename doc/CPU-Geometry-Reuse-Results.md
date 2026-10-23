@@ -1,5 +1,7 @@
 # CPU geometry reuse and slicing results
 
+**Current status (23 October 2026):** Vulkan slicing acceleration has been removed from this branch, including both GPU preferences, experimental GPU backends, shaders and build-tool provisioning. CPU slicing optimizations remain enabled. GPU instructions and measurements below are historical and require the earlier revisions; the normal release build no longer needs Vulkan tools.
+
 Date: 2026-10-15. Follow-up to [the shared Vulkan experiment](Vulkan-Shared-Geometry-Experiment.md).
 
 ## Changes

@@ -1,5 +1,7 @@
 # CPU follow-up after the Vulkan geometry review
 
+**Current status (23 October 2026):** Vulkan slicing acceleration has been removed from this branch, including both GPU preferences, experimental GPU backends, shaders and build-tool provisioning. CPU slicing optimizations remain enabled. GPU instructions and measurements below are historical and require the earlier revisions; the normal release build no longer needs Vulkan tools.
+
 ## Changes
 
 The follow-up implements four CPU changes that apply to ordinary and Local-Z slicing where the relevant stage is used:

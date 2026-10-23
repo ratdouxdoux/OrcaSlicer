@@ -1,0 +1,180 @@
+{
+  "date": "2026-10-23",
+  "implementation_commit": "63cc06ab84dd254338ac35ca28d13576dad28ddd",
+  "branch": "proposal_UI_changes_GPU_Accelerate_V2",
+  "scope": "Removal of Vulkan slicing paths; CPU algorithms retained. Output checks, not performance measurements.",
+  "build": {
+    "targets": [
+      "Snapmaker_Orca",
+      "libslic3r_tests"
+    ],
+    "configuration": "Release",
+    "toolchain": "Visual Studio 2022",
+    "success": true
+  },
+  "encoding_check": {
+    "validated_files": 1128,
+    "utf8_without_bom": true,
+    "unicode_noncharacters_ufffe_uffff_absent": true
+  },
+  "tests": {
+    "filter": "[LocalZ],[CPUSlicing],[ClipperUtils]",
+    "passed": true,
+    "cases": 41,
+    "assertions": 409469
+  },
+  "binary_check": {
+    "dll_sha256": "89ab7e0edbe28b4d6aca22dd58bac14fe50eb4e53b45a3296a3de525e8593b09",
+    "dll_bytes": 69636096,
+    "removed_markers_present": {
+      "vkCreateInstance": false,
+      "ORCA_LOCAL_Z_CLIP": false,
+      "ORCA_SEAM_VISIBILITY": false,
+      "ORCA_POLYGON_COMPUTE": false,
+      "ORCA_VULKAN_DEVICE": false,
+      "local_z_gpu_acceleration": false,
+      "seam_visibility_gpu_acceleration": false
+    },
+    "retained_glfw_optional_loader_string": true,
+    "note": "The existing GLFW static library retains its optional Vulkan loader; no application slicing backend or shader target remains."
+  },
+  "models": {
+    "cube": {
+      "input": "C:\\Users\\radug\\OneDrive\\Documents\\CubeSML.3mf",
+      "input_sha256": "c0bbdd62899fa4052fc3530f7378f403fb837a3ed8d9f4f6f558a2b6db729275",
+      "same_input_sha256": true,
+      "before_dll_sha256": "9fa50025fd5f645fc3d5304eb1be7a2768763be9356c959b4a38f631ef300feb",
+      "after_dll_sha256": "89ab7e0edbe28b4d6aca22dd58bac14fe50eb4e53b45a3296a3de525e8593b09",
+      "before_gcode_sha256": "40e6a02ce70ffbe0b3d310fda186fe64c9832d386e755c4cda47e27f6c654d71",
+      "after_gcode_sha256": "68c4d6eefaf0f1848176ed5b30afa2c7493948a9c1fa3d55cf668c38b2a8a7e2",
+      "exit_codes": [
+        0,
+        0
+      ],
+      "comparison": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": -0.01475999999911437,
+          "1": 0.006170000001020526
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 425,
+        "sum_absolute_group_e_delta_mm": 0.8242899999999995,
+        "missing_length_mm": 742.0682356285029,
+        "added_length_mm": 741.870853793399,
+        "before_statistics": [
+          "; filament used [mm] = 6719.34, 2454.48, 0.00, 0.00",
+          "; filament used [cm3] = 16.16, 5.90, 0.00, 0.00",
+          "; filament used [g] = 21.33, 7.79, 0.00, 0.00",
+          "; total filament used [g] = 29.13",
+          "; total filament cost = 0.74",
+          "; estimated printing time (normal mode) = 3h 21m 9s"
+        ],
+        "after_statistics": [
+          "; filament used [mm] = 6719.32, 2454.49, 0.00, 0.00",
+          "; filament used [cm3] = 16.16, 5.90, 0.00, 0.00",
+          "; filament used [g] = 21.33, 7.79, 0.00, 0.00",
+          "; total filament used [g] = 29.13",
+          "; total filament cost = 0.74",
+          "; estimated printing time (normal mode) = 3h 20m 45s"
+        ]
+      }
+    },
+    "terrain": {
+      "input": "C:\\Users\\radug\\Downloads\\打印出问题的3mf\\开启混色细分层高导致局部层高过小.3mf",
+      "input_sha256": "0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63",
+      "same_input_sha256": true,
+      "before_dll_sha256": "9fa50025fd5f645fc3d5304eb1be7a2768763be9356c959b4a38f631ef300feb",
+      "after_dll_sha256": "89ab7e0edbe28b4d6aca22dd58bac14fe50eb4e53b45a3296a3de525e8593b09",
+      "before_gcode_sha256": "679c56a0eaf7787e95010f3329bc4193480e8dbfd9eebb4f0d1a3791795fd9a6",
+      "after_gcode_sha256": "0139f6ebff215aaefbc707f05f15d5c327414ca7b18515569f1965b31fb5a7b1",
+      "exit_codes": [
+        0,
+        0
+      ],
+      "comparison": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.003789999998843996,
+          "1": -0.0035500000003594323
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 18,
+        "sum_absolute_group_e_delta_mm": 0.016919999999999977,
+        "missing_length_mm": 0.33487238454771784,
+        "added_length_mm": 0.1945781980981116,
+        "before_statistics": [
+          "; filament used [mm] = 10476.75, 3964.92, 0.00, 0.00",
+          "; filament used [cm3] = 25.20, 9.54, 0.00, 0.00",
+          "; filament used [g] = 33.26, 12.59, 0.00, 0.00",
+          "; total filament used [g] = 45.85",
+          "; total filament cost = 1.16",
+          "; estimated printing time (normal mode) = 3h 4m 19s"
+        ],
+        "after_statistics": [
+          "; filament used [mm] = 10476.75, 3964.91, 0.00, 0.00",
+          "; filament used [cm3] = 25.20, 9.54, 0.00, 0.00",
+          "; filament used [g] = 33.26, 12.59, 0.00, 0.00",
+          "; total filament used [g] = 45.85",
+          "; total filament cost = 1.16",
+          "; estimated printing time (normal mode) = 3h 4m 18s"
+        ]
+      }
+    },
+    "bridge": {
+      "input": "C:\\Users\\radug\\Downloads\\1MPolygonBridge.3mf",
+      "input_sha256": "e7f5810db93300928eec92c6f648b731d1c49995266411d62b45a4c770e11f2a",
+      "same_input_sha256": true,
+      "before_dll_sha256": "9fa50025fd5f645fc3d5304eb1be7a2768763be9356c959b4a38f631ef300feb",
+      "after_dll_sha256": "89ab7e0edbe28b4d6aca22dd58bac14fe50eb4e53b45a3296a3de525e8593b09",
+      "before_gcode_sha256": "14be21ed6734bafc21f564e70d271c8d7ab4ea3190cb1550c391c74398453304",
+      "after_gcode_sha256": "944678ec7ccf490ae2ba192a0592ee8d02a38ebb97f60ccd522e3f2959879c9a",
+      "exit_codes": [
+        0,
+        0
+      ],
+      "comparison": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": -0.013930000000982545
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 25,
+        "sum_absolute_group_e_delta_mm": 0.024949999999999996,
+        "missing_length_mm": 0.7273467022472697,
+        "added_length_mm": 0.2090457562765567,
+        "before_statistics": [
+          "; filament used [mm] = 82073.25, 0.00",
+          "; filament used [cm3] = 197.41, 0.00",
+          "; filament used [g] = 244.79, 0.00",
+          "; total filament used [g] = 244.79",
+          "; total filament cost = 4.90",
+          "; estimated printing time (normal mode) = 1d 2h 30m 30s"
+        ],
+        "after_statistics": [
+          "; filament used [mm] = 82073.24, 0.00",
+          "; filament used [cm3] = 197.41, 0.00",
+          "; filament used [g] = 244.79, 0.00",
+          "; total filament used [g] = 244.79",
+          "; total filament cost = 4.90",
+          "; estimated printing time (normal mode) = 1d 2h 30m 30s"
+        ]
+      }
+    }
+  },
+  "limitations": [
+    "Independent G-code runs are not byte-identical; prior unchanged CPU repeats also varied.",
+    "A previously recorded Local-Z whole-path ownership validation mismatch with Cube surface-paint settings remains unresolved and is independent of Vulkan.",
+    "No physical print validation or universal output-equivalence claim.",
+    "No performance conclusions from these runs because another build was active during part of the work."
+  ]
+}

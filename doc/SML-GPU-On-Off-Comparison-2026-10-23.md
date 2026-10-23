@@ -1,5 +1,7 @@
 # SML GPU acceleration after the CPU path-reuse improvements
 
+**Follow-up:** Vulkan slicing acceleration was subsequently removed from this branch. This report records the pre-removal comparison; see `GPU-Slicing-Removal.md` for current build behavior.
+
 The current packaged V2 build slices `CubeSML.3mf` faster with SML GPU acceleration disabled. Across five fresh-process runs per setting, the slicing/export pipeline takes **1.243 s with GPU off versus 1.449 s with it on** (16.6% longer). A second, much more complex Local-Z project shows slower Local-Z preparation and G-code export with GPU enabled, but essentially tied total slicing time. These results do not establish that Vulkan is slower for every model.
 
 ## Method and build

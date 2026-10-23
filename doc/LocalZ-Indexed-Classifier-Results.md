@@ -1,5 +1,7 @@
 # Local-Z indexed CPU classifier review
 
+**Current status (23 October 2026):** Vulkan slicing acceleration has been removed from this branch, including both GPU preferences, experimental GPU backends, shaders and build-tool provisioning. CPU slicing optimizations remain enabled. GPU instructions and measurements below are historical and require the earlier revisions; the normal release build no longer needs Vulkan tools.
+
 ## Scope and decision protocol
 
 This experiment compares an indexed CPU classifier with the existing Vulkan empty-path classifier. It does not implement GPU polygon construction or bypass nonempty clipping. The source checkpoint before this experiment was `c794213bf7`.

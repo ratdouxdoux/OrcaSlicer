@@ -1,5 +1,7 @@
 # Vulkan candidates after the CPU follow-up
 
+**Current status (23 October 2026):** Vulkan slicing acceleration has been removed from this branch, including both GPU preferences, experimental GPU backends, shaders and build-tool provisioning. CPU slicing optimizations remain enabled. GPU instructions and measurements below are historical and require the earlier revisions; the normal release build no longer needs Vulkan tools.
+
 Date: 2026-10-15. Source: `24a8e7f2f6`. This is source review and analysis of the final profiles, not a new GPU implementation or benchmark of a proposed kernel.
 
 The current Starry Night profiles do **not establish another large, low-risk Vulkan win**. Existing Vulkan acceleration remains available. The evidence favors reducing repeated CPU work and exposing independent CPU jobs before adding GPU transfers. This conclusion is specific to these workloads and this machine; it does not mean GPU compute cannot help slicing.

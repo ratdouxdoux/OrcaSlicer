@@ -1,5 +1,7 @@
 # Single color slicing improvements V2
 
+**Current status (23 October 2026):** Vulkan slicing acceleration has been removed from this branch, including both GPU preferences, experimental GPU backends, shaders and build-tool provisioning. CPU slicing optimizations remain enabled. GPU instructions and measurements below are historical and require the earlier revisions; the normal release build no longer needs Vulkan tools.
+
 Measured 20 October 2026 on branch `proposal_UI_changes_GPU_Accelerate_V2`, with retained code through `3de8bfb94f`.
 
 **The unpainted bridge benchmark improved from 67.64 to 58.11 seconds median: 9.53 seconds saved, or 14.1% less elapsed time.** The largest gains came from parallel bridge-direction detection and avoiding gap-fill calculations that cannot emit an extrusion. Aggregate process CPU time fell **6.1%**, and peak private commit fell **155.6 MiB / 4.7%**. These CPU improvements are enabled in normal builds without an additional build flag or preference.

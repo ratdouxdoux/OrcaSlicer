@@ -1,5 +1,7 @@
 # Snapmaker Orca performance improvement history
 
+**Current status (23 October 2026):** Vulkan slicing acceleration has been removed from this branch, including both GPU preferences, experimental GPU backends, shaders and build-tool provisioning. CPU slicing optimizations remain enabled. GPU instructions and measurements below are historical and require the earlier revisions; the normal release build no longer needs Vulkan tools.
+
 Measured work from 12–16 October 2026 through checkpoint `87930d936e`, followed by the 20 October bridge comparisons, V2 CPU changes and 21 October Local-Z path reuse through `720a634227` on `proposal_UI_changes_GPU_Accelerate_V2`.
 
 The largest improvements came from removing repeated CPU geometry work, reusing immutable results within a slice, and parallelizing preparation while preserving ordered output. Vulkan provided a useful additional improvement for Local-Z clipping. Several other GPU experiments were correct but slower after transfers, synchronization and remaining CPU work were included.
