@@ -1,0 +1,1589 @@
+{
+  "date": "2026-10-23",
+  "branch": "proposal_UI_changes_GPU_Accelerate_V2",
+  "repository_head": "f3d1802772",
+  "binary": "build/Snapmaker_Orca/snapmaker-orca.exe",
+  "dll_sha256": "9fa50025fd5f645fc3d5304eb1be7a2768763be9356c959b4a38f631ef300feb",
+  "device": "NVIDIA GeForce RTX 5060 Laptop GPU",
+  "timing_scope": "Starting the slicing process through Exporting G-code finished; excludes import and GUI preview",
+  "source_logs": "build_logs/sml_gpu_ab_20261023",
+  "models": {
+    "cube": {
+      "project_sha256": "c0bbdd62899fa4052fc3530f7378f403fb837a3ed8d9f4f6f558a2b6db729275",
+      "metrics": {
+        "pipeline_seconds": {
+          "cpu": {
+            "median": 1.242597,
+            "range": [
+              1.209186,
+              1.261841
+            ]
+          },
+          "vulkan": {
+            "median": 1.449382,
+            "range": [
+              1.377141,
+              1.718605
+            ]
+          },
+          "gpu_change_percent": 16.641356771342597
+        },
+        "slice_seconds": {
+          "cpu": {
+            "median": 0.20343,
+            "range": [
+              0.18959,
+              0.210413
+            ]
+          },
+          "vulkan": {
+            "median": 0.212588,
+            "range": [
+              0.192587,
+              0.311043
+            ]
+          },
+          "gpu_change_percent": 4.501794228973122
+        },
+        "export_seconds": {
+          "cpu": {
+            "median": 1.039045,
+            "range": [
+              1.018598,
+              1.051428
+            ]
+          },
+          "vulkan": {
+            "median": 1.236794,
+            "range": [
+              1.178368,
+              1.407051
+            ]
+          },
+          "gpu_change_percent": 19.031803242400457
+        },
+        "local_z_preparation_seconds": {
+          "cpu": {
+            "median": 0.031031,
+            "range": [
+              0.026957000000000002,
+              0.034548
+            ]
+          },
+          "vulkan": {
+            "median": 0.23899,
+            "range": [
+              0.207947,
+              0.305541
+            ]
+          },
+          "gpu_change_percent": 670.1653185524153
+        },
+        "wall_seconds": {
+          "cpu": {
+            "median": 2.508365099999992,
+            "range": [
+              2.5060585999999603,
+              4.029887099999996
+            ]
+          },
+          "vulkan": {
+            "median": 2.5088792000001376,
+            "range": [
+              2.5054959999999937,
+              3.011929000000009
+            ]
+          },
+          "gpu_change_percent": 0.02049542150566186
+        }
+      },
+      "runs": {
+        "cpu": [
+          {
+            "repeat": "1",
+            "pipeline_seconds": 1.224114,
+            "slice_seconds": 0.19831,
+            "export_seconds": 1.024803,
+            "local_z_preparation_seconds": 0.034043000000000004,
+            "wall_seconds": 3.0102200999999695,
+            "routing": {
+              "reused": 2941,
+              "clipped": 4848,
+              "reused_points": 106554
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "2",
+            "pipeline_seconds": 1.247444,
+            "slice_seconds": 0.20343,
+            "export_seconds": 1.044014,
+            "local_z_preparation_seconds": 0.029003,
+            "wall_seconds": 2.5060585999999603,
+            "routing": {
+              "reused": 2940,
+              "clipped": 4849,
+              "reused_points": 106584
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "3",
+            "pipeline_seconds": 1.261841,
+            "slice_seconds": 0.210413,
+            "export_seconds": 1.051428,
+            "local_z_preparation_seconds": 0.026957000000000002,
+            "wall_seconds": 2.508365099999992,
+            "routing": {
+              "reused": 2942,
+              "clipped": 4847,
+              "reused_points": 106614
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "4",
+            "pipeline_seconds": 1.242597,
+            "slice_seconds": 0.203552,
+            "export_seconds": 1.039045,
+            "local_z_preparation_seconds": 0.034548,
+            "wall_seconds": 2.506061599999839,
+            "routing": {
+              "reused": 2940,
+              "clipped": 4849,
+              "reused_points": 106538
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "5",
+            "pipeline_seconds": 1.209186,
+            "slice_seconds": 0.18959,
+            "export_seconds": 1.018598,
+            "local_z_preparation_seconds": 0.031031,
+            "wall_seconds": 4.029887099999996,
+            "routing": {
+              "reused": 2940,
+              "clipped": 4849,
+              "reused_points": 106583
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          }
+        ],
+        "vulkan": [
+          {
+            "repeat": "1",
+            "pipeline_seconds": 1.718605,
+            "slice_seconds": 0.311043,
+            "export_seconds": 1.407051,
+            "local_z_preparation_seconds": 0.305541,
+            "wall_seconds": 3.0071145000001707,
+            "routing": {
+              "reused": 2939,
+              "clipped": 17,
+              "reused_points": 106503
+            },
+            "gpu_counters": {
+              "prepare_ms": 253.976,
+              "setup_ms": 137.281,
+              "upload_ms": 55.8748,
+              "dispatch_ms": 47.6137,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7789.0,
+              "rejected_entities": 4833.0,
+              "segments": 258217.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3052.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "2",
+            "pipeline_seconds": 1.449382,
+            "slice_seconds": 0.212588,
+            "export_seconds": 1.236794,
+            "local_z_preparation_seconds": 0.23899,
+            "wall_seconds": 2.5088792000001376,
+            "routing": {
+              "reused": 2937,
+              "clipped": 25,
+              "reused_points": 106478
+            },
+            "gpu_counters": {
+              "prepare_ms": 204.323,
+              "setup_ms": 100.688,
+              "upload_ms": 47.0598,
+              "dispatch_ms": 45.0795,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7789.0,
+              "rejected_entities": 4827.0,
+              "segments": 258334.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3052.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "3",
+            "pipeline_seconds": 1.397512,
+            "slice_seconds": 0.192587,
+            "export_seconds": 1.204925,
+            "local_z_preparation_seconds": 0.209128,
+            "wall_seconds": 2.5054959999999937,
+            "routing": {
+              "reused": 2942,
+              "clipped": 11,
+              "reused_points": 106602
+            },
+            "gpu_counters": {
+              "prepare_ms": 195.112,
+              "setup_ms": 98.1622,
+              "upload_ms": 44.4786,
+              "dispatch_ms": 42.6632,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7789.0,
+              "rejected_entities": 4836.0,
+              "segments": 258284.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3052.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "4",
+            "pipeline_seconds": 1.377141,
+            "slice_seconds": 0.198773,
+            "export_seconds": 1.178368,
+            "local_z_preparation_seconds": 0.207947,
+            "wall_seconds": 3.011929000000009,
+            "routing": {
+              "reused": 2942,
+              "clipped": 15,
+              "reused_points": 106607
+            },
+            "gpu_counters": {
+              "prepare_ms": 190.326,
+              "setup_ms": 91.7291,
+              "upload_ms": 42.2031,
+              "dispatch_ms": 44.9996,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7789.0,
+              "rejected_entities": 4832.0,
+              "segments": 258280.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3052.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "5",
+            "pipeline_seconds": 1.516431,
+            "slice_seconds": 0.23264,
+            "export_seconds": 1.283286,
+            "local_z_preparation_seconds": 0.241345,
+            "wall_seconds": 2.5069023000000925,
+            "routing": {
+              "reused": 2937,
+              "clipped": 24,
+              "reused_points": 106479
+            },
+            "gpu_counters": {
+              "prepare_ms": 222.402,
+              "setup_ms": 112.024,
+              "upload_ms": 48.6554,
+              "dispatch_ms": 49.4045,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7789.0,
+              "rejected_entities": 4828.0,
+              "segments": 258309.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3050.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          }
+        ]
+      }
+    },
+    "terrain": {
+      "project_sha256": "0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63",
+      "metrics": {
+        "pipeline_seconds": {
+          "cpu": {
+            "median": 15.330485,
+            "range": [
+              14.900679,
+              15.639852
+            ]
+          },
+          "vulkan": {
+            "median": 15.186087,
+            "range": [
+              14.878537,
+              15.201468
+            ]
+          },
+          "gpu_change_percent": -0.9419010553155971
+        },
+        "slice_seconds": {
+          "cpu": {
+            "median": 11.86449,
+            "range": [
+              11.534497,
+              12.121948
+            ]
+          },
+          "vulkan": {
+            "median": 11.417857,
+            "range": [
+              11.281051,
+              11.445237
+            ]
+          },
+          "gpu_change_percent": -3.764451737917096
+        },
+        "export_seconds": {
+          "cpu": {
+            "median": 3.517904,
+            "range": [
+              3.366182,
+              3.585668
+            ]
+          },
+          "vulkan": {
+            "median": 3.746296,
+            "range": [
+              3.597486,
+              3.779317
+            ]
+          },
+          "gpu_change_percent": 6.492274945535748
+        },
+        "local_z_preparation_seconds": {
+          "cpu": {
+            "median": 0.6581859999999999,
+            "range": [
+              0.60723,
+              0.678992
+            ]
+          },
+          "vulkan": {
+            "median": 0.917635,
+            "range": [
+              0.8324,
+              0.940239
+            ]
+          },
+          "gpu_change_percent": 39.41879651040892
+        },
+        "wall_seconds": {
+          "cpu": {
+            "median": 17.539505599999984,
+            "range": [
+              17.0297407999999,
+              18.057413000000224
+            ]
+          },
+          "vulkan": {
+            "median": 17.04549750000001,
+            "range": [
+              17.023916599999893,
+              17.5413281000001
+            ]
+          },
+          "gpu_change_percent": -2.8165451824364696
+        }
+      },
+      "runs": {
+        "cpu": [
+          {
+            "repeat": "1",
+            "pipeline_seconds": 15.330485,
+            "slice_seconds": 11.86449,
+            "export_seconds": 3.464987,
+            "local_z_preparation_seconds": 0.6124390000000001,
+            "wall_seconds": 17.52005579999991,
+            "routing": {
+              "reused": 105007,
+              "clipped": 60038,
+              "reused_points": 594030
+            },
+            "gpu_counters": {},
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          },
+          {
+            "repeat": "2",
+            "pipeline_seconds": 15.639852,
+            "slice_seconds": 12.121948,
+            "export_seconds": 3.517904,
+            "local_z_preparation_seconds": 0.6581859999999999,
+            "wall_seconds": 17.539505599999984,
+            "routing": {
+              "reused": 105005,
+              "clipped": 60037,
+              "reused_points": 594026
+            },
+            "gpu_counters": {},
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          },
+          {
+            "repeat": "3",
+            "pipeline_seconds": 14.900679,
+            "slice_seconds": 11.534497,
+            "export_seconds": 3.366182,
+            "local_z_preparation_seconds": 0.60723,
+            "wall_seconds": 17.0297407999999,
+            "routing": {
+              "reused": 105001,
+              "clipped": 60035,
+              "reused_points": 594018
+            },
+            "gpu_counters": {},
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          },
+          {
+            "repeat": "4",
+            "pipeline_seconds": 15.310803,
+            "slice_seconds": 11.724135,
+            "export_seconds": 3.585668,
+            "local_z_preparation_seconds": 0.658216,
+            "wall_seconds": 18.057413000000224,
+            "routing": {
+              "reused": 104999,
+              "clipped": 60034,
+              "reused_points": 594014
+            },
+            "gpu_counters": {},
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          },
+          {
+            "repeat": "5",
+            "pipeline_seconds": 15.478776,
+            "slice_seconds": 11.922806,
+            "export_seconds": 3.55597,
+            "local_z_preparation_seconds": 0.678992,
+            "wall_seconds": 18.045763899999884,
+            "routing": {
+              "reused": 105003,
+              "clipped": 60036,
+              "reused_points": 594022
+            },
+            "gpu_counters": {},
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          }
+        ],
+        "vulkan": [
+          {
+            "repeat": "1",
+            "pipeline_seconds": 15.186087,
+            "slice_seconds": 11.438788,
+            "export_seconds": 3.746296,
+            "local_z_preparation_seconds": 0.8324,
+            "wall_seconds": 17.04383440000015,
+            "routing": {
+              "reused": 104997,
+              "clipped": 72,
+              "reused_points": 594010
+            },
+            "gpu_counters": {
+              "prepare_ms": 304.335,
+              "setup_ms": 93.5142,
+              "upload_ms": 16.1656,
+              "dispatch_ms": 151.634,
+              "layers": 21.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 165024.0,
+              "rejected_entities": 59957.0,
+              "segments": 768951.0,
+              "peak_edges": 83622.0,
+              "peak_queries": 50961.0,
+              "peak_entries": 10524.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          },
+          {
+            "repeat": "2",
+            "pipeline_seconds": 15.017592,
+            "slice_seconds": 11.321486,
+            "export_seconds": 3.695111,
+            "local_z_preparation_seconds": 0.928959,
+            "wall_seconds": 17.04549750000001,
+            "routing": {
+              "reused": 104997,
+              "clipped": 72,
+              "reused_points": 594010
+            },
+            "gpu_counters": {
+              "prepare_ms": 404.017,
+              "setup_ms": 114.896,
+              "upload_ms": 44.0387,
+              "dispatch_ms": 190.028,
+              "layers": 21.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 165024.0,
+              "rejected_entities": 59957.0,
+              "segments": 768951.0,
+              "peak_edges": 83622.0,
+              "peak_queries": 50973.0,
+              "peak_entries": 10521.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          },
+          {
+            "repeat": "3",
+            "pipeline_seconds": 15.197174,
+            "slice_seconds": 11.417857,
+            "export_seconds": 3.779317,
+            "local_z_preparation_seconds": 0.917635,
+            "wall_seconds": 17.5413281000001,
+            "routing": {
+              "reused": 104987,
+              "clipped": 72,
+              "reused_points": 593988
+            },
+            "gpu_counters": {
+              "prepare_ms": 374.062,
+              "setup_ms": 129.094,
+              "upload_ms": 42.5945,
+              "dispatch_ms": 164.075,
+              "layers": 21.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 165009.0,
+              "rejected_entities": 59952.0,
+              "segments": 768933.0,
+              "peak_edges": 83622.0,
+              "peak_queries": 50973.0,
+              "peak_entries": 10521.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          },
+          {
+            "repeat": "4",
+            "pipeline_seconds": 14.878537,
+            "slice_seconds": 11.281051,
+            "export_seconds": 3.597486,
+            "local_z_preparation_seconds": 0.907028,
+            "wall_seconds": 17.023916599999893,
+            "routing": {
+              "reused": 104941,
+              "clipped": 72,
+              "reused_points": 593879
+            },
+            "gpu_counters": {
+              "prepare_ms": 395.415,
+              "setup_ms": 127.327,
+              "upload_ms": 48.0207,
+              "dispatch_ms": 181.471,
+              "layers": 21.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 164928.0,
+              "rejected_entities": 59917.0,
+              "segments": 768825.0,
+              "peak_edges": 83622.0,
+              "peak_queries": 50973.0,
+              "peak_entries": 10524.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          },
+          {
+            "repeat": "5",
+            "pipeline_seconds": 15.201468,
+            "slice_seconds": 11.445237,
+            "export_seconds": 3.755234,
+            "local_z_preparation_seconds": 0.940239,
+            "wall_seconds": 17.051974900000005,
+            "routing": {
+              "reused": 104999,
+              "clipped": 72,
+              "reused_points": 594014
+            },
+            "gpu_counters": {
+              "prepare_ms": 389.099,
+              "setup_ms": 128.885,
+              "upload_ms": 35.7009,
+              "dispatch_ms": 184.355,
+              "layers": 21.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 165027.0,
+              "rejected_entities": 59958.0,
+              "segments": 768954.0,
+              "peak_edges": 83622.0,
+              "peak_queries": 50973.0,
+              "peak_entries": 10524.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 21,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 0
+            }
+          }
+        ]
+      }
+    },
+    "cube_ui": {
+      "project_sha256": "a58f634505c22a93e98715b8fe537a839b31383b769c571694971e92f40de0c8",
+      "metrics": {
+        "pipeline_seconds": {
+          "cpu": {
+            "median": 1.197809,
+            "range": [
+              1.175741,
+              1.20659
+            ]
+          },
+          "vulkan": {
+            "median": 1.358875,
+            "range": [
+              1.341912,
+              1.384905
+            ]
+          },
+          "gpu_change_percent": 13.446718132857583
+        },
+        "slice_seconds": {
+          "cpu": {
+            "median": 0.187461,
+            "range": [
+              0.181652,
+              0.195986
+            ]
+          },
+          "vulkan": {
+            "median": 0.183326,
+            "range": [
+              0.179021,
+              0.186305
+            ]
+          },
+          "gpu_change_percent": -2.2057921380980616
+        },
+        "export_seconds": {
+          "cpu": {
+            "median": 1.001823,
+            "range": [
+              0.994089,
+              1.017619
+            ]
+          },
+          "vulkan": {
+            "median": 1.175549,
+            "range": [
+              1.161479,
+              1.1986
+            ]
+          },
+          "gpu_change_percent": 17.340987380006247
+        },
+        "local_z_preparation_seconds": {
+          "cpu": {
+            "median": 0.023029,
+            "range": [
+              0.017011,
+              0.027024
+            ]
+          },
+          "vulkan": {
+            "median": 0.217424,
+            "range": [
+              0.197805,
+              0.235019
+            ]
+          },
+          "gpu_change_percent": 844.1313126926918
+        },
+        "wall_seconds": {
+          "cpu": {
+            "median": 2.5067057000001114,
+            "range": [
+              2.0058592000000317,
+              2.508109500000046
+            ]
+          },
+          "vulkan": {
+            "median": 2.5068538999998964,
+            "range": [
+              2.505959500000017,
+              4.00808290000009
+            ]
+          },
+          "gpu_change_percent": 0.005912141971231577
+        }
+      },
+      "runs": {
+        "cpu": [
+          {
+            "repeat": "1",
+            "pipeline_seconds": 1.175741,
+            "slice_seconds": 0.181652,
+            "export_seconds": 0.994089,
+            "local_z_preparation_seconds": 0.017011,
+            "wall_seconds": 2.5067057000001114,
+            "routing": {
+              "reused": 2706,
+              "clipped": 4462,
+              "reused_points": 111767
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "2",
+            "pipeline_seconds": 1.182051,
+            "slice_seconds": 0.184518,
+            "export_seconds": 0.997533,
+            "local_z_preparation_seconds": 0.023029,
+            "wall_seconds": 2.0058592000000317,
+            "routing": {
+              "reused": 2705,
+              "clipped": 4463,
+              "reused_points": 111918
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "3",
+            "pipeline_seconds": 1.20659,
+            "slice_seconds": 0.187461,
+            "export_seconds": 1.017619,
+            "local_z_preparation_seconds": 0.027024,
+            "wall_seconds": 2.508109500000046,
+            "routing": {
+              "reused": 2705,
+              "clipped": 4463,
+              "reused_points": 111909
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "4",
+            "pipeline_seconds": 1.198595,
+            "slice_seconds": 0.193208,
+            "export_seconds": 1.004387,
+            "local_z_preparation_seconds": 0.026537,
+            "wall_seconds": 2.5072585000000345,
+            "routing": {
+              "reused": 2707,
+              "clipped": 4461,
+              "reused_points": 111939
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "5",
+            "pipeline_seconds": 1.197809,
+            "slice_seconds": 0.195986,
+            "export_seconds": 1.001823,
+            "local_z_preparation_seconds": 0.019991000000000002,
+            "wall_seconds": 2.006411400000161,
+            "routing": {
+              "reused": 2704,
+              "clipped": 4464,
+              "reused_points": 111704
+            },
+            "gpu_counters": {},
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          }
+        ],
+        "vulkan": [
+          {
+            "repeat": "1",
+            "pipeline_seconds": 1.347685,
+            "slice_seconds": 0.185508,
+            "export_seconds": 1.162177,
+            "local_z_preparation_seconds": 0.197805,
+            "wall_seconds": 2.505959500000017,
+            "routing": {
+              "reused": 2706,
+              "clipped": 11,
+              "reused_points": 111932
+            },
+            "gpu_counters": {
+              "prepare_ms": 181.999,
+              "setup_ms": 90.6166,
+              "upload_ms": 41.3982,
+              "dispatch_ms": 39.884,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7168.0,
+              "rejected_entities": 4451.0,
+              "segments": 273435.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3054.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "2",
+            "pipeline_seconds": 1.341912,
+            "slice_seconds": 0.180433,
+            "export_seconds": 1.161479,
+            "local_z_preparation_seconds": 0.21923499999999999,
+            "wall_seconds": 2.5061922999998387,
+            "routing": {
+              "reused": 2705,
+              "clipped": 19,
+              "reused_points": 111751
+            },
+            "gpu_counters": {
+              "prepare_ms": 187.309,
+              "setup_ms": 92.5065,
+              "upload_ms": 41.9404,
+              "dispatch_ms": 42.0634,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7168.0,
+              "rejected_entities": 4444.0,
+              "segments": 273361.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3050.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "3",
+            "pipeline_seconds": 1.372179,
+            "slice_seconds": 0.179021,
+            "export_seconds": 1.193158,
+            "local_z_preparation_seconds": 0.235019,
+            "wall_seconds": 2.5068538999998964,
+            "routing": {
+              "reused": 2706,
+              "clipped": 17,
+              "reused_points": 111755
+            },
+            "gpu_counters": {
+              "prepare_ms": 202.164,
+              "setup_ms": 105.832,
+              "upload_ms": 44.4815,
+              "dispatch_ms": 41.46,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7168.0,
+              "rejected_entities": 4445.0,
+              "segments": 273436.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3052.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "4",
+            "pipeline_seconds": 1.384905,
+            "slice_seconds": 0.186305,
+            "export_seconds": 1.1986,
+            "local_z_preparation_seconds": 0.20231000000000002,
+            "wall_seconds": 2.507125900000119,
+            "routing": {
+              "reused": 2705,
+              "clipped": 14,
+              "reused_points": 111731
+            },
+            "gpu_counters": {
+              "prepare_ms": 191.369,
+              "setup_ms": 92.0851,
+              "upload_ms": 45.9019,
+              "dispatch_ms": 42.6596,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7168.0,
+              "rejected_entities": 4449.0,
+              "segments": 273412.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3050.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          },
+          {
+            "repeat": "5",
+            "pipeline_seconds": 1.358875,
+            "slice_seconds": 0.183326,
+            "export_seconds": 1.175549,
+            "local_z_preparation_seconds": 0.217424,
+            "wall_seconds": 4.00808290000009,
+            "routing": {
+              "reused": 2704,
+              "clipped": 15,
+              "reused_points": 111888
+            },
+            "gpu_counters": {
+              "prepare_ms": 191.331,
+              "setup_ms": 93.3901,
+              "upload_ms": 43.3019,
+              "dispatch_ms": 43.8763,
+              "layers": 265.0,
+              "fallback_layers": 0.0,
+              "tested_entities": 7168.0,
+              "rejected_entities": 4449.0,
+              "segments": 273456.0,
+              "peak_edges": 1506.0,
+              "peak_queries": 3054.0,
+              "peak_entries": 348.0,
+              "index_build_ms": 0.0,
+              "index_query_ms": 0.0,
+              "indexed_segments": 0.0,
+              "peak_index_bytes": 0.0
+            },
+            "local_z_layers": 265,
+            "local_z_warnings": {
+              "preplanned wipe tower sequence mismatch": 0,
+              "toolchange reserve exhausted": 0,
+              "trailing wipe tower transition cannot be reconciled": 0,
+              "base clip leak": 0,
+              "local pass height mismatch": 0,
+              "no path passes": 18
+            }
+          }
+        ]
+      }
+    }
+  },
+  "audit_comparisons": {
+    "cube": {
+      "cpu_2": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.046469999995679245,
+          "1": 0.022540000000390137
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 360,
+        "sum_absolute_group_e_delta_mm": 0.7829700000000018,
+        "missing_length_mm": 737.3200097580591,
+        "added_length_mm": 743.4440830096546
+      },
+      "vulkan_1": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": -0.07186000000183412,
+          "1": 0.004950000000462751
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 560,
+        "sum_absolute_group_e_delta_mm": 0.7727500000000145,
+        "missing_length_mm": 745.7637187445014,
+        "added_length_mm": 740.9533423728976
+      },
+      "vulkan_2": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.025529999995342223,
+          "1": 0.018540000000029977
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 468,
+        "sum_absolute_group_e_delta_mm": 0.8148100000000077,
+        "missing_length_mm": 741.4262000820466,
+        "added_length_mm": 745.4151049974695
+      }
+    },
+    "cube_ui": {
+      "cpu_2": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.020949999994627433,
+          "1": -0.003189999999904103
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 522,
+        "sum_absolute_group_e_delta_mm": 0.804460000000019,
+        "missing_length_mm": 737.521601695234,
+        "added_length_mm": 739.9768588482447
+      },
+      "vulkan_1": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": -0.07177999999385065,
+          "1": 0.009930000000167638
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 519,
+        "sum_absolute_group_e_delta_mm": 0.8660100000000115,
+        "missing_length_mm": 737.0520735297322,
+        "added_length_mm": 734.4038397357538
+      },
+      "vulkan_2": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": -0.029639999990649812,
+          "1": 0.02941999999984546
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 384,
+        "sum_absolute_group_e_delta_mm": 0.7878000000000036,
+        "missing_length_mm": 739.3822328754878,
+        "added_length_mm": 740.8916191595739
+      }
+    },
+    "terrain": {
+      "cpu_2": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.006550000000061118,
+          "1": 0.0021600000000034925
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 12,
+        "sum_absolute_group_e_delta_mm": 0.012150000000000005,
+        "missing_length_mm": 0.043869777028121726,
+        "added_length_mm": 0.23355725053328366
+      },
+      "vulkan_1": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.0039900000010675285,
+          "1": -0.0018699999995988037
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 19,
+        "sum_absolute_group_e_delta_mm": 0.015039999999999937,
+        "missing_length_mm": 0.27748074308616205,
+        "added_length_mm": 0.1945781980981116
+      },
+      "vulkan_2": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": 0.0022300000018731225,
+          "1": -0.001239999999597785
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 21,
+        "sum_absolute_group_e_delta_mm": 0.01986999999999993,
+        "missing_length_mm": 0.35520242963994053,
+        "added_length_mm": 0.23355725053328366
+      }
+    }
+  },
+  "diagnostics": {
+    "cube_cpu_diagnostic": {
+      "exit_code": 0,
+      "local_z_clip": "cpu",
+      "local_z_validation": false,
+      "local_z_path_reuse": "1",
+      "stderr": "",
+      "gpu_report": []
+    },
+    "cube_ui_cpu_diagnostic": {
+      "exit_code": 0,
+      "local_z_clip": "cpu",
+      "local_z_validation": false,
+      "local_z_path_reuse": "1",
+      "stderr": "",
+      "gpu_report": []
+    },
+    "cube_ui_cpu_reference_1": {
+      "exit_code": 4294967196,
+      "local_z_clip": "cpu",
+      "local_z_validation": true,
+      "local_z_path_reuse": "1",
+      "stderr": "Local-Z whole-path ownership differs from reference clipping\n"
+    },
+    "cube_ui_cpu_reference_2": {
+      "exit_code": 4294967196,
+      "local_z_clip": "cpu",
+      "local_z_validation": true,
+      "local_z_path_reuse": "1",
+      "stderr": "Local-Z whole-path ownership differs from reference clipping\n"
+    },
+    "cube_ui_cpu_reference_no_reuse": {
+      "exit_code": 0,
+      "local_z_clip": "cpu",
+      "local_z_validation": true,
+      "local_z_path_reuse": "0",
+      "stderr": "",
+      "gpu_report": []
+    },
+    "cube_ui_validate_diagnostic": {
+      "exit_code": 4294967196,
+      "local_z_clip": "validate",
+      "local_z_validation": true,
+      "local_z_path_reuse": "1",
+      "stderr": "Local-Z whole-path ownership differs from reference clipping\n"
+    },
+    "cube_ui_validate_gpu_only": {
+      "exit_code": 0,
+      "local_z_clip": "validate",
+      "local_z_validation": false,
+      "local_z_path_reuse": "1",
+      "stderr": "",
+      "gpu_report": [
+        "device=NVIDIA GeForce RTX 5060 Laptop GPU validation=true prepare_ms=185.497 setup_ms=91.8452 upload_ms=41.1487 dispatch_ms=42.0408 layers=265 fallback_layers=0 tested_entities=7168 rejected_entities=4443 segments=273435 peak_edges=1506 peak_queries=3052 peak_entries=348 index_build_ms=0 index_query_ms=0 indexed_segments=0 peak_index_bytes=0"
+      ]
+    },
+    "cube_validate_diagnostic": {
+      "exit_code": 0,
+      "local_z_clip": "validate",
+      "local_z_validation": true,
+      "local_z_path_reuse": "1",
+      "stderr": "",
+      "gpu_report": [
+        "device=NVIDIA GeForce RTX 5060 Laptop GPU validation=true prepare_ms=187.726 setup_ms=92.7376 upload_ms=41.5155 dispatch_ms=43.1634 layers=265 fallback_layers=0 tested_entities=7789 rejected_entities=4827 segments=258337 peak_edges=1506 peak_queries=3050 peak_entries=348 index_build_ms=0 index_query_ms=0 indexed_segments=0 peak_index_bytes=0"
+      ]
+    },
+    "terrain_cpu_diagnostic": {
+      "exit_code": 0,
+      "local_z_clip": "cpu",
+      "local_z_validation": false,
+      "local_z_path_reuse": "1",
+      "stderr": "",
+      "gpu_report": []
+    },
+    "terrain_validate_diagnostic": {
+      "exit_code": 0,
+      "local_z_clip": "validate",
+      "local_z_validation": true,
+      "local_z_path_reuse": "1",
+      "wall_seconds": 380.33851600000025,
+      "stderr": "",
+      "gpu_report": [
+        "device=NVIDIA GeForce RTX 5060 Laptop GPU validation=true prepare_ms=410.818 setup_ms=139.656 upload_ms=45.2399 dispatch_ms=186.327 layers=21 fallback_layers=0 tested_entities=165024 rejected_entities=59957 segments=768951 peak_edges=83622 peak_queries=50973 peak_entries=10524 index_build_ms=0 index_query_ms=0 indexed_segments=0 peak_index_bytes=0"
+      ]
+    }
+  },
+  "seam_gpu_on_control": {
+    "description": "Cube with observed UI process settings, seam GPU fixed on; only SML GPU changes",
+    "metrics": {
+      "pipeline_seconds": {
+        "cpu": {
+          "median": 1.292352,
+          "range": [
+            1.289192,
+            1.298735
+          ]
+        },
+        "vulkan": {
+          "median": 1.39197,
+          "range": [
+            1.378835,
+            1.437827
+          ]
+        },
+        "gpu_change_percent": 7.708271430693814
+      },
+      "export_seconds": {
+        "cpu": {
+          "median": 1.102242,
+          "range": [
+            1.101822,
+            1.105709
+          ]
+        },
+        "vulkan": {
+          "median": 1.203923,
+          "range": [
+            1.202804,
+            1.244777
+          ]
+        },
+        "gpu_change_percent": 9.224925197914802
+      },
+      "local_z_preparation_seconds": {
+        "cpu": {
+          "median": 0.018997,
+          "range": [
+            0.016506,
+            0.032033
+          ]
+        },
+        "vulkan": {
+          "median": 0.154623,
+          "range": [
+            0.153189,
+            0.184683
+          ]
+        },
+        "gpu_change_percent": 713.9337790177397
+      }
+    },
+    "runs": {
+      "cpu": [
+        {
+          "repeat": "seam_gpu_1",
+          "pipeline_seconds": 1.289192,
+          "export_seconds": 1.102242,
+          "local_z_preparation_seconds": 0.016506,
+          "gpu_report": []
+        },
+        {
+          "repeat": "seam_gpu_2",
+          "pipeline_seconds": 1.298735,
+          "export_seconds": 1.105709,
+          "local_z_preparation_seconds": 0.018997,
+          "gpu_report": []
+        },
+        {
+          "repeat": "seam_gpu_3",
+          "pipeline_seconds": 1.292352,
+          "export_seconds": 1.101822,
+          "local_z_preparation_seconds": 0.032033,
+          "gpu_report": []
+        }
+      ],
+      "vulkan": [
+        {
+          "repeat": "seam_gpu_1",
+          "pipeline_seconds": 1.437827,
+          "export_seconds": 1.244777,
+          "local_z_preparation_seconds": 0.184683,
+          "gpu_report": [
+            "device=NVIDIA GeForce RTX 5060 Laptop GPU validation=false prepare_ms=139.703 setup_ms=42.1591 upload_ms=41.1202 dispatch_ms=45.2047 layers=265 fallback_layers=0 tested_entities=7168 rejected_entities=4445 segments=273361 peak_edges=1506 peak_queries=3054 peak_entries=348 index_build_ms=0 index_query_ms=0 indexed_segments=0 peak_index_bytes=0"
+          ]
+        },
+        {
+          "repeat": "seam_gpu_2",
+          "pipeline_seconds": 1.378835,
+          "export_seconds": 1.202804,
+          "local_z_preparation_seconds": 0.153189,
+          "gpu_report": [
+            "device=NVIDIA GeForce RTX 5060 Laptop GPU validation=false prepare_ms=133.948 setup_ms=42.2058 upload_ms=39.4289 dispatch_ms=41.3015 layers=265 fallback_layers=0 tested_entities=7168 rejected_entities=4443 segments=273431 peak_edges=1506 peak_queries=3046 peak_entries=348 index_build_ms=0 index_query_ms=0 indexed_segments=0 peak_index_bytes=0"
+          ]
+        },
+        {
+          "repeat": "seam_gpu_3",
+          "pipeline_seconds": 1.39197,
+          "export_seconds": 1.203923,
+          "local_z_preparation_seconds": 0.154623,
+          "gpu_report": [
+            "device=NVIDIA GeForce RTX 5060 Laptop GPU validation=false prepare_ms=133.882 setup_ms=42.2002 upload_ms=42.1003 dispatch_ms=39.3757 layers=265 fallback_layers=0 tested_entities=7168 rejected_entities=4450 segments=273451 peak_edges=1506 peak_queries=3054 peak_entries=348 index_build_ms=0 index_query_ms=0 indexed_segments=0 peak_index_bytes=0"
+          ]
+        }
+      ]
+    }
+  },
+  "original_project_hashes_verified_unchanged": true,
+  "cube_ui_overrides": {
+    "fs_surface_paint_only": "1",
+    "fs_painted_zone_extra_perimeters": "2"
+  }
+}
