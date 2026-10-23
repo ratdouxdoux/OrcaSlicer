@@ -3398,7 +3398,8 @@ static void build_local_z_plan(PrintObject&                                print
         }
         if (local_z_whole_objects && !fixed_state_masks_union.empty()) {
             constexpr double LOCAL_Z_WHOLE_OBJECT_FIXED_GUARD_MM = 0.10;
-            ExPolygons fixed_state_guard_masks = offset_ex(fixed_state_masks_union, float(scale_(LOCAL_Z_WHOLE_OBJECT_FIXED_GUARD_MM)));
+            ExPolygons       fixed_state_guard_masks             = expand_local_z_masks(fixed_state_masks_union,
+                                                                                        float(scale_(LOCAL_Z_WHOLE_OBJECT_FIXED_GUARD_MM)));
             if (fixed_state_guard_masks.empty())
                 fixed_state_guard_masks = fixed_state_masks_union;
             else if (fixed_state_guard_masks.size() > 1)
@@ -4427,7 +4428,10 @@ static void build_local_z_plan(PrintObject&                                print
                     ExPolygons fixed;
                     for (const ExPolygons& owned : collect_local_z_fixed_state_masks_by_extruder(segmentation[source_layer], num_physical))
                         append(fixed, owned);
-                    guard = fixed_guards.emplace(source_layer, offset_ex(union_ex(fixed), float(scale_(0.10)))).first;
+                    guard = fixed_guards
+                                .emplace(source_layer,
+                                         expand_local_z_masks(union_ex(fixed), float(scale_(LOCAL_Z_PERIMETER_MASK_EXPAND_MM))))
+                                .first;
                 }
                 if (!guard->second.empty())
                     masks = diff_ex(masks, guard->second);
@@ -4477,7 +4481,7 @@ static void build_local_z_plan(PrintObject&                                print
                 auto       compensated = compensated_history.find(key);
                 if (compensated == compensated_history.end()) {
                     const auto& raw  = historical_mask(source, row);
-                    ExPolygons  mask = offset_ex(raw, float(scale_(LOCAL_Z_PERIMETER_MASK_EXPAND_MM)));
+                    ExPolygons  mask = expand_local_z_masks(raw, float(scale_(LOCAL_Z_PERIMETER_MASK_EXPAND_MM)));
                     if (mask.empty())
                         mask = raw;
                     compensated = compensated_history.emplace(key, std::move(mask)).first;

@@ -3853,22 +3853,6 @@ static inline void append_clipped_paths(std::vector<ExtrusionPath>&& paths, Extr
             dst.append(std::move(path));
 }
 
-static inline ExPolygons local_z_compensate_masks(const ExPolygons& src_masks,
-                                                  const float       delta_scaled,
-                                                  const bool        fallback_to_source)
-{
-    if (src_masks.empty() || std::abs(delta_scaled) <= EPSILON)
-        return src_masks;
-
-    ExPolygons compensated = offset_ex(src_masks, delta_scaled);
-    if (!compensated.empty() && compensated.size() > 1)
-        compensated = union_ex(compensated);
-
-    if (compensated.empty() && fallback_to_source)
-        return src_masks;
-    return compensated;
-}
-
 struct LocalZPathHeightStats
 {
     size_t count { 0 };
@@ -5285,8 +5269,10 @@ LayerResult GCode::process_layer(const Print& print,
                         append(fixed_raw_masks_union, fixed_masks);
                 if (!fixed_raw_masks_union.empty() && fixed_raw_masks_union.size() > 1)
                     fixed_raw_masks_union = union_ex(fixed_raw_masks_union);
-                const ExPolygons fixed_compensated_guard =
-                    fixed_raw_masks_union.empty() ? ExPolygons() : local_z_compensate_masks(fixed_raw_masks_union, local_z_perimeter_mask_expand, true);
+                const ExPolygons fixed_compensated_guard = fixed_raw_masks_union.empty() ?
+                                                               ExPolygons() :
+                                                               expand_local_z_masks(fixed_raw_masks_union, local_z_perimeter_mask_expand,
+                                                                                    true);
 
                 for (size_t extruder_id = 0; extruder_id < plan_mask_slots; ++extruder_id) {
                     const ExPolygons mixed_raw_masks =
@@ -5306,7 +5292,7 @@ LayerResult GCode::process_layer(const Print& print,
                     if (!mixed_raw_masks.empty()) {
                         ExPolygons compensated_mixed = plan.masks_are_compensated ?
                                                            mixed_raw_masks :
-                                                           local_z_compensate_masks(mixed_raw_masks, local_z_perimeter_mask_expand, true);
+                                                           expand_local_z_masks(mixed_raw_masks, local_z_perimeter_mask_expand, true);
                         if (!fixed_compensated_guard.empty())
                             compensated_mixed = diff_ex(compensated_mixed, fixed_compensated_guard);
                         if (!compensated_mixed.empty())
@@ -5347,8 +5333,7 @@ LayerResult GCode::process_layer(const Print& print,
                 ctx.mixed_masks_union = raw_mixed_masks_union;
             const ExPolygons &base_exclude_source = !ctx.raw_mixed_masks_union.empty() ? ctx.raw_mixed_masks_union : ctx.mixed_masks_union;
             if (!base_exclude_source.empty()) {
-                ctx.mixed_masks_union_for_base_exclude =
-                    local_z_compensate_masks(base_exclude_source, local_z_base_mask_expand, true);
+                ctx.mixed_masks_union_for_base_exclude = expand_local_z_masks(base_exclude_source, local_z_base_mask_expand, true);
             }
             if ((!independent_layer_height && ctx.pass_buckets.empty()) || ctx.mixed_masks_union.empty()) {
                 ctx.enabled = false;

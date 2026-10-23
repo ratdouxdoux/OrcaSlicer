@@ -1,7 +1,9 @@
 #include "PerimeterGenerator.hpp"
 #include "Fill/NarrowRoofInfill.hpp"
+#include "PaintedWallInset.hpp"
 #include <cstdlib>
 #include <optional>
+#include <map>
 #include <stdexcept>
 #include "AABBTreeLines.hpp"
 #include "BridgeDetector.hpp"
@@ -1229,17 +1231,25 @@ void PerimeterGenerator::process_classic()
     for (const Surface &surface : all_surfaces)
         surface_exp.push_back(surface.expolygon);
     std::vector<size_t> surface_order = chain_expolygons(surface_exp);
-    const Layer*        roof_layer = compatible_regions != nullptr && !compatible_regions->empty() ? compatible_regions->front()->layer() :
+    const Layer* source_layer      = compatible_regions != nullptr && !compatible_regions->empty() ? compatible_regions->front()->layer() :
                                                                                                      nullptr;
-    bool                partitioned_roof = false;
-    if (roof_layer != nullptr && config->top_shell_layers.value > 0) {
-        for (const LayerRegion* region : roof_layer->regions())
+    bool         partitioned_layer = false;
+    if (source_layer != nullptr) {
+        for (const LayerRegion* region : source_layer->regions())
             if (!region->slices.empty() && (region->region().config().wall_filament != config->wall_filament ||
                                             region->region().config().solid_infill_filament != config->solid_infill_filament)) {
-                partitioned_roof = true;
+                partitioned_layer = true;
                 break;
             }
     }
+    const bool                  partitioned_roof = partitioned_layer && config->top_shell_layers.value > 0;
+    std::map<float, ExPolygons> object_insets;
+    const auto                  first_wall_inset = [&](const ExPolygons& outline, float distance) {
+        auto [it, inserted] = object_insets.try_emplace(distance);
+        if (inserted)
+            it->second = offset_ex(source_layer->lslices, -distance);
+        return inset_painted_wall(outline, it->second, distance);
+    };
     std::optional<ExPolygons> roof_scope;
     for (size_t order_idx = 0; order_idx < surface_order.size(); order_idx++) {
         const Surface &surface = all_surfaces[surface_order[order_idx]];
@@ -1273,9 +1283,11 @@ void PerimeterGenerator::process_classic()
                     if (this->config->detect_thin_wall) {
                         // the minimum thickness of a single loop is:
                         // ext_width/2 + ext_spacing/2 + spacing/2 + width/2
-                        offsets = offset2_ex(last,
-                            -float(ext_perimeter_width / 2. + ext_min_spacing / 2. - 1),
-                            +float(ext_min_spacing / 2. - 1));
+                        offsets = partitioned_layer ?
+                                      offset_ex(first_wall_inset(last, float(ext_perimeter_width / 2. + ext_min_spacing / 2. - 1)),
+                                                float(ext_min_spacing / 2. - 1)) :
+                                      offset2_ex(last, -float(ext_perimeter_width / 2. + ext_min_spacing / 2. - 1),
+                                                 float(ext_min_spacing / 2. - 1));
                         // the following offset2 ensures almost nothing in @thin_walls is narrower than $min_width
                         // (actually, something larger than that still may exist due to mitering or other causes)
                         coord_t min_width = coord_t(scale_(this->ext_perimeter_flow.nozzle_diameter() / 3));
@@ -1292,18 +1304,26 @@ void PerimeterGenerator::process_classic()
                             // BBS: judge whether it's narrow but not too long island which is hard to place two line
                             ExPolygons expolys;
                             expolys.push_back(expolygon);
-                            ExPolygons offset_result = offset2_ex(expolys,
-                                -float(ext_perimeter_width / 2. + ext_min_spacing_smaller / 2.),
-                                +float(ext_min_spacing_smaller / 2.));
+                            ExPolygons offset_result = partitioned_layer ?
+                                                           offset_ex(first_wall_inset(expolys, float(ext_perimeter_width / 2. +
+                                                                                                     ext_min_spacing_smaller / 2.)),
+                                                                     float(ext_min_spacing_smaller / 2.)) :
+                                                           offset2_ex(expolys,
+                                                                      -float(ext_perimeter_width / 2. + ext_min_spacing_smaller / 2.),
+                                                                      float(ext_min_spacing_smaller / 2.));
                             if (offset_result.empty() &&
                                 expolygon.area() < (double)(ext_perimeter_width + ext_min_spacing_smaller) * scale_(narrow_loop_length_threshold)) {
                                 // BBS: for narrow external loop, use smaller line width
-                                ExPolygons temp_result = offset_ex(expolygon, -float(ext_perimeter_smaller_width / 2.));
+                                ExPolygons temp_result = partitioned_layer ?
+                                                             first_wall_inset({expolygon}, float(ext_perimeter_smaller_width / 2.)) :
+                                                             offset_ex(expolygon, -float(ext_perimeter_smaller_width / 2.));
                                 offsets_with_smaller_width.insert(offsets_with_smaller_width.end(), temp_result.begin(), temp_result.end());
                             }
                             else {
                                 //BBS: for not narrow loop, use normal external perimeter line width
-                                ExPolygons temp_result = offset_ex(expolygon, -float(ext_perimeter_width / 2.));
+                                ExPolygons temp_result = partitioned_layer ?
+                                                             first_wall_inset({expolygon}, float(ext_perimeter_width / 2.)) :
+                                                             offset_ex(expolygon, -float(ext_perimeter_width / 2.));
                                 offsets.insert(offsets.end(), temp_result.begin(), temp_result.end());
                             }
                         }
@@ -1660,8 +1680,8 @@ void PerimeterGenerator::process_classic()
                     return !path.width.empty() && path.length() < *std::max_element(path.width.begin(), path.width.end());
                 })) {
                 if (!roof_scope)
-                    roof_scope = diff_ex(roof_layer->lslices, roof_covered_outline(*roof_layer, config->top_shell_layers.value,
-                                                                                   config->top_shell_thickness.value));
+                    roof_scope = diff_ex(source_layer->lslices, roof_covered_outline(*source_layer, config->top_shell_layers.value,
+                                                                                     config->top_shell_thickness.value));
                 if (!roof_scope->empty()) {
                     const coord_t min_fill_spacing = coord_t(solid_infill_spacing * (1. - INSET_OVERLAP_TOLERANCE));
                     reclaim_roof_gap_stubs(

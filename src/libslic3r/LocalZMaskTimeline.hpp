@@ -9,6 +9,17 @@ namespace Slic3r {
 // temporal fragment independently (which would overlap adjacent fragments).
 constexpr double LOCAL_Z_PERIMETER_MASK_EXPAND_MM = 0.10;
 
+// Keep the expansion a true distance from the boundary. Miter joins amplify
+// fine painted teeth and can capture another region's already-inset wall.
+// Planning, temporal ownership, tower accounting and export must agree here.
+inline ExPolygons expand_local_z_masks(const ExPolygons& masks, float distance, bool fallback_to_source = true)
+{
+    if (masks.empty() || std::abs(distance) <= EPSILON)
+        return masks;
+    ExPolygons result = offset_ex(masks, distance, jtRound, scale_(.005));
+    return result.empty() && fallback_to_source ? masks : result;
+}
+
 struct LocalZMaskSlab
 {
     size_t     layer_id;

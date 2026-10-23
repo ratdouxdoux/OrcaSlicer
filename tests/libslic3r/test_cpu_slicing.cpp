@@ -8,6 +8,7 @@
 #include "libslic3r/LayerGeometryBatch.hpp"
 #include "libslic3r/LocalZMaskTimeline.hpp"
 #include "libslic3r/Fill/NarrowRoofInfill.hpp"
+#include "libslic3r/PaintedWallInset.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Support/TreeSupport.hpp"
@@ -87,6 +88,131 @@ TEST_CASE("Independent Local-Z passes partition changing material ownership", "[
         CHECK(output.front().z_lo == Approx(.1));
         CHECK(output.front().z_hi == Approx(.4));
     }
+}
+
+TEST_CASE("Painted Classic wall insets do not amplify sub-nozzle boundary teeth", "[CPUSlicing][PaintedWall]")
+{
+    std::ifstream fixture(std::string(TEST_DATA_DIR) + "/painted_wall_outline.txt");
+    REQUIRE(fixture.good());
+    Points  contour;
+    coord_t x, y;
+    while (fixture >> x >> y)
+        contour.emplace_back(x, y);
+    REQUIRE(contour.size() == 390);
+    const ExPolygons region{ExPolygon(Polygon(std::move(contour)))};
+    const ExPolygons object{rectangle(0, scale_(-6.), scale_(20.), scale_(5.))};
+    const float      distance        = scale_(.21);
+    const ExPolygons original        = offset_ex(region, -distance);
+    const ExPolygons corrected       = inset_painted_wall(region, offset_ex(object, -distance), distance);
+    const auto       width_at_middle = [](const ExPolygons& polygons) {
+        double length = 0.;
+        for (const Polyline& line : intersection_pl(Polylines{Polyline(Points{Point(0, 0), Point::new_scale(20., 0.)})}, polygons))
+            length += line.length();
+        return unscale<double>(length);
+    };
+    CHECK(width_at_middle(original) < 3.9);
+    CHECK(width_at_middle(corrected) > 4.2);
+    CHECK(area(diff_ex(original, corrected)) < 1.);
+    CHECK(area(diff_ex(corrected, region)) < 1.);
+    // The repaired first inset leaves a normal-sized pocket after inner walls.
+    const float      spacing          = scale_(.435 - .08 * (1. - .25 * PI));
+    const float      half_min_spacing = scale_((.45 - .08 * (1. - .25 * PI)) * (1. - INSET_OVERLAP_TOLERANCE) / 2.);
+    const ExPolygons inside           = offset2_ex(corrected, -spacing - half_min_spacing + 1, half_min_spacing - 1);
+    CHECK(width_at_middle(inside) > 3.3);
+    // Round joins approximate the true nozzle-radius inset within 5 microns.
+    size_t samples = 0;
+    for (const ExPolygon& poly : corrected)
+        for (const Point& point : poly.contour.points)
+            if (point.y() > scale_(-1.) && point.y() < scale_(1.)) {
+                double measured = std::numeric_limits<double>::infinity();
+                for (const Line& line : region.front().contour.lines())
+                    measured = std::min(measured, unscale<double>(line.distance_to(point)));
+                CHECK(measured >= .2049);
+                CHECK(measured <= .2151);
+                ++samples;
+            }
+    CHECK(samples > 2);
+    // Both sides of the same painted boundary keep disjoint nozzle envelopes.
+    const ExPolygons other       = diff_ex(object, region);
+    const ExPolygons other_inset = inset_painted_wall(other, offset_ex(object, -distance), distance);
+    const ExPolygons envelope_a  = offset_ex(corrected, distance - scale_(.006), jtRound, scale_(.001));
+    const ExPolygons envelope_b  = offset_ex(other_inset, distance - scale_(.006), jtRound, scale_(.001));
+    CHECK(area(intersection_ex(envelope_a, envelope_b)) < 1.);
+    // The former miter expansion captured the neighbour's wall despite the
+    // requested 0.10 mm guard being smaller than its 0.21 mm inset.
+    const Polylines neighbor_lines = to_polylines(other_inset);
+    CHECK_FALSE(intersection_pl(neighbor_lines, offset_ex(region, scale_(.10))).empty());
+    CHECK(intersection_pl(neighbor_lines, expand_local_z_masks(region, scale_(.10))).empty());
+    CHECK(expand_local_z_masks({}, scale_(.10)).empty());
+    CHECK(expand_local_z_masks(region, 0.) == region);
+    CHECK(expand_local_z_masks(region, -scale_(100.)) == region);
+    CHECK(expand_local_z_masks(region, -scale_(100.), false).empty());
+}
+
+TEST_CASE("Classic painted inset keeps printable slivers and removes Boolean grid needles", "[CPUSlicing][PaintedWall]")
+{
+    const auto p = [](double x, double y) { return Point::new_scale(x, y); };
+    Points     teeth{p(0, 0), p(1.2, 0)};
+    for (int i = 1; i <= 40; ++i)
+        teeth.push_back(p(1.2 - (i % 2) * .09, i * .044));
+    teeth.push_back(p(0, 40 * .044));
+    for (int i = 39; i > 0; --i)
+        teeth.push_back(p((i % 2) * .09, i * .044));
+    const ExPolygons strip{ExPolygon(Polygon(std::move(teeth)))};
+    const ExPolygons object{rectangle(scale_(-10.), scale_(-10.), scale_(20.), scale_(20.))};
+    CHECK(offset2_ex(strip, -scale_(.4), scale_(.15)).empty());
+    CHECK_FALSE(offset_ex(inset_painted_wall(strip, offset_ex(object, -scale_(.4)), scale_(.4)), scale_(.15)).empty());
+    const ExPolygons rib{rectangle(0, 0, scale_(.5), scale_(3.))};
+    CHECK(inset_painted_wall(rib, offset_ex(rib, -scale_(.4)), scale_(.4)).empty());
+
+    std::ifstream fixture(std::string(TEST_DATA_DIR) + "/painted_wall_transition.txt");
+    REQUIRE(fixture.good());
+    Points  contour;
+    coord_t x, y;
+    while (fixture >> x >> y)
+        contour.emplace_back(x, y);
+    REQUIRE(contour.size() > 3);
+    ExPolygons corrected = inset_painted_wall({ExPolygon(Polygon(std::move(contour)))}, offset_ex(object, -209999.5f), 209999.5f);
+    REQUIRE_FALSE(corrected.empty());
+    // This transition used to contain a 0.21 mm return path only one integer
+    // unit wide. G-code rounding turned it into a double extrusion.
+    for (ExPolygon& poly : corrected) {
+        poly.contour.round_to_grid(scale_(.001));
+        remove_same_neighbor(poly.contour);
+        const Points& pts = poly.contour.points;
+        for (size_t i = 0; i < pts.size(); ++i) {
+            const Vec2d a = (pts[i] - pts[(i + pts.size() - 1) % pts.size()]).cast<double>();
+            const Vec2d b = (pts[(i + 1) % pts.size()] - pts[i]).cast<double>();
+            CHECK_FALSE((a.dot(b) < 0. && a.x() * b.y() == a.y() * b.x()));
+        }
+    }
+}
+
+TEST_CASE("Painted wall correction preserves physical corners holes and thin islands", "[CPUSlicing][PaintedWall]")
+{
+    const auto p = [](double x, double y) { return Point(scale_(x), scale_(y)); };
+    ExPolygon  physical(Polygon(Points{p(0, 0), p(10, 0), p(10, 10), p(6, 10), p(5, 7), p(4, 10), p(0, 10)}));
+    Polygon    hole = rectangle(scale_(2.), scale_(2.), scale_(4.), scale_(4.)).contour;
+    hole.reverse();
+    physical.holes.push_back(hole);
+    const ExPolygons object{physical, rectangle(scale_(12.), 0, scale_(12.3), scale_(4.))};
+    const float      distance = scale_(.21);
+    const ExPolygons expected = offset_ex(object, -distance);
+    const ExPolygons whole    = inset_painted_wall(object, expected, distance);
+    CHECK(area(diff_ex(whole, expected)) < 1.);
+    CHECK(area(diff_ex(expected, whole)) < 1.);
+    const ExPolygons painted   = intersection_ex(object, ExPolygons{rectangle(0, 0, scale_(6.5), scale_(11.))});
+    const ExPolygons old       = offset_ex(painted, -distance);
+    const ExPolygons corrected = inset_painted_wall(painted, expected, distance);
+    CHECK(area(diff_ex(old, corrected)) < 1.);
+    CHECK(area(diff_ex(diff_ex(corrected, old), expected)) < 1.);
+    CHECK(area(intersection_ex(corrected, ExPolygons{ExPolygon(rectangle(scale_(2.), scale_(2.), scale_(4.), scale_(4.)).contour)})) < 1.);
+    // An acute convex painted tip keeps its ordinary inset as well.
+    const ExPolygons tip{ExPolygon(Polygon(Points{p(1, 1), p(7, 1), p(1, 2)}))};
+    const ExPolygons sharp = inset_painted_wall(tip, offset_ex(ExPolygons{rectangle(0, 0, scale_(10.), scale_(10.))}, -distance), distance);
+    const ExPolygons sharp_expected = offset_ex(tip, -distance);
+    CHECK(area(diff_ex(sharp, sharp_expected)) < 1.);
+    CHECK(area(diff_ex(sharp_expected, sharp)) < 1.);
 }
 
 TEST_CASE("Roof gap recovery preserves connected paths and unfillable features", "[Infill][RoofPartition][GapStub]")
