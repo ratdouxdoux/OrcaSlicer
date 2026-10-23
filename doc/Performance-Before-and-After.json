@@ -1,0 +1,1298 @@
+{
+  "method": "Historical before measurements compared with two fresh current CPU-only default runs per input; medians; not a contemporaneous equal-output A/B.",
+  "after_commit": "4a2badb7a4",
+  "cases": {
+    "starry_local_z": {
+      "comparisons": {
+        "wall_seconds": {
+          "before": 320.4172877499368,
+          "after": 177.67758985,
+          "saved": 142.7396978999368,
+          "reduction_percent": 44.5480638395938,
+          "speedup": 1.803363541910048,
+          "runs": {
+            "before": [
+              319.05222059972584,
+              321.78235490014777
+            ],
+            "after": [
+              177.1444517000018,
+              178.2107279999982
+            ]
+          }
+        },
+        "cpu_seconds": {
+          "before": 933.734375,
+          "after": 750.171875,
+          "saved": 183.5625,
+          "reduction_percent": 19.658963503405346,
+          "speedup": 1.2446939243090125,
+          "runs": {
+            "before": [
+              928.59375,
+              938.875
+            ],
+            "after": [
+              744.375,
+              755.96875
+            ]
+          }
+        },
+        "preparation_seconds": {
+          "before": 48.518086,
+          "after": 31.6699085,
+          "saved": 16.8481775,
+          "reduction_percent": 34.72556089702302,
+          "speedup": 1.5319932484175,
+          "runs": {
+            "before": [
+              48.009424,
+              49.026748
+            ],
+            "after": [
+              31.441916,
+              31.897901
+            ]
+          }
+        },
+        "export_seconds": {
+          "before": 183.707909,
+          "after": 85.306454,
+          "saved": 98.401455,
+          "reduction_percent": 53.5640819906126,
+          "speedup": 2.153505395969219,
+          "runs": {
+            "before": [
+              183.757291,
+              183.658527
+            ],
+            "after": [
+              85.203293,
+              85.409615
+            ]
+          }
+        },
+        "shell_seconds": {
+          "before": 16.3291525,
+          "after": 2.1988719999999997,
+          "saved": 14.1302805,
+          "reduction_percent": 86.53407150187373,
+          "speedup": 7.426149634903715,
+          "runs": {
+            "before": [
+              15.854763,
+              16.803542
+            ],
+            "after": [
+              2.214023,
+              2.183721
+            ]
+          }
+        },
+        "external_surface_seconds": {
+          "before": 0.010395999999999999,
+          "after": 0.013292,
+          "saved": -0.002896000000000001,
+          "reduction_percent": -27.856868026163916,
+          "speedup": 0.7821245862172734,
+          "runs": {
+            "before": [
+              0.009999,
+              0.010793
+            ],
+            "after": [
+              0.014002,
+              0.012582
+            ]
+          }
+        },
+        "peak_commit_gib": {
+          "before": 8.101240158081055,
+          "after": 5.432674407958984,
+          "saved": 2.6685657501220703,
+          "reduction_percent": 32.94021283223104,
+          "speedup": 1.4912066414678864,
+          "runs": {
+            "before": [
+              8.143333435058594,
+              8.059146881103516
+            ],
+            "after": [
+              5.398872375488281,
+              5.4664764404296875
+            ]
+          }
+        },
+        "peak_working_set_gib": {
+          "before": 5.367481231689453,
+          "after": 5.084253311157227,
+          "saved": 0.28322792053222656,
+          "reduction_percent": 5.276737976465706,
+          "speedup": 1.0557068861834031,
+          "runs": {
+            "before": [
+              5.469722747802734,
+              5.265239715576172
+            ],
+            "after": [
+              5.045047760009766,
+              5.1234588623046875
+            ]
+          }
+        }
+      },
+      "runs": {
+        "before": [
+          {
+            "directory": "build_logs/cpu_optimization_benchmark/baseline_starry_1",
+            "started": "2026-10-13T11:27:20.239556+08:00",
+            "project_sha256": "9ae317c5b99767a5f143e69e533db1588ed0e227e4d4400c56a2ff2bb9771ff2",
+            "dll_sha256": "87f5007d5fa0b119049522c1b559e07c52fa58e6a8f7f87f079d56bb8162a666",
+            "wall_seconds": 319.05222059972584,
+            "cpu_seconds": 928.59375,
+            "peak_commit_gib": 8.143333435058594,
+            "peak_working_set_gib": 5.469722747802734,
+            "preparation_seconds": 48.009424,
+            "export_seconds": 183.757291,
+            "shell_seconds": 15.854763,
+            "external_surface_seconds": 0.009999,
+            "plans": [
+              {
+                "object": "Starry",
+                "mixed_intervals": "1257",
+                "split_intervals": "1256",
+                "non_split_mixed_intervals": "1",
+                "split_intervals_without_painted_masks": "0",
+                "sublayer_passes": "2848",
+                "split_passes_total": "2847",
+                "split_passes_with_painted_masks": "2847",
+                "alternating_height_intervals": "0",
+                "shared_multi_row_fallback_intervals": "0",
+                "max_isolated_active_rows": "2",
+                "max_isolated_mask_components": "24",
+                "max_isolated_mask_vertices": "1200",
+                "strict_ab_assignments": "0",
+                "mixed_state_layers": "3769",
+                "forced_height_resolve_calls": "2850",
+                "forced_height_resolve_invalid_target": "0",
+                "min_sublayer_height": "0.06",
+                "preferred_a": "0",
+                "preferred_b": "0"
+              }
+            ],
+            "print_statistics": [
+              "; filament used [mm] = 27416.73, 28538.97, 11732.85, 20215.24",
+              "; filament used [cm3] = 65.94, 68.64, 28.22, 48.62",
+              "; filament used [g] = 87.05, 90.61, 37.25, 64.18",
+              "; total filament used [g] = 279.09",
+              "; estimated printing time (normal mode) = 2d 8h 42m 16s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 217575413,
+                "sha256": "d6be2ad2a0ad4297b50de68438e0f3dad5456b3f69020b225305425e8fcfdc5a"
+              }
+            ]
+          },
+          {
+            "directory": "build_logs/cpu_optimization_benchmark/baseline_starry_2",
+            "started": "2026-10-13T11:53:32.926150+08:00",
+            "project_sha256": "9ae317c5b99767a5f143e69e533db1588ed0e227e4d4400c56a2ff2bb9771ff2",
+            "dll_sha256": "87f5007d5fa0b119049522c1b559e07c52fa58e6a8f7f87f079d56bb8162a666",
+            "wall_seconds": 321.78235490014777,
+            "cpu_seconds": 938.875,
+            "peak_commit_gib": 8.059146881103516,
+            "peak_working_set_gib": 5.265239715576172,
+            "preparation_seconds": 49.026748,
+            "export_seconds": 183.658527,
+            "shell_seconds": 16.803542,
+            "external_surface_seconds": 0.010793,
+            "plans": [
+              {
+                "object": "Starry",
+                "mixed_intervals": "1257",
+                "split_intervals": "1256",
+                "non_split_mixed_intervals": "1",
+                "split_intervals_without_painted_masks": "0",
+                "sublayer_passes": "2848",
+                "split_passes_total": "2847",
+                "split_passes_with_painted_masks": "2847",
+                "alternating_height_intervals": "0",
+                "shared_multi_row_fallback_intervals": "0",
+                "max_isolated_active_rows": "2",
+                "max_isolated_mask_components": "24",
+                "max_isolated_mask_vertices": "1200",
+                "strict_ab_assignments": "0",
+                "mixed_state_layers": "3769",
+                "forced_height_resolve_calls": "2850",
+                "forced_height_resolve_invalid_target": "0",
+                "min_sublayer_height": "0.06",
+                "preferred_a": "0",
+                "preferred_b": "0"
+              }
+            ],
+            "print_statistics": [
+              "; filament used [mm] = 27418.47, 28537.60, 11719.48, 20220.23",
+              "; filament used [cm3] = 65.95, 68.64, 28.19, 48.64",
+              "; filament used [g] = 87.05, 90.61, 37.21, 64.20",
+              "; total filament used [g] = 279.07",
+              "; estimated printing time (normal mode) = 2d 8h 42m 1s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 217590659,
+                "sha256": "03148c1d020dcc13dce5e8225cf288b43219495c90c35b256d017279a0114240"
+              }
+            ]
+          }
+        ],
+        "after": [
+          {
+            "directory": "build_logs/performance_before_after_20261023/starry_local_z_1",
+            "started": "2026-10-23T17:29:51.169052+08:00",
+            "project_sha256": "9ae317c5b99767a5f143e69e533db1588ed0e227e4d4400c56a2ff2bb9771ff2",
+            "dll_sha256": "e9adf5cb9f99131d1a8ee95c457a31ab404cc820cbaae78f9f8c71a9bd651b8f",
+            "wall_seconds": 177.1444517000018,
+            "cpu_seconds": 744.375,
+            "peak_commit_gib": 5.398872375488281,
+            "peak_working_set_gib": 5.045047760009766,
+            "preparation_seconds": 31.441916,
+            "export_seconds": 85.203293,
+            "shell_seconds": 2.214023,
+            "external_surface_seconds": 0.014002,
+            "plans": [
+              {
+                "object": "Starry",
+                "mixed_intervals": "1257",
+                "split_intervals": "1256",
+                "non_split_mixed_intervals": "1",
+                "split_intervals_without_painted_masks": "0",
+                "sublayer_passes": "10900",
+                "split_passes_total": "10899",
+                "split_passes_with_painted_masks": "10899",
+                "alternating_height_intervals": "0",
+                "shared_multi_row_fallback_intervals": "0",
+                "max_isolated_active_rows": "2",
+                "max_isolated_mask_components": "24",
+                "max_isolated_mask_vertices": "1200",
+                "strict_ab_assignments": "0",
+                "mixed_state_layers": "3769",
+                "forced_height_resolve_calls": "2850",
+                "forced_height_resolve_invalid_target": "0",
+                "min_sublayer_height": "0.06",
+                "preferred_a": "0",
+                "preferred_b": "0"
+              }
+            ],
+            "print_statistics": [
+              "; filament used [mm] = 30898.13, 36018.04, 17588.74, 25564.02",
+              "; filament used [cm3] = 74.32, 86.63, 42.31, 61.49",
+              "; filament used [g] = 98.10, 114.36, 55.84, 81.17",
+              "; total filament used [g] = 349.47",
+              "; estimated printing time (normal mode) = 3d 8h 24m 32s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 334198144,
+                "sha256": "2a9eb904ac0d7fa66700f9add68c6a4cd4cdd3ef8dba5ea72270ea4b5e5066b1"
+              }
+            ]
+          },
+          {
+            "directory": "build_logs/performance_before_after_20261023/starry_local_z_2",
+            "started": "2026-10-23T17:35:49.725390+08:00",
+            "project_sha256": "9ae317c5b99767a5f143e69e533db1588ed0e227e4d4400c56a2ff2bb9771ff2",
+            "dll_sha256": "e9adf5cb9f99131d1a8ee95c457a31ab404cc820cbaae78f9f8c71a9bd651b8f",
+            "wall_seconds": 178.2107279999982,
+            "cpu_seconds": 755.96875,
+            "peak_commit_gib": 5.4664764404296875,
+            "peak_working_set_gib": 5.1234588623046875,
+            "preparation_seconds": 31.897901,
+            "export_seconds": 85.409615,
+            "shell_seconds": 2.183721,
+            "external_surface_seconds": 0.012582,
+            "plans": [
+              {
+                "object": "Starry",
+                "mixed_intervals": "1257",
+                "split_intervals": "1256",
+                "non_split_mixed_intervals": "1",
+                "split_intervals_without_painted_masks": "0",
+                "sublayer_passes": "10900",
+                "split_passes_total": "10899",
+                "split_passes_with_painted_masks": "10899",
+                "alternating_height_intervals": "0",
+                "shared_multi_row_fallback_intervals": "0",
+                "max_isolated_active_rows": "2",
+                "max_isolated_mask_components": "24",
+                "max_isolated_mask_vertices": "1200",
+                "strict_ab_assignments": "0",
+                "mixed_state_layers": "3769",
+                "forced_height_resolve_calls": "2850",
+                "forced_height_resolve_invalid_target": "0",
+                "min_sublayer_height": "0.06",
+                "preferred_a": "0",
+                "preferred_b": "0"
+              }
+            ],
+            "print_statistics": [
+              "; filament used [mm] = 30898.13, 36018.05, 17588.74, 25564.02",
+              "; filament used [cm3] = 74.32, 86.63, 42.31, 61.49",
+              "; filament used [g] = 98.10, 114.36, 55.84, 81.17",
+              "; total filament used [g] = 349.47",
+              "; estimated printing time (normal mode) = 3d 8h 24m 32s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 334199516,
+                "sha256": "a92e083b2bad33ae9a9168a127d045acd0d5543d3a09d515d53a0c6b8fb38a18"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "starry_ordinary": {
+      "comparisons": {
+        "wall_seconds": {
+          "before": 114.84701519971713,
+          "after": 104.65042599999833,
+          "saved": 10.196589199718801,
+          "reduction_percent": 8.87841027647701,
+          "speedup": 1.097434760559111,
+          "runs": {
+            "before": [
+              114.84701519971713
+            ],
+            "after": [
+              107.82026139999653,
+              101.48059060000014
+            ]
+          }
+        },
+        "cpu_seconds": {
+          "before": 706.421875,
+          "after": 614.78125,
+          "saved": 91.640625,
+          "reduction_percent": 12.972506690849572,
+          "speedup": 1.149062166420983,
+          "runs": {
+            "before": [
+              706.421875
+            ],
+            "after": [
+              623.203125,
+              606.359375
+            ]
+          }
+        },
+        "preparation_seconds": {
+          "before": 28.206267,
+          "after": 17.525306999999998,
+          "saved": 10.680960000000002,
+          "reduction_percent": 37.86732927118644,
+          "speedup": 1.609459223738563,
+          "runs": {
+            "before": [
+              28.206267
+            ],
+            "after": [
+              17.814749,
+              17.235865
+            ]
+          }
+        },
+        "export_seconds": {
+          "before": 30.174882,
+          "after": 30.6053025,
+          "saved": -0.4304205000000003,
+          "reduction_percent": -1.4264198282531781,
+          "speedup": 0.9859364075881949,
+          "runs": {
+            "before": [
+              30.174882
+            ],
+            "after": [
+              31.527931,
+              29.682674
+            ]
+          }
+        },
+        "shell_seconds": {
+          "before": 16.568428,
+          "after": 2.7680245,
+          "saved": 13.800403500000002,
+          "reduction_percent": 83.29337882869757,
+          "speedup": 5.985650777296227,
+          "runs": {
+            "before": [
+              16.568428
+            ],
+            "after": [
+              2.763111,
+              2.772938
+            ]
+          }
+        },
+        "external_surface_seconds": {
+          "before": 0.026002,
+          "after": 0.029083,
+          "saved": -0.0030810000000000004,
+          "reduction_percent": -11.849088531651407,
+          "speedup": 0.894061823058144,
+          "runs": {
+            "before": [
+              0.026002
+            ],
+            "after": [
+              0.028993,
+              0.029173
+            ]
+          }
+        },
+        "peak_commit_gib": {
+          "before": 7.9478759765625,
+          "after": 4.306743621826172,
+          "saved": 3.641132354736328,
+          "reduction_percent": 45.81264686909644,
+          "speedup": 1.8454490618581083,
+          "runs": {
+            "before": [
+              7.9478759765625
+            ],
+            "after": [
+              4.302997589111328,
+              4.310489654541016
+            ]
+          }
+        },
+        "peak_working_set_gib": {
+          "before": 5.236167907714844,
+          "after": 4.169492721557617,
+          "saved": 1.0666751861572266,
+          "reduction_percent": 20.371294522194617,
+          "speedup": 1.2558285281665496,
+          "runs": {
+            "before": [
+              5.236167907714844
+            ],
+            "after": [
+              4.168872833251953,
+              4.170112609863281
+            ]
+          }
+        }
+      },
+      "runs": {
+        "before": [
+          {
+            "directory": "build_logs/cpu_slicing_profile/starry_no_local_z_unprofiled_1",
+            "started": "2026-10-13T13:44:10.201292+08:00",
+            "project_sha256": "1fba784fec8ae005528cac2573a61ab9a3d0eba0aaaa4a5eaefa9ffdaed6449b",
+            "dll_sha256": "a2ad2ad01995712d8f0f27dcdb090ea603d79e750d64a4a0a9e8cddb3fa8ee99",
+            "wall_seconds": 114.84701519971713,
+            "cpu_seconds": 706.421875,
+            "peak_commit_gib": 7.9478759765625,
+            "peak_working_set_gib": 5.236167907714844,
+            "preparation_seconds": 28.206267,
+            "export_seconds": 30.174882,
+            "shell_seconds": 16.568428,
+            "external_surface_seconds": 0.026002,
+            "plans": [],
+            "print_statistics": [
+              "; filament used [mm] = 24717.58, 20166.81, 15602.33, 13610.35",
+              "; filament used [cm3] = 59.45, 48.51, 37.53, 32.74",
+              "; filament used [g] = 78.48, 64.03, 49.54, 43.21",
+              "; total filament used [g] = 235.26",
+              "; estimated printing time (normal mode) = 2d 1h 48m 55s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 223564064,
+                "sha256": "5d898972be1f6f48827561a6dbc6081edd1eb8a86b18043eaaa4ac2f59998424"
+              }
+            ]
+          }
+        ],
+        "after": [
+          {
+            "directory": "build_logs/performance_before_after_20261023/starry_ordinary_1",
+            "started": "2026-10-23T17:32:48.608190+08:00",
+            "project_sha256": "1fba784fec8ae005528cac2573a61ab9a3d0eba0aaaa4a5eaefa9ffdaed6449b",
+            "dll_sha256": "e9adf5cb9f99131d1a8ee95c457a31ab404cc820cbaae78f9f8c71a9bd651b8f",
+            "wall_seconds": 107.82026139999653,
+            "cpu_seconds": 623.203125,
+            "peak_commit_gib": 4.302997589111328,
+            "peak_working_set_gib": 4.168872833251953,
+            "preparation_seconds": 17.814749,
+            "export_seconds": 31.527931,
+            "shell_seconds": 2.763111,
+            "external_surface_seconds": 0.028993,
+            "plans": [],
+            "print_statistics": [
+              "; filament used [mm] = 24715.13, 20182.01, 15605.11, 13613.07",
+              "; filament used [cm3] = 59.45, 48.54, 37.53, 32.74",
+              "; filament used [g] = 78.47, 64.08, 49.55, 43.22",
+              "; total filament used [g] = 235.31",
+              "; estimated printing time (normal mode) = 2d 3h 57m 29s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 270918947,
+                "sha256": "7b6f2531ac0c5583c21e5dd1b8a52bec7ac39a84646efffa1b2ee62abfeab415"
+              }
+            ]
+          },
+          {
+            "directory": "build_logs/performance_before_after_20261023/starry_ordinary_2",
+            "started": "2026-10-23T17:38:48.244121+08:00",
+            "project_sha256": "1fba784fec8ae005528cac2573a61ab9a3d0eba0aaaa4a5eaefa9ffdaed6449b",
+            "dll_sha256": "e9adf5cb9f99131d1a8ee95c457a31ab404cc820cbaae78f9f8c71a9bd651b8f",
+            "wall_seconds": 101.48059060000014,
+            "cpu_seconds": 606.359375,
+            "peak_commit_gib": 4.310489654541016,
+            "peak_working_set_gib": 4.170112609863281,
+            "preparation_seconds": 17.235865,
+            "export_seconds": 29.682674,
+            "shell_seconds": 2.772938,
+            "external_surface_seconds": 0.029173,
+            "plans": [],
+            "print_statistics": [
+              "; filament used [mm] = 24715.13, 20182.01, 15605.11, 13613.07",
+              "; filament used [cm3] = 59.45, 48.54, 37.53, 32.74",
+              "; filament used [g] = 78.47, 64.08, 49.55, 43.22",
+              "; total filament used [g] = 235.31",
+              "; estimated printing time (normal mode) = 2d 3h 57m 29s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 270918947,
+                "sha256": "b06ce6c14cc563c36e0b9af503cfa296dd87ea8db58cc47d8f5a360608025d3c"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "bridge": {
+      "comparisons": {
+        "wall_seconds": {
+          "before": 62.59014620000016,
+          "after": 51.09706034999908,
+          "saved": 11.49308585000108,
+          "reduction_percent": 18.362452474988867,
+          "speedup": 1.2249265568562455,
+          "runs": {
+            "before": [
+              62.08598549999988,
+              62.59014620000016,
+              63.07400550000057
+            ],
+            "after": [
+              51.57406049999918,
+              50.62006019999899
+            ]
+          }
+        },
+        "cpu_seconds": {
+          "before": 393.28125,
+          "after": 339.953125,
+          "saved": 53.328125,
+          "reduction_percent": 13.559793404847042,
+          "speedup": 1.1568690536379096,
+          "runs": {
+            "before": [
+              380.546875,
+              393.78125,
+              393.28125
+            ],
+            "after": [
+              341.703125,
+              338.203125
+            ]
+          }
+        },
+        "preparation_seconds": {
+          "before": 2.631585,
+          "after": 2.678006,
+          "saved": -0.046421000000000046,
+          "reduction_percent": -1.763993942813924,
+          "speedup": 0.9826658342064954,
+          "runs": {
+            "before": [
+              2.807466,
+              2.631585,
+              2.621571
+            ],
+            "after": [
+              2.694084,
+              2.661928
+            ]
+          }
+        },
+        "export_seconds": {
+          "before": 12.899909,
+          "after": 11.4053895,
+          "saved": 1.4945194999999991,
+          "reduction_percent": 11.585504207820374,
+          "speedup": 1.1310362526417883,
+          "runs": {
+            "before": [
+              12.595995,
+              12.899909,
+              13.028455
+            ],
+            "after": [
+              11.499962,
+              11.310817
+            ]
+          }
+        },
+        "shell_seconds": {
+          "before": 5.688865,
+          "after": 5.8669329999999995,
+          "saved": -0.17806799999999967,
+          "reduction_percent": -3.130114706536369,
+          "speedup": 0.9696488778719649,
+          "runs": {
+            "before": [
+              5.504731,
+              5.688865,
+              5.824206
+            ],
+            "after": [
+              5.862411,
+              5.871455
+            ]
+          }
+        },
+        "external_surface_seconds": {
+          "before": 10.555036,
+          "after": 4.477521,
+          "saved": 6.077514999999999,
+          "reduction_percent": 57.57929200809926,
+          "speedup": 2.3573392508935185,
+          "runs": {
+            "before": [
+              10.408362,
+              10.555036,
+              10.649249
+            ],
+            "after": [
+              4.512158,
+              4.442884
+            ]
+          }
+        },
+        "peak_commit_gib": {
+          "before": 3.2051315307617188,
+          "after": 3.066984176635742,
+          "saved": 0.13814735412597656,
+          "reduction_percent": 4.310192976484339,
+          "speedup": 1.0450433866527196,
+          "runs": {
+            "before": [
+              3.1853065490722656,
+              3.2051315307617188,
+              3.215625762939453
+            ],
+            "after": [
+              3.076557159423828,
+              3.0574111938476562
+            ]
+          }
+        },
+        "peak_working_set_gib": {
+          "before": 3.056324005126953,
+          "after": 2.9135303497314453,
+          "saved": 0.1427936553955078,
+          "reduction_percent": 4.672071912401066,
+          "speedup": 1.0490105261504037,
+          "runs": {
+            "before": [
+              3.0188980102539062,
+              3.056324005126953,
+              3.0625534057617188
+            ],
+            "after": [
+              2.923023223876953,
+              2.9040374755859375
+            ]
+          }
+        }
+      },
+      "runs": {
+        "before": [
+          {
+            "directory": "build_logs/bridge_normal_20261020/before1/slice",
+            "started": "2026-10-20T12:30:30.272967+08:00",
+            "project_sha256": "e7f5810db93300928eec92c6f648b731d1c49995266411d62b45a4c770e11f2a",
+            "dll_sha256": "87f5007d5fa0b119049522c1b559e07c52fa58e6a8f7f87f079d56bb8162a666",
+            "wall_seconds": 62.08598549999988,
+            "cpu_seconds": 380.546875,
+            "peak_commit_gib": 3.1853065490722656,
+            "peak_working_set_gib": 3.0188980102539062,
+            "preparation_seconds": 2.807466,
+            "export_seconds": 12.595995,
+            "shell_seconds": 5.504731,
+            "external_surface_seconds": 10.408362,
+            "plans": [],
+            "print_statistics": [
+              "; filament used [mm] = 81435.27, 0.00",
+              "; filament used [cm3] = 195.87, 0.00",
+              "; filament used [g] = 242.88, 0.00",
+              "; total filament used [g] = 242.88",
+              "; estimated printing time (normal mode) = 1d 2h 12m 14s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 211049134,
+                "sha256": "619c144af755ff910cc0349e660083f48485cf5a56e3595c9691ce4af8840ed9"
+              }
+            ]
+          },
+          {
+            "directory": "build_logs/bridge_normal_20261020/before2/slice",
+            "started": "2026-10-20T12:33:36.295509+08:00",
+            "project_sha256": "e7f5810db93300928eec92c6f648b731d1c49995266411d62b45a4c770e11f2a",
+            "dll_sha256": "87f5007d5fa0b119049522c1b559e07c52fa58e6a8f7f87f079d56bb8162a666",
+            "wall_seconds": 62.59014620000016,
+            "cpu_seconds": 393.78125,
+            "peak_commit_gib": 3.2051315307617188,
+            "peak_working_set_gib": 3.056324005126953,
+            "preparation_seconds": 2.631585,
+            "export_seconds": 12.899909,
+            "shell_seconds": 5.688865,
+            "external_surface_seconds": 10.555036,
+            "plans": [],
+            "print_statistics": [
+              "; filament used [mm] = 82071.67, 0.00",
+              "; filament used [cm3] = 197.41, 0.00",
+              "; filament used [g] = 244.78, 0.00",
+              "; total filament used [g] = 244.78",
+              "; estimated printing time (normal mode) = 1d 2h 30m 30s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 216878506,
+                "sha256": "3035f79cdb15cba1e486bebf66eee891602ec913759d903d0fb40ed9a858e386"
+              }
+            ]
+          },
+          {
+            "directory": "build_logs/bridge_normal_20261020/before3/slice",
+            "started": "2026-10-20T12:34:39.663893+08:00",
+            "project_sha256": "e7f5810db93300928eec92c6f648b731d1c49995266411d62b45a4c770e11f2a",
+            "dll_sha256": "87f5007d5fa0b119049522c1b559e07c52fa58e6a8f7f87f079d56bb8162a666",
+            "wall_seconds": 63.07400550000057,
+            "cpu_seconds": 393.28125,
+            "peak_commit_gib": 3.215625762939453,
+            "peak_working_set_gib": 3.0625534057617188,
+            "preparation_seconds": 2.621571,
+            "export_seconds": 13.028455,
+            "shell_seconds": 5.824206,
+            "external_surface_seconds": 10.649249,
+            "plans": [],
+            "print_statistics": [
+              "; filament used [mm] = 82074.31, 0.00",
+              "; filament used [cm3] = 197.41, 0.00",
+              "; filament used [g] = 244.79, 0.00",
+              "; total filament used [g] = 244.79",
+              "; estimated printing time (normal mode) = 1d 2h 30m 33s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 216880718,
+                "sha256": "c916f9dd656315db942b90a04256c7f2e401835541f29a530d0c7e1c85ccdfb5"
+              }
+            ]
+          }
+        ],
+        "after": [
+          {
+            "directory": "build_logs/performance_before_after_20261023/bridge_1",
+            "started": "2026-10-23T17:34:36.689350+08:00",
+            "project_sha256": "e7f5810db93300928eec92c6f648b731d1c49995266411d62b45a4c770e11f2a",
+            "dll_sha256": "e9adf5cb9f99131d1a8ee95c457a31ab404cc820cbaae78f9f8c71a9bd651b8f",
+            "wall_seconds": 51.57406049999918,
+            "cpu_seconds": 341.703125,
+            "peak_commit_gib": 3.076557159423828,
+            "peak_working_set_gib": 2.923023223876953,
+            "preparation_seconds": 2.694084,
+            "export_seconds": 11.499962,
+            "shell_seconds": 5.862411,
+            "external_surface_seconds": 4.512158,
+            "plans": [],
+            "print_statistics": [
+              "; filament used [mm] = 82073.23, 0.00",
+              "; filament used [cm3] = 197.41, 0.00",
+              "; filament used [g] = 244.79, 0.00",
+              "; total filament used [g] = 244.79",
+              "; estimated printing time (normal mode) = 1d 2h 30m 30s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 216869811,
+                "sha256": "6b2a041c1b003517a19c6824cdc2b3e961564cb84904d5f9c4846031d5590732"
+              }
+            ]
+          },
+          {
+            "directory": "build_logs/performance_before_after_20261023/bridge_2",
+            "started": "2026-10-23T17:40:29.982959+08:00",
+            "project_sha256": "e7f5810db93300928eec92c6f648b731d1c49995266411d62b45a4c770e11f2a",
+            "dll_sha256": "e9adf5cb9f99131d1a8ee95c457a31ab404cc820cbaae78f9f8c71a9bd651b8f",
+            "wall_seconds": 50.62006019999899,
+            "cpu_seconds": 338.203125,
+            "peak_commit_gib": 3.0574111938476562,
+            "peak_working_set_gib": 2.9040374755859375,
+            "preparation_seconds": 2.661928,
+            "export_seconds": 11.310817,
+            "shell_seconds": 5.871455,
+            "external_surface_seconds": 4.442884,
+            "plans": [],
+            "print_statistics": [
+              "; filament used [mm] = 82073.23, 0.00",
+              "; filament used [cm3] = 197.41, 0.00",
+              "; filament used [g] = 244.79, 0.00",
+              "; total filament used [g] = 244.79",
+              "; estimated printing time (normal mode) = 1d 2h 30m 31s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 216869468,
+                "sha256": "00b275d1e8851710d4c2bcd1a1b80fb85f4fc068f61d9ce151194abef89b6be9"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "terrain": {
+      "comparisons": {
+        "wall_seconds": {
+          "before": 141.13644310000018,
+          "after": 20.30351210000117,
+          "saved": 120.83293099999901,
+          "reduction_percent": 85.6142668370809,
+          "speedup": 6.95133149402226,
+          "runs": {
+            "before": [
+              142.65552070000012,
+              140.62800269999934,
+              141.13644310000018
+            ],
+            "after": [
+              21.03989519999959,
+              19.56712900000275
+            ]
+          }
+        },
+        "cpu_seconds": {
+          "before": 182.546875,
+          "after": 74.703125,
+          "saved": 107.84375,
+          "reduction_percent": 59.0772917914919,
+          "speedup": 2.443631039531479,
+          "runs": {
+            "before": [
+              184.859375,
+              182.546875,
+              181.390625
+            ],
+            "after": [
+              75.84375,
+              73.5625
+            ]
+          }
+        },
+        "preparation_seconds": {
+          "before": 4.420532,
+          "after": 4.299008000000001,
+          "saved": 0.12152399999999908,
+          "reduction_percent": 2.749080879857879,
+          "speedup": 1.0282679166914783,
+          "runs": {
+            "before": [
+              4.578646,
+              4.420532,
+              4.288741
+            ],
+            "after": [
+              4.349763,
+              4.248253
+            ]
+          }
+        },
+        "export_seconds": {
+          "before": 127.489144,
+          "after": 4.244852,
+          "saved": 123.244292,
+          "reduction_percent": 96.67042081637948,
+          "speedup": 30.033825443148547,
+          "runs": {
+            "before": [
+              128.838798,
+              126.732863,
+              127.489144
+            ],
+            "after": [
+              4.379339,
+              4.110365
+            ]
+          }
+        },
+        "shell_seconds": {
+          "before": 0.825445,
+          "after": 0.751871,
+          "saved": 0.07357400000000003,
+          "reduction_percent": 8.913252851492226,
+          "speedup": 1.0978545521771688,
+          "runs": {
+            "before": [
+              0.848863,
+              0.81161,
+              0.825445
+            ],
+            "after": [
+              0.799187,
+              0.704555
+            ]
+          }
+        },
+        "external_surface_seconds": {
+          "before": 0.206185,
+          "after": 0.212461,
+          "saved": -0.006276000000000004,
+          "reduction_percent": -3.0438683706380143,
+          "speedup": 0.9704604609787207,
+          "runs": {
+            "before": [
+              0.205092,
+              0.209705,
+              0.206185
+            ],
+            "after": [
+              0.218649,
+              0.206273
+            ]
+          }
+        },
+        "peak_commit_gib": {
+          "before": 0.7586135864257812,
+          "after": 0.7895946502685547,
+          "saved": -0.030981063842773438,
+          "reduction_percent": -4.083905745577421,
+          "speedup": 0.9607633311190289,
+          "runs": {
+            "before": [
+              0.7897720336914062,
+              0.7447166442871094,
+              0.7586135864257812
+            ],
+            "after": [
+              0.7875785827636719,
+              0.7916107177734375
+            ]
+          }
+        },
+        "peak_working_set_gib": {
+          "before": 0.71197509765625,
+          "after": 0.7500991821289062,
+          "saved": -0.03812408447265625,
+          "reduction_percent": -5.354693527646814,
+          "speedup": 0.949174608663812,
+          "runs": {
+            "before": [
+              0.727996826171875,
+              0.708892822265625,
+              0.71197509765625
+            ],
+            "after": [
+              0.7534637451171875,
+              0.746734619140625
+            ]
+          }
+        }
+      },
+      "runs": {
+        "before": [
+          {
+            "directory": "build_logs/terrain_profile_20261021/before_1/slice",
+            "started": "2026-10-21T12:18:48.443154+08:00",
+            "project_sha256": "0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63",
+            "dll_sha256": "a89ac2b272cc945cf891e58df4c4cb4ba4240a19b28be84b0abf6e91d5a709fb",
+            "wall_seconds": 142.65552070000012,
+            "cpu_seconds": 184.859375,
+            "peak_commit_gib": 0.7897720336914062,
+            "peak_working_set_gib": 0.727996826171875,
+            "preparation_seconds": 4.578646,
+            "export_seconds": 128.838798,
+            "shell_seconds": 0.848863,
+            "external_surface_seconds": 0.205092,
+            "plans": [
+              {
+                "object": "terrain_height_4color.stl",
+                "mixed_intervals": "21",
+                "split_intervals": "21",
+                "non_split_mixed_intervals": "0",
+                "split_intervals_without_painted_masks": "0",
+                "sublayer_passes": "93",
+                "split_passes_total": "42",
+                "split_passes_with_painted_masks": "42",
+                "alternating_height_intervals": "0",
+                "shared_multi_row_fallback_intervals": "0",
+                "max_isolated_active_rows": "2",
+                "max_isolated_mask_components": "24",
+                "max_isolated_mask_vertices": "1200",
+                "strict_ab_assignments": "0",
+                "mixed_state_layers": "21",
+                "forced_height_resolve_calls": "42",
+                "forced_height_resolve_invalid_target": "0",
+                "min_sublayer_height": "0.04",
+                "preferred_a": "0",
+                "preferred_b": "0"
+              }
+            ],
+            "print_statistics": [
+              "; filament used [mm] = 10476.75, 3964.92, 0.00, 0.00",
+              "; filament used [cm3] = 25.20, 9.54, 0.00, 0.00",
+              "; filament used [g] = 33.26, 12.59, 0.00, 0.00",
+              "; total filament used [g] = 45.85",
+              "; estimated printing time (normal mode) = 3h 12m 45s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 25897148,
+                "sha256": "29e3d377f590ab7771a768c58de4e2ab5cd2f3f26733b2d96d32ba1ae05a95c0"
+              }
+            ]
+          },
+          {
+            "directory": "build_logs/terrain_profile_20261021/before_2/slice",
+            "started": "2026-10-21T12:22:13.992279+08:00",
+            "project_sha256": "0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63",
+            "dll_sha256": "a89ac2b272cc945cf891e58df4c4cb4ba4240a19b28be84b0abf6e91d5a709fb",
+            "wall_seconds": 140.62800269999934,
+            "cpu_seconds": 182.546875,
+            "peak_commit_gib": 0.7447166442871094,
+            "peak_working_set_gib": 0.708892822265625,
+            "preparation_seconds": 4.420532,
+            "export_seconds": 126.732863,
+            "shell_seconds": 0.81161,
+            "external_surface_seconds": 0.209705,
+            "plans": [
+              {
+                "object": "terrain_height_4color.stl",
+                "mixed_intervals": "21",
+                "split_intervals": "21",
+                "non_split_mixed_intervals": "0",
+                "split_intervals_without_painted_masks": "0",
+                "sublayer_passes": "93",
+                "split_passes_total": "42",
+                "split_passes_with_painted_masks": "42",
+                "alternating_height_intervals": "0",
+                "shared_multi_row_fallback_intervals": "0",
+                "max_isolated_active_rows": "2",
+                "max_isolated_mask_components": "24",
+                "max_isolated_mask_vertices": "1200",
+                "strict_ab_assignments": "0",
+                "mixed_state_layers": "21",
+                "forced_height_resolve_calls": "42",
+                "forced_height_resolve_invalid_target": "0",
+                "min_sublayer_height": "0.04",
+                "preferred_a": "0",
+                "preferred_b": "0"
+              }
+            ],
+            "print_statistics": [
+              "; filament used [mm] = 10476.56, 3964.71, 0.00, 0.00",
+              "; filament used [cm3] = 25.20, 9.54, 0.00, 0.00",
+              "; filament used [g] = 33.26, 12.59, 0.00, 0.00",
+              "; total filament used [g] = 45.85",
+              "; estimated printing time (normal mode) = 3h 12m 41s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 25887258,
+                "sha256": "026e3505335be4c1e5ef84dccb0444b9884fc4b0ed998fa546bd8014328a68eb"
+              }
+            ]
+          },
+          {
+            "directory": "build_logs/terrain_profile_20261021/before_3/slice",
+            "started": "2026-10-21T12:25:36.818450+08:00",
+            "project_sha256": "0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63",
+            "dll_sha256": "a89ac2b272cc945cf891e58df4c4cb4ba4240a19b28be84b0abf6e91d5a709fb",
+            "wall_seconds": 141.13644310000018,
+            "cpu_seconds": 181.390625,
+            "peak_commit_gib": 0.7586135864257812,
+            "peak_working_set_gib": 0.71197509765625,
+            "preparation_seconds": 4.288741,
+            "export_seconds": 127.489144,
+            "shell_seconds": 0.825445,
+            "external_surface_seconds": 0.206185,
+            "plans": [
+              {
+                "object": "terrain_height_4color.stl",
+                "mixed_intervals": "21",
+                "split_intervals": "21",
+                "non_split_mixed_intervals": "0",
+                "split_intervals_without_painted_masks": "0",
+                "sublayer_passes": "93",
+                "split_passes_total": "42",
+                "split_passes_with_painted_masks": "42",
+                "alternating_height_intervals": "0",
+                "shared_multi_row_fallback_intervals": "0",
+                "max_isolated_active_rows": "2",
+                "max_isolated_mask_components": "24",
+                "max_isolated_mask_vertices": "1200",
+                "strict_ab_assignments": "0",
+                "mixed_state_layers": "21",
+                "forced_height_resolve_calls": "42",
+                "forced_height_resolve_invalid_target": "0",
+                "min_sublayer_height": "0.04",
+                "preferred_a": "0",
+                "preferred_b": "0"
+              }
+            ],
+            "print_statistics": [
+              "; filament used [mm] = 10476.75, 3964.92, 0.00, 0.00",
+              "; filament used [cm3] = 25.20, 9.54, 0.00, 0.00",
+              "; filament used [g] = 33.26, 12.59, 0.00, 0.00",
+              "; total filament used [g] = 45.85",
+              "; estimated printing time (normal mode) = 3h 12m 43s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 25893160,
+                "sha256": "8d39f076c69e76e7996e0f27a9dc1b5649d1ab689792528611655d7a10715f34"
+              }
+            ]
+          }
+        ],
+        "after": [
+          {
+            "directory": "build_logs/performance_before_after_20261023/terrain_1",
+            "started": "2026-10-23T17:35:28.522330+08:00",
+            "project_sha256": "0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63",
+            "dll_sha256": "e9adf5cb9f99131d1a8ee95c457a31ab404cc820cbaae78f9f8c71a9bd651b8f",
+            "wall_seconds": 21.03989519999959,
+            "cpu_seconds": 75.84375,
+            "peak_commit_gib": 0.7875785827636719,
+            "peak_working_set_gib": 0.7534637451171875,
+            "preparation_seconds": 4.349763,
+            "export_seconds": 4.379339,
+            "shell_seconds": 0.799187,
+            "external_surface_seconds": 0.218649,
+            "plans": [
+              {
+                "object": "terrain_height_4color.stl",
+                "mixed_intervals": "21",
+                "split_intervals": "21",
+                "non_split_mixed_intervals": "0",
+                "split_intervals_without_painted_masks": "0",
+                "sublayer_passes": "93",
+                "split_passes_total": "42",
+                "split_passes_with_painted_masks": "42",
+                "alternating_height_intervals": "0",
+                "shared_multi_row_fallback_intervals": "0",
+                "max_isolated_active_rows": "2",
+                "max_isolated_mask_components": "24",
+                "max_isolated_mask_vertices": "1200",
+                "strict_ab_assignments": "0",
+                "mixed_state_layers": "21",
+                "forced_height_resolve_calls": "42",
+                "forced_height_resolve_invalid_target": "0",
+                "min_sublayer_height": "0.04",
+                "preferred_a": "0",
+                "preferred_b": "0"
+              }
+            ],
+            "print_statistics": [
+              "; filament used [mm] = 10479.90, 3966.24, 0.00, 0.00",
+              "; filament used [cm3] = 25.21, 9.54, 0.00, 0.00",
+              "; filament used [g] = 33.27, 12.59, 0.00, 0.00",
+              "; total filament used [g] = 45.87",
+              "; estimated printing time (normal mode) = 3h 16m 33s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 26687834,
+                "sha256": "e13195817cd6feede5ea5d4c5e866330cb6ed02af4a8905a7361cc277d482114"
+              }
+            ]
+          },
+          {
+            "directory": "build_logs/performance_before_after_20261023/terrain_2",
+            "started": "2026-10-23T17:41:20.849505+08:00",
+            "project_sha256": "0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63",
+            "dll_sha256": "e9adf5cb9f99131d1a8ee95c457a31ab404cc820cbaae78f9f8c71a9bd651b8f",
+            "wall_seconds": 19.56712900000275,
+            "cpu_seconds": 73.5625,
+            "peak_commit_gib": 0.7916107177734375,
+            "peak_working_set_gib": 0.746734619140625,
+            "preparation_seconds": 4.248253,
+            "export_seconds": 4.110365,
+            "shell_seconds": 0.704555,
+            "external_surface_seconds": 0.206273,
+            "plans": [
+              {
+                "object": "terrain_height_4color.stl",
+                "mixed_intervals": "21",
+                "split_intervals": "21",
+                "non_split_mixed_intervals": "0",
+                "split_intervals_without_painted_masks": "0",
+                "sublayer_passes": "93",
+                "split_passes_total": "42",
+                "split_passes_with_painted_masks": "42",
+                "alternating_height_intervals": "0",
+                "shared_multi_row_fallback_intervals": "0",
+                "max_isolated_active_rows": "2",
+                "max_isolated_mask_components": "24",
+                "max_isolated_mask_vertices": "1200",
+                "strict_ab_assignments": "0",
+                "mixed_state_layers": "21",
+                "forced_height_resolve_calls": "42",
+                "forced_height_resolve_invalid_target": "0",
+                "min_sublayer_height": "0.04",
+                "preferred_a": "0",
+                "preferred_b": "0"
+              }
+            ],
+            "print_statistics": [
+              "; filament used [mm] = 10479.97, 3966.43, 0.00, 0.00",
+              "; filament used [cm3] = 25.21, 9.54, 0.00, 0.00",
+              "; filament used [g] = 33.27, 12.59, 0.00, 0.00",
+              "; total filament used [g] = 45.87",
+              "; estimated printing time (normal mode) = 3h 16m 33s"
+            ],
+            "gcodes": [
+              {
+                "file": "plate_1.gcode",
+                "bytes": 26688754,
+                "sha256": "bab5445bba1551830e2837a828f3e715666e72dde378b5b1a41a9689598461d3"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
