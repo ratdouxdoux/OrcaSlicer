@@ -212,6 +212,7 @@ set(lisbslic3r_sources
     GCode/CoolingBuffer.cpp
     GCode/CoolingBuffer.hpp
     GCode.cpp
+    GCode/ExtrusionProcessor.cpp
     GCode/ExtrusionProcessor.hpp
     GCode/FanMover.cpp
     GCode/FanMover.hpp
@@ -249,6 +250,8 @@ set(lisbslic3r_sources
     GCode/WipeTower2.hpp
     GCode/WipeTower.cpp
     GCode/WipeTower.hpp
+    GCode/WipeTowerHelper.cpp
+    GCode/WipeTowerHelper.hpp
     GCodeWriter.cpp
     GCodeWriter.hpp
     Geometry/Bicubic.hpp
@@ -595,6 +598,7 @@ target_link_libraries(libslic3r
         libigl
         libnest2d
         miniz
+        nanosvg
         opencv_world
     PRIVATE
         ${CMAKE_DL_LIBS}

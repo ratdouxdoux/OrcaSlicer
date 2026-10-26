@@ -4,6 +4,7 @@
 #include "libslic3r/FullSpectrumKSPairResidual.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/GCode.hpp"
+#include "libslic3r/GCodeReader.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Layer.hpp"
 #include "libslic3r/TriangleSelector.hpp"
@@ -111,7 +112,7 @@ TEST_CASE("Tower skips must not suppress required object tool changes", "[Produc
         sparse.layer_height                   = .2f;
         nominal                               = {{sparse}, {sparse}};
     }
-    WipeTowerIntegration tower(config, 0, Vec3d::Zero(), priming, nominal, local_z, reserves, final_purge);
+    WipeTowerIntegration tower(config, 0, Vec3d::Zero(), priming, nominal, local_z, reserves, final_purge, 0.f, BoundingBoxf{});
     tower.next_layer();
     tower.next_layer();
     tower.set_is_first_print(false);
@@ -241,6 +242,17 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
         double      expected_length = 0.;
         for (const auto* changes : {&nominal, &local_z}) {
             for (const auto& change : *changes) {
+                // Upstream now stores nozzle-unload extrusion separately from the tower preview paths.
+                if (!change.nozzle_change_result.gcode.empty()) {
+                    GCodeReader reader;
+                    reader.apply_config(config);
+                    reader.x() = change.nozzle_change_result.start_pos.x();
+                    reader.y() = change.nozzle_change_result.start_pos.y();
+                    reader.parse_buffer(change.nozzle_change_result.gcode, [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
+                        if (line.extruding(state))
+                            expected_length += line.dist_XY(state);
+                    });
+                }
                 for (size_t idx = 1; idx < change.extrusions.size(); ++idx) {
                     if (change.extrusions[idx].width > 0.f)
                         expected_length += (change.extrusions[idx].pos - change.extrusions[idx - 1].pos).norm();

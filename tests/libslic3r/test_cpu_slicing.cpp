@@ -646,10 +646,10 @@ TEST_CASE("Tree overhang geometry and labels agree across worker counts", "[CPUS
 {
     struct Snapshot
     {
-        std::vector<ExPolygons>       overhangs, cantilevers;
-        std::vector<std::vector<int>> types;
-        bool                          sharp_tail, cantilever;
-        double                        max_cantilever;
+        std::vector<ExPolygons>                             overhangs, cantilevers;
+        std::vector<std::vector<std::pair<ExPolygon, int>>> typed_overhangs;
+        bool                                                sharp_tail, cantilever;
+        double                                              max_cantilever;
     };
     struct FilterEnvironment
     {
@@ -720,7 +720,7 @@ TEST_CASE("Tree overhang geometry and labels agree across worker counts", "[CPUS
                     throw CanceledException();
             };
             REQUIRE_THROWS_AS(arena.execute([&] { support.detect_overhangs(); }), CanceledException);
-            CHECK(support.overhang_types.empty()); // No partial pointer map is published.
+            CHECK(print.canceled());
             return Snapshot{};
         }
         arena.execute([&] { support.detect_overhangs(); });
@@ -728,13 +728,13 @@ TEST_CASE("Tree overhang geometry and labels agree across worker counts", "[CPUS
         for (const Layer* layer : printed->layers()) {
             result.overhangs.push_back(layer->loverhangs);
             result.cantilevers.push_back(layer->cantilevers);
-            std::vector<int> types;
-            for (const auto& polygon : layer->loverhangs) {
-                const auto found = support.overhang_types.find(&polygon);
-                REQUIRE(found != support.overhang_types.end());
-                types.push_back(int(found->second));
-            }
-            result.types.push_back(std::move(types));
+            result.typed_overhangs.push_back(layer->loverhangs_with_type);
+            ExPolygons typed_geometry;
+            for (const auto& typed_overhang : layer->loverhangs_with_type)
+                typed_geometry.push_back(typed_overhang.first);
+            // Bridge clipping can fragment typed regions separately; both lists must cover the same area.
+            CHECK(area(diff_ex(layer->loverhangs, typed_geometry)) < 1.0);
+            CHECK(area(diff_ex(typed_geometry, layer->loverhangs)) < 1.0);
         }
         result.sharp_tail     = support.has_sharp_tails;
         result.cantilever     = support.has_cantilever;
@@ -750,7 +750,7 @@ TEST_CASE("Tree overhang geometry and labels agree across worker counts", "[CPUS
             const auto parallel = detect(4, critical_only, repeat == 0 ? "parallel" : "validate");
             CHECK(parallel.overhangs == reference.overhangs);
             CHECK(parallel.cantilevers == reference.cantilevers);
-            CHECK(parallel.types == reference.types);
+            CHECK(parallel.typed_overhangs == reference.typed_overhangs);
             CHECK(parallel.sharp_tail == reference.sharp_tail);
             CHECK(parallel.cantilever == reference.cantilever);
             CHECK(parallel.max_cantilever == reference.max_cantilever);

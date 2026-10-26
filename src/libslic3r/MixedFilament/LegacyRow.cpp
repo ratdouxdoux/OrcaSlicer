@@ -80,16 +80,7 @@ bool parse_row_definition(const std::string&  row,
         const std::string t = trim_copy(tok);
         if (t.empty())
             return false;
-        std::istringstream value(t);
-        value.imbue(std::locale::classic());
-        float parsed;
-        if (!(value >> parsed) || !std::isfinite(parsed))
-            return false;
-        value >> std::ws;
-        if (!value.eof())
-            return false;
-        out = parsed;
-        return true;
+        return parse_invariant_float(t, out);
     };
 
     std::vector<std::string> tokens;

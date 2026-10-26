@@ -111,6 +111,41 @@ TEST_CASE("Layer distance batches retain exact queries and honor memory bounds",
     CHECK(cache.size() == 0);
 }
 
+TEST_CASE("Cached overhang quality retains upstream two-millimeter sampling", "[CPUSlicing][ExtrusionQuality]")
+{
+    struct TestLayer : Layer
+    {
+        TestLayer(size_t id) : Layer(id, nullptr, .2, .2 * (id + 1), .2 * id + .1) {}
+        ~TestLayer() override = default;
+    } lower(0), current(1);
+    lower.lslices   = {ExPolygon(
+        Polygon(Points{Point::new_scale(0., 0.), Point::new_scale(10., 0.), Point::new_scale(10., 10.), Point::new_scale(0., 10.)}))};
+    current.lslices = lower.lslices;
+    ExtrusionQualityEstimator estimator;
+    estimator.set_current_object(nullptr);
+    estimator.prepare_for_new_layer(nullptr, &lower);
+    estimator.prepare_for_new_layer(nullptr, &current);
+    ConfigOptionPercents overlaps;
+    overlaps.values = {100., 75., 50., 25., 0.};
+    ConfigOptionFloatsOrPercents speeds;
+    speeds.values = {{60., false}, {40., false}, {30., false}, {20., false}, {10., false}};
+    for (float width : {.4f, .6f, .4f}) {
+        ExtrusionPath path(erPerimeter, .08, width, .2f);
+        path.polyline.points = {Point::new_scale(1., 10.1), Point::new_scale(9., 10.1)};
+        const auto reference = estimator.estimate_extrusion_quality(path, overlaps, speeds, 60.f, 60.f, false, false);
+        const auto cached    = estimator.estimate_extrusion_quality(path, overlaps, speeds, 60.f, 60.f, false, true);
+        REQUIRE(reference.size() >= 5);
+        REQUIRE(cached.size() == reference.size());
+        for (size_t i = 0; i < reference.size(); ++i) {
+            CHECK(cached[i].p == reference[i].p);
+            CHECK(cached[i].speed == reference[i].speed);
+            CHECK(cached[i].overlap == reference[i].overlap);
+            if (i > 0)
+                CHECK(unscale<double>((cached[i].p - cached[i - 1].p).cast<double>().norm()) <= 2.0 + EPSILON);
+        }
+    }
+}
+
 TEST_CASE("Replay wall polygon pruning and independent unions", "[.][WallPolygonReplay]")
 {
     const char* path = std::getenv("ORCA_POLYGON_REPLAY");

@@ -543,7 +543,7 @@ std::string MixedFilamentManager::serialize_custom_entries()
         if (mf.ui_mode >= 0)
             ss << ",cm" << mf.ui_mode;
         if (mf.gradient_enabled) {
-            ss << ",r1/" << std::fixed << std::setprecision(4) << mf.gradient_start << '/' << mf.gradient_end;
+            ss << ",r1/" << format_invariant_decimal(mf.gradient_start, 4) << '/' << format_invariant_decimal(mf.gradient_end, 4);
             if (!mf.gradient_stop_positions.empty()) {
                 ss << ",p";
                 const auto stops = mixed_gradient_stops(mf, kMaxPhysicalFilaments);
