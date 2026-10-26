@@ -51,6 +51,7 @@ using namespace nlohmann;
 
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/Config.hpp"
+#include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/GCode/PostProcessor.hpp"
 #include "libslic3r/Model.hpp"
@@ -1427,9 +1428,13 @@ int CLI::run(int argc, char **argv)
                         BOOST_LOG_TRIVIAL(info) << "object "<<o->name <<", id :" << o->id().id << ", from bbl 3mf\n";
                     }*/
 
-                    Semver cli_ver = *Semver::parse(SLIC3R_VERSION);
-                    if (!allow_newer_file && ((cli_ver.maj() != file_version.maj()) || (cli_ver.min() < file_version.min()))){
-                        BOOST_LOG_TRIVIAL(error) << boost::format("Version Check: File Version %1% not supported by current cli version %2%")%file_version.to_string() %SLIC3R_VERSION;
+                    // Snapmaker_Orca: match upstream OrcaSlicer here. Two problems with the old code:
+                    // SLIC3R_VERSION is a legacy constant inherited from BambuStudio (01.10.01.50) that
+                    // does not track the product version, so every 2.x project file was rejected; and
+                    // the comparison rejected older files too, rather than only newer ones.
+                    Semver cli_ver = *Semver::parse(Snapmaker_VERSION);
+                    if (!allow_newer_file && ((cli_ver.maj() < file_version.maj()) || ((cli_ver.maj() == file_version.maj()) && (cli_ver.min() < file_version.min())))){
+                        BOOST_LOG_TRIVIAL(error) << boost::format("Version Check: File Version %1% not supported by current cli version %2%")%file_version.to_string() %Snapmaker_VERSION;
                         record_exit_reson(outfile_dir, CLI_FILE_VERSION_NOT_SUPPORTED, 0, cli_errors[CLI_FILE_VERSION_NOT_SUPPORTED], sliced_info);
                         flush_and_exit(CLI_FILE_VERSION_NOT_SUPPORTED);
                     }
@@ -3944,13 +3949,14 @@ int CLI::run(int argc, char **argv)
                     auto printer_structure_opt = m_print_config.option<ConfigOptionEnum<PrinterStructure>>("printer_structure");
                     const float tower_brim_width = m_print_config.option<ConfigOptionFloat>("prime_tower_width", true)->value;
                     const float tower_margin = WIPE_TOWER_MARGIN + tower_brim_width;
+                    int plate_width = 0, plate_depth = 0, plate_height = 0;
+                    partplate_list.get_plate_size(plate_width, plate_depth, plate_height);
 
-                    // set the default position, the same with print config(left top)
+                    // set the default position: x the same with print config(left), y at the middle of the plate
                     float x = WIPE_TOWER_DEFAULT_X_POS;
-                    float y = WIPE_TOWER_DEFAULT_Y_POS;
+                    float y = plate_depth * 0.5f;
                     if (printer_structure_opt && printer_structure_opt->value == PrinterStructure::psI3) {
                         x = I3_WIPE_TOWER_DEFAULT_X_POS;
-                        y = I3_WIPE_TOWER_DEFAULT_Y_POS;
                     }
                     if (x < tower_margin) {
                         x = tower_margin;
@@ -4201,12 +4207,13 @@ int CLI::run(int argc, char **argv)
                         auto printer_structure_opt = m_print_config.option<ConfigOptionEnum<PrinterStructure>>("printer_structure");
                         const float tower_brim_width      = m_print_config.option<ConfigOptionFloat>("prime_tower_width", true)->value;
                         const float tower_margin          = WIPE_TOWER_MARGIN + tower_brim_width;
-                        // set the default position, the same with print config(left top)
+                        int plate_width = 0, plate_depth = 0, plate_height = 0;
+                        partplate_list.get_plate_size(plate_width, plate_depth, plate_height);
+                        // set the default position: x the same with print config(left), y at the middle of the plate
                         float x = WIPE_TOWER_DEFAULT_X_POS;
-                        float y = WIPE_TOWER_DEFAULT_Y_POS;
+                        float y = plate_depth * 0.5f;
                         if (printer_structure_opt && printer_structure_opt->value == PrinterStructure::psI3) {
                             x = I3_WIPE_TOWER_DEFAULT_X_POS;
-                            y = I3_WIPE_TOWER_DEFAULT_Y_POS;
                         }
 
                         if (x < tower_margin) {
@@ -4291,11 +4298,12 @@ int CLI::run(int argc, char **argv)
                         float y;
                         if (duplicate_count > 0) {
                             auto printer_structure_opt = m_print_config.option<ConfigOptionEnum<PrinterStructure>>("printer_structure");
+                            int plate_width = 0, plate_depth = 0, plate_height = 0;
+                            partplate_list.get_plate_size(plate_width, plate_depth, plate_height);
                             x = WIPE_TOWER_DEFAULT_X_POS;
-                            y = WIPE_TOWER_DEFAULT_Y_POS;
+                            y = plate_depth * 0.5f;
                             if (printer_structure_opt && printer_structure_opt->value == PrinterStructure::psI3) {
                                 x = I3_WIPE_TOWER_DEFAULT_X_POS;
-                                y = I3_WIPE_TOWER_DEFAULT_Y_POS;
                             }
                         }
                         else {
@@ -6386,6 +6394,12 @@ std::string CLI::output_filepath(const ModelObject &object, unsigned int index, 
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 extern "C" {
+// The launcher owns the Sentry SDK lifetime. Its bury-point state is
+// separate from the DLL's state so it can load Mesa before this DLL.
+__declspec(dllexport) void __stdcall Snapmaker_Orca_set_sentry_initialized(int initialized) { set_sentry_flags(initialized != 0); }
+
+__declspec(dllexport) int __stdcall Snapmaker_Orca_get_privacy_policy() { return get_privacy_policy() ? 1 : 0; }
+
     __declspec(dllexport) int __stdcall Snapmaker_Orca_main(int argc, wchar_t **argv)
     {
         // Convert wchar_t arguments to UTF8.

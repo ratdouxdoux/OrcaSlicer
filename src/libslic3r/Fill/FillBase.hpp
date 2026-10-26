@@ -66,6 +66,10 @@ struct FillParams
     // Don't adjust spacing to fill the space evenly.
     bool        dont_adjust 	{ true };
 
+    // Snapmaker: anchor bridge end lines at the surface's inner-contour edges
+    // (set only for external bridges >= 100% in Layer::make_fills).
+    bool        bridge_edge_anchor { false };
+
     // Monotonic infill - strictly left to right for better surface quality of top infills.
     bool 		monotonic		{ false };
 
@@ -121,6 +125,9 @@ public:
     float       angle;
     // Orca: is_using_template_angle
     bool        is_using_template_angle{false};
+    // True when the layer above (same print region) has top surfaces, i.e. solid
+    // infill of this layer sits directly below a top surface.
+    bool        solid_under_top{false};
     // In scaled coordinates. Maximum lenght of a perimeter segment connecting two infill lines.
     // Used by the FillRectilinear2, FillGrid2, FillTriangles, FillStars and FillCubic.
     // If left to zero, the links will not be limited.

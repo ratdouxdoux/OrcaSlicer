@@ -104,7 +104,7 @@ bool parse_invariant_float(std::string_view text, float& output)
     const char* last  = first + text.size();
     if (*first == '+') {
         ++first;
-        if (first == last)
+        if (first == last || *first == '-' || *first == '+')
             return false;
     }
 
@@ -435,16 +435,7 @@ float MixedFilamentManager::canonical_signed_bias_value(float component_a_surfac
 }
 std::string MixedFilamentManager::format_surface_offset_token(float value)
 {
-    std::ostringstream ss;
-    ss << std::fixed << std::setprecision(4) << clamp_surface_offset(value);
-    std::string out = ss.str();
-    while (!out.empty() && out.back() == '0')
-        out.pop_back();
-    if (!out.empty() && out.back() == '.')
-        out.pop_back();
-    if (out == "-0")
-        out = "0";
-    return out.empty() ? std::string("0") : out;
+    return MixedFilamentInternal::format_surface_offset_token(value);
 }
 void MixedFilamentManager::normalize_ratio_pair(int& a, int& b)
 {

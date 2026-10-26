@@ -1,4 +1,5 @@
 #include <assert.h>
+#include "AABBTreeLines.hpp"
 #include <stdio.h>
 #include <memory>
 
@@ -1202,6 +1203,16 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
         f->z 		= this->print_z;
         f->angle 	= surface_fill.params.angle;
         f->is_using_template_angle = surface_fill.params.is_using_template_angle;
+        // Whether the layer above (same region) carries top surfaces, so that
+        // internal solid infill of this layer sits directly below a top surface.
+        if (this->id() + 1 < this->object()->layers().size()) {
+            LayerRegion *layerm_above = this->object()->layers()[this->id() + 1]->regions()[surface_fill.region_id];
+            for (const Surface &s : layerm_above->fill_surfaces.surfaces)
+                if (s.surface_type == stTop) {
+                    f->solid_under_top = true;
+                    break;
+                }
+        }
         f->adapt_fill_octree   = (surface_fill.params.pattern == ipSupportCubic) ? support_fill_octree : adaptive_fill_octree;
         f->print_config        = &this->object()->print()->config();
         f->print_object_config = &this->object()->config();
@@ -1293,6 +1304,8 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
 			if(surface_fill.params.bridge && surface_fill.surface.is_external() && surface_fill.params.density > 99.0){
 				params.density = layerm->region().config().bridge_density.get_abs_value(1.0);
 				params.dont_adjust = true;
+				// Snapmaker: >= 100% bridges switch to per-surface edge anchoring (only set site).
+				params.bridge_edge_anchor = params.density >= 0.999f;
 			}
             if(surface_fill.surface.is_internal_bridge()){
                 params.density = f->print_object_config->internal_bridge_density.get_abs_value(1.0);

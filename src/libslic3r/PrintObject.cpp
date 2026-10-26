@@ -1,4 +1,5 @@
 #include "Exception.hpp"
+#include "AABBTreeLines.hpp"
 #include "Print.hpp"
 #include "BoundingBox.hpp"
 #include "ClipperUtils.hpp"
@@ -126,7 +127,12 @@ PrintBase::ApplyStatus PrintObject::set_instances(PrintInstances &&instances)
     	[](const PrintInstance& lhs, const PrintInstance& rhs) { return lhs.model_instance == rhs.model_instance && lhs.shift == rhs.shift; });
     if (! equal) {
         status = PrintBase::APPLY_STATUS_CHANGED;
-        if (m_print->invalidate_steps({ psSkirtBrim, psGCodeExport }) ||
+        // Tree support branches are routed against the machine border (bed bounds) anchored to the
+        // instance shift, so a pure XY translation makes the cached tree support layers stale and they
+        // have to be regenerated. Regular supports are computed in object coordinates and stay valid
+        // when the instance is translated, so the cheap skirt/gcode-only invalidation is kept for them.
+        if ((is_tree(m_config.support_type.value) && this->invalidate_step(posSupportMaterial)) ||
+            m_print->invalidate_steps({ psSkirtBrim, psGCodeExport }) ||
             (! equal_length && m_print->invalidate_step(psWipeTower)))
             status = PrintBase::APPLY_STATUS_INVALIDATED;
         m_instances = std::move(instances);
@@ -923,6 +929,7 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "inner_wall_line_width"
             || opt_key == "infill_wall_overlap"
             || opt_key == "top_bottom_infill_wall_overlap"
+            || opt_key == "external_infill_margin"
             || opt_key == "seam_gap"
             || opt_key == "role_based_wipe_speed"
             || opt_key == "wipe_on_loops"
@@ -996,7 +1003,8 @@ bool PrintObject::invalidate_state_by_config_options(
                    opt_key == "support_interface_top_layers" || opt_key == "support_interface_bottom_layers" ||
                    opt_key == "support_interface_pattern" || opt_key == "support_interface_loop_pattern" ||
                    opt_key == "support_interface_filament" || opt_key == "support_interface_not_for_body" ||
-                   opt_key == "support_interface_spacing" || opt_key == "support_bottom_interface_spacing" // BBS
+                   opt_key == "support_interface_spacing" || opt_key == "support_interface_min_area" ||
+                   opt_key == "support_bottom_interface_spacing" // BBS
                    || opt_key == "support_base_pattern" || opt_key == "support_style" || opt_key == "support_object_xy_distance" ||
                    opt_key == "support_object_first_layer_gap" || opt_key == "support_base_pattern_spacing" ||
                    opt_key == "support_expansion"
@@ -1011,9 +1019,12 @@ bool PrintObject::invalidate_state_by_config_options(
                    opt_key == "tree_support_tip_diameter" || opt_key == "tree_support_branch_diameter" ||
                    opt_key == "tree_support_branch_diameter_organic" || opt_key == "tree_support_branch_diameter_angle" ||
                    opt_key == "tree_support_branch_angle" || opt_key == "tree_support_branch_angle_organic" ||
-                   opt_key == "tree_support_angle_slow" || opt_key == "tree_support_wall_count") {
+                   opt_key == "tree_support_angle_slow" || opt_key == "tree_support_wall_count" ||
+                   opt_key == "tree_support_transition_layers" || opt_key == "support_transition_perimeter" ||
+                   opt_key == "support_transition_speed" || opt_key == "support_transition_flow_ratio") {
             steps.emplace_back(posSupportMaterial);
-        } else if (opt_key == "bottom_shell_layers" || opt_key == "top_shell_layers") {
+        } else if (opt_key == "bottom_shell_layers" || opt_key == "top_shell_layers" || opt_key == "bottom_color_penetration_layers" ||
+                   opt_key == "top_color_penetration_layers") {
             steps.emplace_back(posSlice);
 #if (0)
             const auto *old_shell_layers = old_config.option<ConfigOptionInt>(opt_key);
@@ -1078,6 +1089,11 @@ bool PrintObject::invalidate_state_by_config_options(
                    opt_key == "detect_thin_wall" || opt_key == "precise_outer_wall") {
             steps.emplace_back(posPerimeters);
             steps.emplace_back(posSupportMaterial);
+            // Whole-object Local-Z masks and tool assignments are built during
+            // slicing from the wall filament, not during perimeter generation.
+            if (opt_key == "wall_filament" && m_print->config().dithering_local_z_mode.value &&
+                m_print->config().dithering_local_z_whole_objects.value)
+                steps.emplace_back(posSlice);
         } else if (opt_key == "bridge_flow" || opt_key == "internal_bridge_flow") {
             if (m_config.support_top_z_distance > 0.) {
             	// Only invalidate due to bridging if bridging is enabled.
@@ -1096,11 +1112,11 @@ bool PrintObject::invalidate_state_by_config_options(
                    opt_key == "seam_slope_min_length" || opt_key == "seam_slope_steps" || opt_key == "seam_slope_inner_walls" ||
                    opt_key == "support_speed" || opt_key == "support_interface_speed" || opt_key == "overhang_1_4_speed" ||
                    opt_key == "overhang_2_4_speed" || opt_key == "overhang_3_4_speed" || opt_key == "overhang_4_4_speed" ||
-                   opt_key == "bridge_speed" || opt_key == "internal_bridge_speed" || opt_key == "outer_wall_speed" ||
-                   opt_key == "small_perimeter_speed" || opt_key == "small_perimeter_threshold" || opt_key == "sparse_infill_speed" ||
-                   opt_key == "inner_wall_speed" || opt_key == "internal_solid_infill_speed" || opt_key == "top_surface_speed" ||
-                   opt_key == "bed_mesh_min" || opt_key == "bed_mesh_max" || opt_key == "adaptive_bed_mesh_margin" ||
-                   opt_key == "bed_mesh_probe_distance") {
+                   opt_key == "overhang_totally_speed" || opt_key == "bridge_speed" || opt_key == "internal_bridge_speed" ||
+                   opt_key == "outer_wall_speed" || opt_key == "small_perimeter_speed" || opt_key == "small_perimeter_threshold" ||
+                   opt_key == "sparse_infill_speed" || opt_key == "inner_wall_speed" || opt_key == "internal_solid_infill_speed" ||
+                   opt_key == "top_surface_speed" || opt_key == "bed_mesh_min" || opt_key == "bed_mesh_max" ||
+                   opt_key == "adaptive_bed_mesh_margin" || opt_key == "bed_mesh_probe_distance") {
             invalidated |= m_print->invalidate_step(psGCodeExport);
         } else if (opt_key == "flush_into_infill" || opt_key == "flush_into_objects" || opt_key == "flush_into_support" ||
                    opt_key == "dithering_local_z_infill") {
@@ -1116,6 +1132,17 @@ bool PrintObject::invalidate_state_by_config_options(
     sort_remove_duplicates(steps);
     for (PrintObjectStep step : steps)
         invalidated |= this->invalidate_step(step);
+
+    // Changing extruder-related filament options invalidates the local-z plan,
+    // because the plan depends on which extruders are used for each sublayer.
+    // Without this, stale local-z data referencing removed extruders can cause crashes.
+    for (const std::string &opt_key : opt_keys) {
+        if (opt_key == "extruder" || opt_key == "wall_filament" ||
+            opt_key == "sparse_infill_filament" || opt_key == "solid_infill_filament") {
+            this->clear_local_z_plan();
+            break;
+        }
+    }
     return invalidated;
 }
 
@@ -1529,11 +1556,17 @@ void PrintObject::process_external_surfaces()
 	if (has_voids && m_layers.size() > 1) {
 	    // All but stInternal fill surfaces will get expanded and possibly trimmed.
 	    std::vector<unsigned char> layer_expansions_and_voids(m_layers.size(), false);
+	    float external_infill_margin = 0.f;
 	    for (size_t layer_idx = 1; layer_idx < m_layers.size(); ++ layer_idx) {
 	    	const Layer *layer = m_layers[layer_idx];
 	    	bool expansions = false;
 	    	bool voids      = false;
 	    	for (const LayerRegion *layerm : layer->regions()) {
+	    		const double perimeter_width = layerm->region().config().wall_loops.value == 0 ?
+	    										   0. : (layerm->flow(frExternalPerimeter).width() +
+	    											layerm->flow(frPerimeter).spacing() * (layerm->region().config().wall_loops.value - 1));
+	    		if (layerm->region().config().external_infill_margin.get_abs_value(perimeter_width) > 0.f)
+	    			external_infill_margin = layerm->region().config().external_infill_margin.get_abs_value(perimeter_width);
 	    		for (const Surface &surface : layerm->fill_surfaces.surfaces) {
 	    			if (surface.surface_type == stInternal)
 	    				voids = true;
@@ -1549,7 +1582,7 @@ void PrintObject::process_external_surfaces()
 		}
 	    BOOST_LOG_TRIVIAL(debug) << "Collecting surfaces covered with extrusions in parallel - start";
 	    surfaces_covered.resize(m_layers.size() - 1, Polygons());
-    	auto unsupported_width = - float(scale_(0.3 * EXTERNAL_INFILL_MARGIN));
+    	auto unsupported_width = - float(scale_(0.3 * external_infill_margin));
 	    tbb::parallel_for(
 	        tbb::blocked_range<size_t>(0, m_layers.size() - 1),
 	        [this, &surfaces_covered, &layer_expansions_and_voids, unsupported_width](const tbb::blocked_range<size_t>& range) {
@@ -2821,6 +2854,11 @@ void PrintObject::bridge_over_infill()
                     bridging_area          = closing(bridging_area, flow.scaled_spacing());
                     bridging_area          = intersection(bridging_area, limiting_area);
                     bridging_area          = intersection(bridging_area, total_fill_area);
+                    // Snapmaker: on multi-region (multi-material) layers, keep the bridge expansion
+                    // inside the candidate's own region, otherwise anchoring onto another region's
+                    // walls can produce a bridge printed in the wrong color.
+                    if (layer->regions().size() > 1)
+                        bridging_area = intersection(bridging_area, to_polygons(candidate.region->fill_expolygons));
                     bridging_area          = diff(bridging_area, total_top_area);
                     expansion_area         = diff(expansion_area, bridging_area);
 
@@ -4280,7 +4318,8 @@ void PrintObject::remove_bridges_from_contacts(
     float extrusion_width,
     PolysType* overhang_regions,
     float max_bridge_length,
-    bool break_bridge)
+    bool break_bridge,
+    std::vector<std::pair<ExPolygon, int>>* overhang_regions_with_type)
 {
     // Extrusion width accounts for the roundings of the extrudates.
     // It is the maximum widh of the extrudate.
@@ -4396,6 +4435,28 @@ void PrintObject::remove_bridges_from_contacts(
     else if (typeid(overhang_regions) == typeid(Polygons*)) {
         *(Polygons*)overhang_regions = diff(*overhang_regions, all_bridges, ApplySafetyOffset::Yes);
     }
+
+    // Keep an optional typed overhang list in sync by diffing against the same bridge set.
+    // Skip items whose bbox doesn't overlap the bridges bbox to avoid unnecessary Clipper calls.
+    if (overhang_regions_with_type != nullptr && !overhang_regions_with_type->empty() && !all_bridges.empty()) {
+        BoundingBox bridges_bbox = get_extents(all_bridges);
+        std::vector<std::pair<ExPolygon, int>> kept;
+        kept.reserve(overhang_regions_with_type->size());
+        bool any_trimmed = false;
+        for (auto &overhang_part : *overhang_regions_with_type) {
+            BoundingBox part_bbox = get_extents(overhang_part.first);
+            if (!bridges_bbox.overlap(part_bbox)) {
+                kept.emplace_back(std::move(overhang_part.first), overhang_part.second);
+                continue;
+            }
+            ExPolygons remaining = diff_ex({overhang_part.first}, all_bridges, ApplySafetyOffset::Yes);
+            any_trimmed = true;
+            for (auto &expoly : remaining)
+                kept.emplace_back(std::move(expoly), overhang_part.second);
+        }
+        if (any_trimmed)
+            *overhang_regions_with_type = std::move(kept);
+    }
 }
 
 template void PrintObject::remove_bridges_from_contacts<ExPolygons>(
@@ -4403,13 +4464,15 @@ template void PrintObject::remove_bridges_from_contacts<ExPolygons>(
     const Layer* current_layer,
     float extrusion_width,
     ExPolygons* overhang_regions,
-    float max_bridge_length, bool break_bridge);
+    float max_bridge_length, bool break_bridge,
+    std::vector<std::pair<ExPolygon, int>>* overhang_regions_with_type);
 template void PrintObject::remove_bridges_from_contacts<Polygons>(
     const Layer* lower_layer,
     const Layer* current_layer,
     float extrusion_width,
     Polygons* overhang_regions,
-    float max_bridge_length, bool break_bridge);
+    float max_bridge_length, bool break_bridge,
+    std::vector<std::pair<ExPolygon, int>>* overhang_regions_with_type);
 
 
 SupportNecessaryType PrintObject::is_support_necessary()

@@ -251,6 +251,11 @@ public:
 private:
     bool            m_initialized { false };
     bool            m_post_initialized { false };
+    // Set when a snapmaker-orca:// URL is handed to us after launch (macOS delivers these
+    // through MacOpenURL rather than argv, so post_init cannot see them in input_files).
+    // post_init must not start a blank project in that case, or it discards the model the
+    // URL is in the middle of loading.
+    bool            m_url_open_pending { false };
     bool            m_app_conf_exists{ false };
     EAppMode        m_app_mode{ EAppMode::Editor };
     bool            m_is_recreating_gui{ false };
@@ -1003,6 +1008,8 @@ DECLARE_APP(GUI_App)
 wxDECLARE_EVENT(EVT_CONNECT_LAN_MODE_PRINT, wxCommandEvent);
 
 bool is_support_filament(int extruder_id);
+bool has_filaments(const std::vector<std::string>& filament_types);
+bool check_pla_petg_support_pair(int extruder_id);
 } // namespace GUI
 } // Slic3r
 
