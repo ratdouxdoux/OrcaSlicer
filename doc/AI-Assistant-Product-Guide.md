@@ -1,6 +1,6 @@
 # Snorca AI assistant product guide
 
-Usage, current features and future possibilities. Updated 20 October 2026.
+Usage, current features and future possibilities. Updated 28 October 2026.
 
 ## The product idea
 
@@ -21,7 +21,7 @@ The aim is to reduce the knowledge needed to get started while keeping experienc
 ## Getting started
 
 1. Open a project, or begin with an empty plate, and choose **Edit > AI assistant**.
-2. Open the assistant's **Settings** and connect an AI service. OpenRouter is the default; Anthropic and BigModel are also available. BigModel offers standard API and Coding Plan connections; choose the one your account is eligible to use. Enter the corresponding API key and choose a model that supports the assistant's actions and image input when needed.
+2. Open the assistant's **Settings** and connect an AI service. OpenRouter is the default; Anthropic, official DeepSeek, and BigModel are also available. DeepSeek starts with `deepseek-flash`. BigModel offers standard API and Coding Plan connections; choose the one your account is eligible to use. Enter the corresponding API key and choose a model that supports the assistant's actions and image input when needed.
 3. Describe the task. Include the object, desired result and anything that must stay unchanged.
 4. Add a photo or screenshot with **+ Images** if it would help explain the problem. PNG and JPEG are supported, with up to four images per message.
 5. Watch the changes appear in the slicer. The assistant can work through several supported steps in one request. Expand **Activity** to see what it inspected or changed.
@@ -29,7 +29,7 @@ The aim is to reduce the knowledge needed to get started while keeping experienc
 
 You do not normally need to select an object first. The assistant can inspect the objects on the active plate and identify a target from your description. If several objects could match, it may ask which one you mean. Naming objects clearly makes these conversations easier.
 
-The connected AI service charges for usage. Messages, attached images and relevant project information are sent to that service. The connection key and chat are kept for the current application session; conversations are not saved as a lasting project history yet.
+The connected AI service charges for usage. Messages, attached images and relevant project information are sent to that service. The provider, model and connection key survive application restart. Keys are saved separately for each provider in the operating system credential store; clear the key in Settings and Save to remove it. Conversations remain in memory for the current application session.
 
 ## What it can help with today
 
@@ -99,11 +99,11 @@ The assistant currently changes one settings scope at a time. Choose it from the
 | Choice | Where settings changes apply |
 | --- | --- |
 | Object | The particular object being discussed. |
-| Process | Global print settings used by objects in the project. |
-| Filament | The currently edited filament profile. |
-| Printer | The current printer profile. |
+| Global process | Global print settings used by objects in the project. |
+| Global filament | The currently edited filament profile. |
+| Global printer | The current printer profile. |
 
-The assistant can inspect information outside that choice, but you must switch the dropdown before it can edit a different scope. Individual object settings can also take precedence over global settings. Changes to profiles are not automatically saved permanently to those profiles.
+Global scopes work even on an empty plate or with complex objects. The assistant can inspect information outside that choice, but you must switch the dropdown before it can edit a different scope. Individual object settings can also take precedence over global settings. Changes to profiles are not automatically saved permanently to those profiles.
 
 ## Asking useful questions
 

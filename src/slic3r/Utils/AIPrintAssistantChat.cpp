@@ -27,7 +27,8 @@ json tool_definitions(Provider provider)
           "Object ID from the active plate inventory. No UI selection is needed. Omit for a plate overview or the sole object."}};
     add("get_print_context",
         "Read active-plate objects and print settings. Supply object_id to inspect any object on that plate. "
-        "Without an ID, a sole object is inferred; empty or multi-object plates return shared settings and an inventory.",
+        "In Object scope, a sole object is inferred; empty or multi-object plates return a read-only overview. "
+        "Global preset scopes need no object and return an editable context with an empty object_id.",
         {{"type", "object"}, {"properties", {{"object_id", object_id}}}, {"additionalProperties", false}});
     add("search_settings",
         "Find settings by key, label, category or description. Optional object_id targets any object on the active plate. "
@@ -147,7 +148,8 @@ std::string make_chat_request(Provider provider, const std::string& model, const
         "Say changes are previewed, not permanently accepted, until an application event confirms Apply. "
         "Native editors/actions need user interaction and cannot join an automatic preview: finish the automatic work first and "
         "explain any remaining interactive steps accurately. "
-        "The user selects one edit scope. Other scopes are read-only. Ask them to switch the target if necessary. "
+        "The user selects one edit scope. Other scopes are read-only. For global parameters ask them to choose Global process, "
+        "Global filament or Global printer if necessary. Global preset edits need no object; use their empty object_id. "
         "The active plate inventory is attached to every user turn. Inspect its objects directly; do not ask the user to select an object "
         "in the UI. get_model_context refreshes object IDs, names, dimensions and plate membership. "
         "get_print_context and search_settings accept object_id. With multiple objects, inspect the relevant IDs separately. "
@@ -177,12 +179,15 @@ std::string make_chat_request(Provider provider, const std::string& model, const
         messages.insert(messages.begin(), system_message);
         if (provider == Provider::OpenRouter)
             request["provider"] = {{"require_parameters", true}};
-        else {
+        else if (is_bigmodel(provider)) {
             // GLM counts reasoning against the output budget and requires it
             // verbatim on subsequent tool rounds. Keep it out of the transcript.
             request["max_tokens"]  = 16384;
             request["thinking"]    = {{"type", "enabled"}, {"clear_thinking", false}};
             request["tool_stream"] = true;
+        } else if (provider == Provider::DeepSeek) {
+            request["max_tokens"] = 16384;
+            request["thinking"]   = {{"type", "enabled"}};
         }
         request["tool_choice"] = "auto";
     } else {
@@ -230,7 +235,7 @@ std::string read_tool_object_id(const ChatToolCall& call)
 json run_read_tool(const Context& context, const ChatToolCall& call)
 {
     const auto object_id = read_tool_object_id(call);
-    if (!object_id.empty() && object_id != std::to_string(context.object_id.id))
+    if (context.scope == Scope::Object && !object_id.empty() && object_id != std::to_string(context.object_id.id))
         throw std::runtime_error("The settings context belongs to another object. Read fresh context for the requested object_id.");
     if (call.name == "get_print_context") {
         auto result                = context.public_context;
@@ -318,7 +323,7 @@ void ChatStream::event(const std::string& data)
             m_text += delta["content"].get<std::string>();
         if (delta.contains("reasoning") && !delta["reasoning"].is_null())
             m_thinking = true;
-        if (is_bigmodel(m_provider) && delta.contains("reasoning_content") && !delta["reasoning_content"].is_null()) {
+        if (uses_reasoning_content(m_provider) && delta.contains("reasoning_content") && !delta["reasoning_content"].is_null()) {
             m_reasoning_content += delta["reasoning_content"].get<std::string>();
             m_thinking = true;
         }
@@ -459,7 +464,7 @@ json ChatStream::assistant_message() const
     const auto calls = tool_calls();
     if (uses_chat_completions(m_provider)) {
         json message = {{"role", "assistant"}, {"content", m_text}};
-        if (is_bigmodel(m_provider))
+        if (uses_reasoning_content(m_provider))
             message["reasoning_content"] = m_reasoning_content;
         if (!calls.empty()) {
             message["tool_calls"] = json::array();

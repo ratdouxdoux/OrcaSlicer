@@ -62,6 +62,12 @@ Context capture_context(const DynamicPrintConfig& inherited,
                         const DynamicPrintConfig* target          = nullptr,
                         const std::string&        target_identity = {},
                         const nlohmann::json&     image_context   = nlohmann::json::array());
+// Global presets do not require printable geometry or a selected object.
+Context capture_preset_context(const DynamicPrintConfig& inherited,
+                               Scope                     scope,
+                               const DynamicPrintConfig& target,
+                               const std::string&        target_identity = {},
+                               const nlohmann::json&     image_context   = nlohmann::json::array());
 // Resolve a stable ID among the active plate's objects. Without an ID, only a
 // sole distinct object is inferred; empty/ambiguous plates return nullptr.
 ModelObject* resolve_settings_object(const std::vector<ModelObject*>& plate_objects, const std::string& object_id = {});

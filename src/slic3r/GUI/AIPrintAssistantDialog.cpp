@@ -23,6 +23,7 @@
 #include <wx/html/htmlcell.h>
 #include <wx/listbox.h>
 #include <wx/mstream.h>
+#include <wx/msgdlg.h>
 #include <wx/scrolwin.h>
 #include <wx/sizer.h>
 #include <wx/statbmp.h>
@@ -32,9 +33,11 @@
 #include <wx/timer.h>
 #include <wx/weakref.h>
 #include "libslic3r/AIPrintAssistant.hpp"
+#include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "slic3r/Utils/AIPrintAssistantChat.hpp"
+#include "slic3r/Utils/AIPrintAssistantCredentials.hpp"
 #include "slic3r/Utils/AIChatMarkdown.hpp"
 #include "slic3r/Utils/Http.hpp"
 #include "GUI_App.hpp"
@@ -313,6 +316,21 @@ void AIPrintAssistantPanel::update_theme()
 AIPrintAssistantPanel::AIPrintAssistantPanel(wxWindow* parent, Plater* plater, std::function<void()> close)
     : wxPanel(parent), m_plater(plater), m_timer(this)
 {
+    auto& config = *wxGetApp().app_config;
+    for (const auto provider : AI::PROVIDERS)
+        if (config.get("ai_print_assistant", "provider") == AI::provider_id(provider))
+            m_provider = provider;
+    m_model = config.get("ai_print_assistant", std::string("model_") + AI::provider_id(m_provider));
+    if (m_model.empty())
+        m_model = AI::provider_info(m_provider).default_model;
+    std::string credential_error;
+    if (config.get("ai_print_assistant", std::string("key_saved_") + AI::provider_id(m_provider)) == "1") {
+        try {
+            m_key = AI::load_api_key(m_provider, data_dir());
+        } catch (const std::exception& error) {
+            credential_error = error.what();
+        }
+    }
     SetFont(Label::Body_14);
     SetMinSize(FromDIP(wxSize(400, -1)));
     style_window(this);
@@ -358,7 +376,11 @@ AIPrintAssistantPanel::AIPrintAssistantPanel(wxWindow* parent, Plater* plater, s
     header->Add(m_settings, 0, wxRIGHT, FromDIP(6));
     header->Add(hide);
     root->Add(header, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(12));
-    m_connection = add_label(this, _L("OpenRouter  /  Set up in Settings"), Label::Body_11, true);
+    m_connection = add_label(this,
+                             from_utf8(AI::provider_info(m_provider).name) +
+                                 (m_key.empty() ? _L("  /  Set up in Settings") : _L("  /  Ready")),
+                             Label::Body_11, true);
+    m_connection->SetToolTip(from_utf8(m_model));
     root->Add(m_connection, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(12));
     root->AddSpacer(FromDIP(12));
     auto* separator = new wxPanel(this, wxID_ANY, wxDefaultPosition, FromDIP(wxSize(-1, 1)));
@@ -436,10 +458,10 @@ AIPrintAssistantPanel::AIPrintAssistantPanel(wxWindow* parent, Plater* plater, s
     m_scope->SetFont(Label::Body_12);
     m_scope->SetCornerRadius(FromDIP(4));
     m_scope->SetMinSize(FromDIP(wxSize(100, 30)));
-    for (const auto& label : {_L("Object"), _L("Process"), _L("Filament"), _L("Printer")})
+    for (const auto& label : {_L("Object"), _L("Global process"), _L("Global filament"), _L("Global printer")})
         m_scope->Append(label);
     m_scope->SetSelection(0);
-    m_scope->SetToolTip(_L("Where proposed changes will apply"));
+    m_scope->SetToolTip(_L("Choose Object for individual overrides, or a Global scope to edit the shared preset."));
     style_window(m_scope->GetTextCtrl());
     compose->Add(m_scope, 1, wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(6));
     m_send = assistant_button(m_composer, _L("Send"), true);
@@ -447,7 +469,8 @@ AIPrintAssistantPanel::AIPrintAssistantPanel(wxWindow* parent, Plater* plater, s
     compose->Add(m_send, 0, wxALIGN_CENTER_VERTICAL);
     compose->Add(m_stop, 0, wxALIGN_CENTER_VERTICAL);
     input->Add(compose, 0, wxEXPAND | wxALL, FromDIP(8));
-    m_status = add_label(this, _L("Enter to send / Shift+Enter for a new line"), Label::Body_11, true);
+    m_status = add_label(this, credential_error.empty() ? _L("Enter to send / Shift+Enter for a new line") : from_utf8(credential_error),
+                         Label::Body_11, true);
     m_status->SetWindowStyleFlag(m_status->GetWindowStyleFlag() | LB_AUTO_WRAP);
     root->Add(m_status, 0, wxEXPAND | wxALL, FromDIP(12));
 
@@ -790,7 +813,8 @@ void AIPrintAssistantPanel::settings()
         add_label(&dialog,
                   _L("Messages, images, model summaries, lettering, filament recipes and public settings (including custom G-code) go to "
                      "your provider. OpenRouter forwards them to "
-                     "its model provider. API usage is billed by the provider. The key stays in memory for this app session."),
+                     "its model provider. API usage is billed by the provider. Keys are saved per provider in your operating system's "
+                     "credential store. Clear the key and Save to remove it."),
                   Label::Body_12, true);
     disclosure->Wrap(FromDIP(440));
     root->Add(disclosure, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(16));
@@ -830,16 +854,57 @@ void AIPrintAssistantPanel::settings()
     actions->Add(save);
     root->Add(actions, 0, wxEXPAND | wxALL, FromDIP(16));
     cancel->Bind(wxEVT_BUTTON, [&dialog](wxCommandEvent&) { dialog.EndModal(wxID_CANCEL); });
-    save->Bind(wxEVT_BUTTON, [&dialog](wxCommandEvent&) { dialog.EndModal(wxID_OK); });
+    save->Bind(wxEVT_BUTTON, [this, &dialog, provider, key, model](wxCommandEvent&) {
+        try {
+            const auto selected       = AI::PROVIDERS.at(provider->GetSelection());
+            const auto selected_model = to_utf8(model->GetValue());
+            AI::make_chat_request(selected, selected_model, json::array({AI::chat_user_message(selected, "validate")}));
+            if (!m_history.empty() && (selected != m_provider || selected_model != m_model)) {
+                new_chat();
+                if (m_preview && m_preview->pending())
+                    return;
+            }
+            const auto api_key = to_utf8(key->GetValue().Strip(wxString::both));
+            AI::save_api_key(selected, data_dir(), api_key);
+            auto&             config = *wxGetApp().app_config;
+            const std::string id     = AI::provider_id(selected);
+            config.set("ai_print_assistant", "provider", id);
+            config.set("ai_print_assistant", "model_" + id, selected_model);
+            config.set("ai_print_assistant", "key_saved_" + id, std::string(api_key.empty() ? "0" : "1"));
+            config.save();
+            key->ChangeValue(from_utf8(api_key));
+            dialog.EndModal(wxID_OK);
+        } catch (const std::exception& error) {
+            wxMessageBox(from_utf8(error.what()), _L("Assistant settings"), wxOK | wxICON_ERROR, &dialog);
+        }
+    });
     dialog.SetSizer(root);
     dialog.SetMinSize(FromDIP(wxSize(490, 430)));
     dialog.Fit();
     wxGetApp().UpdateDlgDarkUI(&dialog);
     dialog.CentreOnScreen();
-    provider->Bind(wxEVT_COMBOBOX, [provider, key, model, endpoint, &dialog](wxCommandEvent&) {
-        key->Clear();
-        const auto info = AI::provider_info(AI::PROVIDERS.at(provider->GetSelection()));
-        model->ChangeValue(from_utf8(info.default_model));
+    std::map<AI::Provider, std::pair<wxString, wxString>> drafts;
+    auto                                                  displayed_provider = m_provider;
+    provider->Bind(wxEVT_COMBOBOX, [provider, key, model, endpoint, &dialog, &drafts, &displayed_provider](wxCommandEvent&) {
+        drafts[displayed_provider] = {key->GetValue(), model->GetValue()};
+        displayed_provider         = AI::PROVIDERS.at(provider->GetSelection());
+        const auto info            = AI::provider_info(displayed_provider);
+        if (!drafts.count(displayed_provider)) {
+            auto&             config = *wxGetApp().app_config;
+            const std::string id     = AI::provider_id(displayed_provider);
+            std::string       saved_key;
+            if (config.get("ai_print_assistant", "key_saved_" + id) == "1") {
+                try {
+                    saved_key = AI::load_api_key(displayed_provider, data_dir());
+                } catch (const std::exception& error) {
+                    wxMessageBox(from_utf8(error.what()), _L("Assistant settings"), wxOK | wxICON_ERROR, &dialog);
+                }
+            }
+            const auto saved_model     = config.get("ai_print_assistant", "model_" + id);
+            drafts[displayed_provider] = {from_utf8(saved_key), from_utf8(saved_model.empty() ? info.default_model : saved_model)};
+        }
+        key->ChangeValue(drafts[displayed_provider].first);
+        model->ChangeValue(drafts[displayed_provider].second);
         endpoint->SetLabel(from_utf8(info.endpoint));
         endpoint->Wrap(dialog.FromDIP(320));
         dialog.Layout();
@@ -847,14 +912,9 @@ void AIPrintAssistantPanel::settings()
     });
     if (dialog.ShowModal() == wxID_OK) {
         const auto selected = AI::PROVIDERS.at(provider->GetSelection());
-        if (!m_history.empty() && (selected != m_provider || to_utf8(model->GetValue()) != m_model)) {
-            new_chat();
-            if (m_preview && m_preview->pending())
-                return; // A conflicting preview could not be restored.
-        }
-        m_provider = selected;
-        m_key      = to_utf8(key->GetValue());
-        m_model    = to_utf8(model->GetValue());
+        m_provider          = selected;
+        m_key               = to_utf8(key->GetValue());
+        m_model             = to_utf8(model->GetValue());
         m_connection->SetLabel(from_utf8(std::string(AI::provider_info(m_provider).name)) +
                                (m_key.empty() ? _L("  /  Set up in Settings") : _L("  /  Ready")));
         m_connection->SetToolTip(from_utf8(m_model));
@@ -1255,7 +1315,7 @@ void AIPrintAssistantPanel::display_proposal(AI::Proposal proposal)
         m_preview->verify(ai_model_context(*m_plater, false).id);
     ModelObject* object  = nullptr;
     const auto   context = current_context(&object, proposal.object_id);
-    if (proposal.context_id != context.id || proposal.object_id != std::to_string(context.object_id.id))
+    if (proposal.context_id != context.id || proposal.object_id != context.public_context.at("object_id"))
         throw std::runtime_error("These settings changed. Read get_print_context again before continuing.");
     if (proposal.outcome != "propose_changes") {
         m_last_tool_result = {{"status", "no_changes"}};
@@ -1580,19 +1640,23 @@ AI::Context AIPrintAssistantPanel::current_context(ModelObject** object, const s
     if (m_plater->printer_technology() != ptFFF)
         throw std::runtime_error("The print assistant currently supports filament printing only.");
     auto* plate    = m_plater->get_partplate_list().get_curr_plate();
-    auto* selected = AI::resolve_settings_object(plate ? plate->get_objects_on_this_plate() : ModelObjectPtrs{}, object_id);
-    if (!selected && !inspect)
+    auto* selected = selected_scope() == AI::Scope::Object ?
+                         AI::resolve_settings_object(plate ? plate->get_objects_on_this_plate() : ModelObjectPtrs{}, object_id) :
+                         nullptr;
+    if (selected_scope() == AI::Scope::Object && !selected && !inspect)
         throw std::runtime_error("Specify object_id from the active plate inventory before changing object settings.");
     auto inherited = wxGetApp().preset_bundle->full_config();
     // Match the plate settings layered into the object's effective configuration.
-    if (plate)
+    if (plate && selected_scope() == AI::Scope::Object)
         inherited.apply(*plate->config());
     auto*      tab      = target_tab();
     const auto identity = (tab ? tab->m_presets->get_edited_preset().name : std::string()) +
                           ":plate:" + std::to_string(m_plater->get_partplate_list().get_curr_plate_index());
     const auto  images = AI::image_context(m_turn_images);
     AI::Context context;
-    if (selected) {
+    if (tab)
+        context = AI::capture_preset_context(inherited, selected_scope(), *tab->get_config(), identity, images);
+    else if (selected) {
         try {
             context = AI::capture_context(inherited, *selected, selected_scope(), tab ? tab->get_config() : nullptr, identity, images);
         } catch (const std::runtime_error& error) {

@@ -21,7 +21,7 @@ flowchart TD
     U[User prompt and optional images] --> UI[Native wxWidgets sidebar]
     UI --> H[Conversation history and current plate inventory]
     H --> P[Provider adapter and HTTP worker]
-    P <--> L[OpenRouter, Anthropic or BigModel]
+    P <--> L[OpenRouter, Anthropic, DeepSeek or BigModel]
     P --> S[Streaming decoder on the UI thread]
     S --> A[Assistant reply and activity display]
     S --> T[Completed tool calls]
@@ -77,6 +77,7 @@ Stopping a request cancels network work and prevents unfinished calls from execu
 
 | Provider | Endpoint | Default model in this implementation |
 | --- | --- | --- |
+| DeepSeek | `https://api.deepseek.com/chat/completions` | `deepseek-flash` |
 | OpenRouter, the default | `https://openrouter.ai/api/v1/chat/completions` | `deepseek/deepseek-v4.1-flash-1017` |
 | Direct Anthropic | `https://api.anthropic.com/v1/messages` | `claude-sonnet-5-5` |
 | BigModel | `https://open.bigmodel.cn/api/paas/v4/chat/completions` | `glm-5.3-flash` |
@@ -84,15 +85,17 @@ Stopping a request cancels network work and prevents unfinished calls from execu
 
 The model field is configurable. The chosen model must support tools and, when attachments are used, image input. These are application defaults, not a guarantee of a provider's future model availability.
 
-OpenRouter and BigModel use function-tool schemas, bearer authentication, image data URLs and tool-role result messages. OpenRouter alone receives its `provider.require_parameters` routing option. The Anthropic adapter uses `input_schema`, `x-api-key`, base64 image blocks and `tool_result` blocks in user messages. It merges adjacent compatible messages as required by that protocol. All providers feed the same local tool handlers.
+OpenRouter, DeepSeek and BigModel use function-tool schemas, bearer authentication, image data URLs and tool-role result messages. OpenRouter alone receives its `provider.require_parameters` routing option. The Anthropic adapter uses `input_schema`, `x-api-key`, base64 image blocks and `tool_result` blocks in user messages. It merges adjacent compatible messages as required by that protocol. All providers feed the same local tool handlers.
 
 BigModel enables `tool_stream` and `thinking: {type: "enabled", clear_thinking: false}`. Its decoder joins streamed `reasoning_content` fragments and returns them unchanged in assistant history for tool continuations and later turns, separately from visible reply text. This follows BigModel's [thinking protocol](https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode) and [tool streaming format](https://docs.bigmodel.cn/cn/guide/capabilities/stream-tool). The retained non-streaming proposal adapter uses JSON-object mode with the proposal schema in the system message and local validation of the response.
+
+DeepSeek follows the [official Chat Completions API](https://api-docs.deepseek.com/api/create-chat-completion/), using `thinking.type=enabled` for chat and retaining `reasoning_content` across all tool rounds and later turns. It does not receive BigModel-only `tool_stream` or `clear_thinking` fields. The offline proposal adapter uses JSON-object output with the local schema in the prompt.
 
 Settings shows the selected endpoint. Standard API and Coding Plan routes are separate choices with separate account/key eligibility; switching does not silently fall back to a different billing route. Coding Plan access remains subject to the provider's [supported environments](https://docs.bigmodel.cn/cn/coding-plan/tool/others).
 
 The system prompt and tool definitions stay fixed within a conversation. Changing application state is appended in later messages rather than rewriting earlier messages. This preserves the conversation prefix used by provider-signed reasoning metadata. The decoder retains continuation metadata in memory; the UI shows working status and action summaries, not private reasoning text.
 
-Chat history, images and the API key are kept in panel memory. Hiding the sidebar preserves the conversation, while cancelling an active request. New chat clears the conversation and dismisses a pending preview before clearing it. Provider/model changes start a new conversation. There is no persisted chat archive or persistent API-key store in this implementation.
+Chat history and images are kept in panel memory. Provider and per-provider model preferences are persisted in AppConfig. `AIPrintAssistantCredentials` stores keys through `wxSecretStore`, keyed by stable provider ID and a hash of the application data directory; only a saved-key marker goes into AppConfig. Clearing a key removes its credential entry. Storage errors are shown without logging key material. Hiding the sidebar preserves the conversation, while cancelling an active request. New chat clears the conversation and dismisses a pending preview before clearing it. Provider/model changes start a new conversation. There is no persisted chat archive.
 
 History is resent on subsequent requests. There is no automatic conversation summarization or token/cost meter yet, so long tool sequences and broad catalog queries increase input usage.
 
@@ -128,9 +131,9 @@ The user controls the writable scope with the chat dropdown:
 | Scope | Configuration changed |
 | --- | --- |
 | Object | Sparse overrides on the target object. |
-| Process | The currently edited global print/process preset. |
-| Filament | The currently edited filament preset, not an arbitrary filament slot. |
-| Printer | The currently edited printer preset. |
+| Global process | The currently edited global print/process preset. |
+| Global filament | The currently edited filament preset, not an arbitrary filament slot. |
+| Global printer | The currently edited printer preset. |
 
 The model can inspect public values outside the selected scope, but cannot switch the scope itself. A request involving both object and filament settings therefore needs a manual scope change. Preset changes can affect multiple objects, and plate/object overrides may mask their effect.
 
@@ -140,7 +143,7 @@ Object edits update `ModelObject::config` and refresh the native object settings
 
 For settings proposals, numbers and booleans retain their JSON types. A percent value is a number; a number-or-percent option accepts an absolute number or a string such as `"120%"`. Vector and point values are JSON-encoded strings, such as `"[215]"`. Model-operation parameters instead use ordinary JSON arrays. This distinction is part of the wire contract.
 
-Settings mutations currently require a supported object context even for preset scopes. The object must have solid geometry and one instance. Solid multipart objects and negative volumes are supported, but settings/support modifiers, variable layer height, height-range/material overrides and most part-level overrides prevent automatic settings edits. Inspection remains available with the reason editing is unavailable. Model tools have their own eligibility checks and can support objects that settings mutation rejects.
+Global preset mutations use `capture_preset_context()` without geometry or object/plate overrides; their `object_id` is empty. Local validation still checks the preset identity, scope and complete candidate configuration. Object-scope mutations require a supported object context. The object must have solid geometry and one instance. Solid multipart objects and negative volumes are supported, but settings/support modifiers, variable layer height, height-range/material overrides and most part-level overrides prevent automatic settings edits. Inspection remains available with the reason editing is unavailable. Model tools have their own eligibility checks and can support objects that settings mutation rejects.
 
 ## Model editing and color mixing
 
@@ -217,7 +220,7 @@ Image text, settings and tool-returned G-code are described to the model as untr
 | User prompt | 8,000 UTF-8 bytes per message |
 | Model rounds | 32 per user turn |
 | Tool calls | Up to 8 per model response; executed sequentially |
-| Requested output budget | `max_tokens: 4096` for OpenRouter/Anthropic; `16384` for BigModel to leave room for reasoning |
+| Requested output budget | `max_tokens: 4096` for OpenRouter/Anthropic; `16384` for BigModel/DeepSeek to leave room for reasoning |
 | History | New turns stop at 450 stored messages; request builder caps history at 512 |
 | Serialized request / streamed response | 32 MiB / 2 MiB |
 | Network timeouts | 15 seconds to connect; 180 seconds per request |
@@ -247,7 +250,7 @@ cmake --build build --target ai_print_assistant_tests Snapmaker_Orca Snapmaker_O
 ctest --test-dir build -C Release -R "^ai_assistant:" --output-on-failure
 ```
 
-The latest recorded run has 83 passing assistant tests. [test_ai_print_assistant.cpp](../tests/libslic3r/test_ai_print_assistant.cpp) covers settings, providers, streaming and conversation contracts; [test_ai_model_tools.cpp](../tests/libslic3r/test_ai_model_tools.cpp) covers geometry, mixing and preview transactions; [test_ai_slice_tools.cpp](../tests/libslic3r/test_ai_slice_tools.cpp) covers slice summaries and bounded G-code reads; [test_ai_chat_markdown.cpp](../tests/libslic3r/test_ai_chat_markdown.cpp) covers reply formatting. These tests use no provider credentials or network requests.
+The latest recorded run has 86 passing assistant tests. [test_ai_print_assistant.cpp](../tests/libslic3r/test_ai_print_assistant.cpp) covers settings, providers, streaming and conversation contracts; [test_ai_model_tools.cpp](../tests/libslic3r/test_ai_model_tools.cpp) covers geometry, mixing and preview transactions; [test_ai_slice_tools.cpp](../tests/libslic3r/test_ai_slice_tools.cpp) covers slice summaries and bounded G-code reads; [test_ai_chat_markdown.cpp](../tests/libslic3r/test_ai_chat_markdown.cpp) covers reply formatting. These tests use no provider credentials or network requests.
 
 **Settings > Developer tools** supports context export and proposal import for offline checks. Exports include public context and schemas, with image hashes rather than pixels. Imported proposals pass through the same preview path as model tool calls, allowing viewport changes, Apply/Dismiss and rollback to be checked without an API request. UI smoke-test results and outstanding validation are recorded in the [workflow reference](AI-Print-Assistant.md#validation).
 

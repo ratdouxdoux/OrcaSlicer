@@ -138,6 +138,19 @@ ProviderInfo provider_info(Provider provider)
     case Provider::BigModel: return {"BigModel", "https://open.bigmodel.cn/api/paas/v4/chat/completions", "glm-5.3-flash"};
     case Provider::BigModelCodingPlan:
         return {"BigModel (Coding Plan)", "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", "glm-5.3-flash"};
+    case Provider::DeepSeek: return {"DeepSeek", "https://api.deepseek.com/chat/completions", "deepseek-flash"};
+    }
+    throw std::runtime_error("Unknown assistant provider.");
+}
+
+const char* provider_id(Provider provider)
+{
+    switch (provider) {
+    case Provider::OpenRouter: return "openrouter";
+    case Provider::Anthropic: return "anthropic";
+    case Provider::BigModel: return "bigmodel";
+    case Provider::BigModelCodingPlan: return "bigmodel_coding_plan";
+    case Provider::DeepSeek: return "deepseek";
     }
     throw std::runtime_error("Unknown assistant provider.");
 }
@@ -222,6 +235,7 @@ std::string make_request(
     case Provider::OpenRouter: return make_openrouter_request(context, prompt, model, images);
     case Provider::Anthropic: return make_anthropic_request(context, prompt, model, images);
     case Provider::BigModel:
+    case Provider::DeepSeek:
     case Provider::BigModelCodingPlan: return make_chat_completions_request(provider, context, prompt, model, images);
     }
     throw std::runtime_error("Unknown assistant provider.");
@@ -233,6 +247,7 @@ Proposal parse_response(Provider provider, const std::string& body)
     case Provider::OpenRouter: return parse_openrouter_response(body);
     case Provider::Anthropic: return parse_anthropic_response(body);
     case Provider::BigModel:
+    case Provider::DeepSeek:
     case Provider::BigModelCodingPlan: return parse_chat_completions_response(provider, body);
     }
     throw std::runtime_error("Unknown assistant provider.");
@@ -266,12 +281,14 @@ std::string make_chat_completions_request(
                                       {{"role", "user"},
                                        {"content", nlohmann::json({{"request", prompt}, {"context", context.public_context}}).dump()}}}},
                                     {"response_format", format}};
-    if (is_bigmodel(provider)) {
+    if (uses_reasoning_content(provider)) {
         request.erase("provider");
         request["max_tokens"]             = 16384;
         request["response_format"]        = {{"type", "json_object"}};
         request["messages"][0]["content"] = std::string(instructions()) + "\nJSON schema: " + proposal_schema().dump();
     }
+    if (provider == Provider::DeepSeek)
+        request["thinking"] = {{"type", "disabled"}};
     if (!images.empty()) {
         auto content = nlohmann::json::array({{{"type", "text"}, {"text", request["messages"][1]["content"]}}});
         for (const auto& image : images)

@@ -35,7 +35,7 @@ json proposal_json(const AI::Context& context, const json& changes, const std::s
 {
     return {{"schema_version", 1},
             {"context_id", context.id},
-            {"object_id", std::to_string(context.object_id.id)},
+            {"object_id", context.public_context.at("object_id")},
             {"outcome", outcome},
             {"explanation", "Try changing the minimum feature size, then inspect a fresh slice."},
             {"changes", changes}};
@@ -188,7 +188,7 @@ TEST_CASE("Assistant preserves vector cardinality nullable overrides and percent
     CHECK(transaction.changed_keys.empty());
 }
 
-TEST_CASE("Assistant preset context tracks object overrides and target identity", "[AIPrintAssistant][fast]")
+TEST_CASE("Assistant preset context tracks target identity independently of object overrides", "[AIPrintAssistant][fast]")
 {
     Fixture fixture;
     auto    capture = [&](const std::string& name) {
@@ -197,6 +197,8 @@ TEST_CASE("Assistant preset context tracks object overrides and target identity"
     const auto original = capture("A");
     CHECK(original.id != capture("B").id);
     fixture.object->config.set_key_value("wall_loops", new ConfigOptionInt(6));
+    CHECK(original.id == capture("A").id);
+    fixture.inherited.set_key_value("wall_loops", new ConfigOptionInt(7));
     CHECK(original.id != capture("A").id);
 }
 
@@ -841,9 +843,9 @@ TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter paramet
     CHECK(router["max_tokens"] == 4096);
 }
 
-TEST_CASE("Assistant BigModel preserves streamed reasoning through tool continuations", "[AIPrintAssistant][fast]")
+TEST_CASE("Assistant direct providers preserve streamed reasoning through tool continuations", "[AIPrintAssistant][fast]")
 {
-    for (const auto provider : {AI::Provider::BigModel, AI::Provider::BigModelCodingPlan}) {
+    for (const auto provider : {AI::Provider::BigModel, AI::Provider::BigModelCodingPlan, AI::Provider::DeepSeek}) {
         AI::ChatStream stream(provider);
         const auto     wire = router_delta({{"role", "assistant"}, {"content", nullptr}, {"reasoning_content", "Inspect "}}) +
                           router_delta({{"reasoning_content", "caf\xc3\xa9\n"}}) +
@@ -875,7 +877,7 @@ TEST_CASE("Assistant BigModel preserves streamed reasoning through tool continua
         CHECK(result["role"] == "tool");
         CHECK(result["tool_call_id"] == calls[0].id);
         auto       history = json::array({AI::chat_user_message(provider, "Inspect walls"), assistant, result});
-        const auto next    = json::parse(AI::make_chat_request(provider, "glm-5.3-flash", history));
+        const auto next    = json::parse(AI::make_chat_request(provider, AI::provider_info(provider).default_model, history));
         CHECK(next["messages"][2] == assistant);
         CHECK(next["messages"][3] == result);
 
@@ -887,7 +889,7 @@ TEST_CASE("Assistant BigModel preserves streamed reasoning through tool continua
         CHECK(final.assistant_message()["reasoning_content"] == "Use the tool result.");
         history.push_back(final.assistant_message());
         history.push_back(AI::chat_user_message(provider, "Continue"));
-        const auto followup = json::parse(AI::make_chat_request(provider, "glm-5.3-flash", history));
+        const auto followup = json::parse(AI::make_chat_request(provider, AI::provider_info(provider).default_model, history));
         CHECK(followup["messages"][2] == assistant);
         CHECK(followup["messages"][4] == final.assistant_message());
     }
@@ -1245,4 +1247,101 @@ TEST_CASE("Assistant attaches plate inventory to each turn and exposes object se
         }
         CHECK(selectors == 2);
     }
+}
+
+TEST_CASE("Assistant DeepSeek uses the official protocol for chat and JSON proposals", "[AIPrintAssistant][fast]")
+{
+    const auto provider = AI::Provider::DeepSeek;
+    CHECK(std::string(AI::provider_info(provider).endpoint) == "https://api.deepseek.com/chat/completions");
+    CHECK(std::string(AI::provider_info(provider).default_model) == "deepseek-flash");
+    std::set<std::string> ids;
+    for (const auto item : AI::PROVIDERS)
+        CHECK(ids.insert(AI::provider_id(item)).second);
+    auto history = json::array({AI::chat_user_message(provider, "Inspect the walls", {{"image/png", "YWJj", 1, 1}})});
+    for (const auto* model : {"deepseek-flash", "deepseek-v4-pro"}) {
+        const auto request = json::parse(AI::make_chat_request(provider, model, history));
+        CHECK(request["thinking"] == json({{"type", "enabled"}}));
+        CHECK(request["max_tokens"] == 16384);
+        CHECK(request["tool_choice"] == "auto");
+        CHECK(request["messages"][1] == history[0]);
+        CHECK_FALSE(request.contains("tool_stream"));
+        CHECK_FALSE(request.contains("provider"));
+        CHECK_FALSE(request.contains("response_format"));
+    }
+    CHECK_THROWS(AI::make_chat_request(provider, "deepseek/deepseek-flash", history));
+    Fixture    fixture;
+    const auto context = fixture.context();
+    const auto request = json::parse(AI::make_request(provider, context, "Help", "deepseek-flash"));
+    CHECK(request["response_format"] == json({{"type", "json_object"}}));
+    CHECK(request["thinking"] == json({{"type", "disabled"}}));
+    CHECK_FALSE(request.contains("provider"));
+    CHECK(request["messages"][0]["content"].get<std::string>().find(AI::proposal_schema().dump()) != std::string::npos);
+    json response = {{"choices",
+                      {{{"finish_reason", "stop"},
+                        {"message", {{"role", "assistant"}, {"content", proposal_json(context, json::array(), "no_change").dump()}}}}}}};
+    CHECK(AI::parse_response(provider, response.dump()).context_id == context.id);
+    response["choices"][0]["finish_reason"] = "length";
+    CHECK_THROWS(AI::parse_response(provider, response.dump()));
+    AI::ChatStream truncated(provider);
+    truncated.feed(router_delta({{"content", "Partial"}}, "length") + "data: [DONE]\n\n");
+    CHECK_THROWS(truncated.finish());
+}
+
+TEST_CASE("Assistant global presets can be edited without any object", "[AIPrintAssistant][fast]")
+{
+    Fixture fixture;
+    auto    scope = AI::Scope::Process;
+    json    changes;
+    SECTION("Process") { changes = {{{"key", "wall_loops"}, {"value", 4}}}; }
+    SECTION("Filament")
+    {
+        scope   = AI::Scope::Filament;
+        changes = {{{"key", "nozzle_temperature"}, {"value", "[215]"}}};
+    }
+    SECTION("Printer")
+    {
+        scope   = AI::Scope::Printer;
+        changes = {{{"key", "nozzle_diameter"}, {"value", "[0.6]"}}};
+    }
+    auto       target  = fixture.inherited;
+    const auto before  = target;
+    auto       capture = [&] { return AI::capture_preset_context(fixture.inherited, scope, target, "global preset"); };
+    const auto context = capture();
+    CHECK_FALSE(context.read_only);
+    CHECK_FALSE(context.object_id.valid());
+    CHECK(context.public_context["object_id"] == "");
+    const auto read = AI::run_read_tool(context, {"r", "get_print_context", json::object()});
+    CHECK(read["read_only"] == false);
+    CHECK(read["object_id"] == "");
+    const auto      proposal = AI::parse_proposal(proposal_json(context, changes).dump());
+    AI::Transaction transaction;
+    target = AI::prepare_apply(context, proposal, transaction);
+    CHECK(target != before);
+    CHECK_THROWS(AI::prepare_apply(capture(), proposal, transaction));
+    target = AI::prepare_revert(capture(), transaction);
+    CHECK(target == before);
+    auto wrong_object      = proposal;
+    wrong_object.object_id = std::to_string(fixture.object->id().id);
+    CHECK_THROWS(AI::prepare_apply(capture(), wrong_object, transaction));
+    CHECK_THROWS(AI::capture_preset_context(fixture.inherited, AI::Scope::Object, target));
+}
+
+TEST_CASE("Assistant complex objects do not block global settings or inject their overrides", "[AIPrintAssistant][fast]")
+{
+    Fixture fixture;
+    fixture.object->add_instance();
+    fixture.object->config.set_key_value("wall_loops", new ConfigOptionInt(9));
+    fixture.object->volumes.front()->config.set_key_value("wall_loops", new ConfigOptionInt(8));
+    fixture.object->layer_config_ranges[{1., 2.}].set_key_value("wall_loops", new ConfigOptionInt(7));
+    CHECK_THROWS(fixture.context());
+    const auto context = AI::capture_context(fixture.inherited, *fixture.object, AI::Scope::Process, &fixture.inherited, "global");
+    CHECK_FALSE(context.read_only);
+    CHECK(context.effective.opt_int("wall_loops") == fixture.inherited.opt_int("wall_loops"));
+    const auto      proposal = AI::parse_proposal(proposal_json(context, {{{"key", "wall_loops"}, {"value", 4}}}).dump());
+    AI::Transaction transaction;
+    CHECK(AI::prepare_apply(context, proposal, transaction).opt_int("wall_loops") == 4);
+    CHECK(fixture.object->config.opt_int("wall_loops") == 9);
+    auto object_proposal = feature_proposal(AI::capture_read_context(fixture.inherited, fixture.object, AI::Scope::Object));
+    object_proposal.object_id.clear();
+    CHECK_THROWS(AI::prepare_apply(context, object_proposal, transaction));
 }

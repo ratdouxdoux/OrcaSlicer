@@ -47,13 +47,13 @@ void require_fields(const json& value, std::initializer_list<const char*> fields
             throw std::runtime_error("The proposal is missing a required field.");
 }
 
-std::string string_field(const json& value, const char* key, size_t limit)
+std::string string_field(const json& value, const char* key, size_t limit, bool allow_empty = false)
 {
     const auto& item = value.at(key);
     if (!item.is_string())
         throw std::runtime_error("A proposal text field has the wrong type.");
     auto text = item.get<std::string>();
-    if (text.empty() || text.size() > limit || text.find('\0') != std::string::npos)
+    if ((!allow_empty && text.empty()) || text.size() > limit || text.find('\0') != std::string::npos)
         throw std::runtime_error("A proposal text field is empty or too long.");
     return text;
 }
@@ -253,6 +253,11 @@ Context capture_context(const DynamicPrintConfig& inherited,
                         const std::string&        target_identity,
                         const json&               image_context)
 {
+    if (scope != Scope::Object) {
+        if (!target)
+            throw std::runtime_error("Select a settings target before requesting changes.");
+        return capture_preset_context(inherited, scope, *target, target_identity, image_context);
+    }
     // FullPrintConfig's FFF defaults omit printer_technology. Match validate()
     // and treat an absent technology as FFF instead of dereferencing nullptr.
     const auto* technology = inherited.option("printer_technology");
@@ -292,10 +297,8 @@ Context capture_context(const DynamicPrintConfig& inherited,
     context.target_identity = target_identity;
     context.object_id       = object.id();
     context.inherited       = inherited;
-    if (scope != Scope::Object && target == nullptr)
-        throw std::runtime_error("Select a settings target before requesting changes.");
-    context.overrides = scope == Scope::Object ? object.config.get() : *target;
-    context.effective = inherited;
+    context.overrides       = object.config.get();
+    context.effective       = inherited;
     context.effective.apply(context.overrides);
 
     const auto size = object.instance_bounding_box(size_t(0)).size();
@@ -345,6 +348,28 @@ ModelObject* resolve_settings_object(const std::vector<ModelObject*>& plate_obje
     if (!object_id.empty())
         throw std::runtime_error("This object is not on the active plate. Read get_model_context again for current object IDs.");
     return multiple ? nullptr : sole;
+}
+
+Context capture_preset_context(const DynamicPrintConfig& inherited,
+                               Scope                     scope,
+                               const DynamicPrintConfig& target,
+                               const std::string&        target_identity,
+                               const json&               image_context)
+{
+    if (scope == Scope::Object)
+        throw std::runtime_error("Object settings require an object context.");
+    auto context                             = capture_read_context(inherited, nullptr, scope, &target, target_identity, image_context);
+    context.read_only                        = false;
+    context.public_context["read_only"]      = false;
+    context.public_context["settings_basis"] = "Global edited preset; object, part and plate overrides are not applied.";
+    context.public_context["limitations"] =
+        {"Preset edits affect all objects using the preset. Object, part or plate overrides may shadow them.",
+         "Copy the empty object_id for preset changes; no object selection is required.",
+         "Use get_slice_context separately to inspect an existing slice."};
+    context.public_context.erase("context_id");
+    context.id = fingerprint({{"context", context.public_context}, {"target_identity", target_identity}}, context, nullptr);
+    context.public_context["context_id"] = context.id;
+    return context;
 }
 
 Context capture_read_context(const DynamicPrintConfig& inherited,
@@ -461,7 +486,7 @@ Proposal parse_proposal(const std::string& text)
         throw std::runtime_error("The proposal uses an unsupported schema version.");
     Proposal proposal;
     proposal.context_id  = string_field(document, "context_id", 64);
-    proposal.object_id   = string_field(document, "object_id", 32);
+    proposal.object_id   = string_field(document, "object_id", 32, true);
     proposal.outcome     = string_field(document, "outcome", 32);
     proposal.explanation = string_field(document, "explanation", 8000);
     if (proposal.outcome != "propose_changes" && proposal.outcome != "ask_question" && proposal.outcome != "no_change")
@@ -495,7 +520,7 @@ DynamicPrintConfig prepare_apply(const Context& current, const Proposal& proposa
 {
     if (current.read_only)
         throw std::runtime_error("This is a read-only plate overview. Read get_print_context with an object_id before proposing settings.");
-    if (proposal.context_id != current.id || proposal.object_id != std::to_string(current.object_id.id))
+    if (proposal.context_id != current.id || proposal.object_id != (current.object_id.valid() ? std::to_string(current.object_id.id) : ""))
         throw std::runtime_error("The object or its settings changed. Ask again or export a fresh context.");
     if (proposal.outcome != "propose_changes" || proposal.changes.empty())
         throw std::runtime_error("This response has no changes to apply.");
