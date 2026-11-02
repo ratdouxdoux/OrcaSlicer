@@ -56,7 +56,7 @@ Paths below are relative to the repository root.
 
 ## What happens during a request
 
-1. **Capture the user turn.** `request_proposal()` collects the prompt and prepared images. It captures the active plate inventory and, when available, the current settings context. The inventory includes stable object and instance IDs, names, dimensions, positions and slice availability.
+1. **Capture the user turn.** `request_proposal()` collects the prompt and prepared images. It captures the active plate inventory and, when available, the current settings context. The inventory includes stable object and instance IDs, names, dimensions, positions, per-object issues from the native mesh and placement checks, `pre_slice_checks` (last validation result and slice blockers) and slice availability with the current slice's native warnings.
 2. **Append context to history.** `chat_turn_message()` puts this application context into the new user message. The complete settings catalog and meshes are not automatically attached to every turn; the model requests additional settings or model information through tools.
 3. **Build the provider request.** `make_chat_request()` combines the fixed system instructions, tool schemas, model ID and conversation history. Each subsequent model round includes the accumulated messages and tool results.
 4. **Start the HTTP worker.** The network callbacks capture a shared `RequestResult` mailbox, rather than GUI or model pointers. A mutex protects the received response buffer; cancellation uses an atomic flag.
@@ -111,6 +111,8 @@ History is resent on subsequent requests. There is no automatic conversation sum
 | `list_model_tools` | No arguments; returns operation parameter schemas and native editor availability. | Discovers capabilities. |
 | `get_slice_context` | Optional `height_mm`, `radius_mm` and `max_moves`; returns the current plate's slice summary and optional height-band details. | Reads an existing slice. |
 | `read_gcode` | `slice_id`, optional `start_line` and `line_count`; returns numbered text and pagination information. | Reads a bounded slice excerpt. |
+| `slice_plate` | No arguments; returns `sliced` with the slice summary and native print warnings, or `failed`/`not_started`/`plate_changed` with the reason and `pre_slice_checks`. | Starts the native Slice plate action and waits for it. |
+| `search_knowledge` | `query`, optional `machine` (`u1`, `j1`, `artisan`, `snapmaker2`, `any`, `all`), `category` and `limit`; returns ranked knowledge entries with sources. | Reads the bundled knowledge base. |
 | `propose_settings` | Fresh settings `context_id`, `object_id`, explanation and typed changes. | Validates and updates the live preview. |
 | `propose_model_operation` | Fresh model `context_id`, operation name, target IDs and typed parameters. | Updates the live preview or offers an interactive workspace handoff. |
 
@@ -174,7 +176,7 @@ After every edit, `record_preview()` stores a new state fingerprint and returns 
 | Stop or hide the sidebar | Stops the request and preserves completed preview steps. |
 | New chat | Dismisses a pending preview before clearing history; accepted edits remain. |
 
-The preview fingerprint includes model content, mixing recipes, preset identities and configuration values. Its conflict check excludes selection and camera changes, so inspecting the preview does not block review. Individual model-operation contexts can still depend on selection. Unrelated manual edits after the preview cause a conflict rather than being silently overwritten by continuation or rollback.
+The preview fingerprint includes model content, mixing recipes, preset identities and configuration values. Its conflict check excludes selection and camera changes, so inspecting the preview does not block review. Individual model-operation contexts can still depend on selection. Manual edits after the preview are never overwritten by continuation or rollback. Instead, the next assistant interaction (send, Apply, Dismiss, Revert, New chat or a tool call) ends the preview. The preview's changes and the manual edits are both kept, and the chat shows a **Changed manually** notice. The provider receives an application event telling it to read fresh context. Before a user message, this event is a separate message; inside a tool loop, it is attached to the next tool result.
 
 Apply/Dismiss events are appended to the conversation so the model can distinguish a proposed result from an accepted or restored state. Native geometry Undo alone does not restore preset configurations and mixing state; the preview controls handle the complete checkpoint. Only the current checkpoint is retained, not an independent rollback record for every past reply.
 
@@ -201,7 +203,9 @@ The GUI adapter checks whether the active FFF plate has a completed, valid and l
 
 `read_gcode` accepts the current `slice_id` and line numbers. The file path comes exclusively from the application's current slice result. It validates the file and line index, reports truncation and supplies pagination. It neither executes the text nor exposes a general file-reading tool.
 
-A height window covers the plate's matching moves, including repeated heights in sequential printing. Samples are the first matching moves in G-code order, not a reconstruction or per-object attribution. The tools inspect planned output; they do not start a slice, submit a print, monitor the printer or capture an image.
+A height window covers the plate's matching moves, including repeated heights in sequential printing. Samples are the first matching moves in G-code order, not a reconstruction or per-object attribution. The read tools inspect planned output. `slice_plate` sends the native Slice plate event, so the slicer's own confirmations and blockers apply; the panel then pauses the remaining tool calls of that response and polls until slicing is idle before returning the outcome. Stopping the assistant records a result for every pending call. No tool submits a print, monitors the printer or captures an image.
+
+`Plater::last_validation_result()` and `Plater::last_slicing_result()` expose the most recent `Print::validate()` verdict and slicing outcome without the notification side effects of re-validating. A slicing error is cleared when the print is invalidated, which is also when the native Slice button allows a retry.
 
 ## Images and external data
 

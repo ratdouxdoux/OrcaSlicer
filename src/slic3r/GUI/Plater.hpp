@@ -779,6 +779,16 @@ public:
     //BBS: partplate list related functions
     PartPlateList& get_partplate_list();
     void validate_current_plate(bool& model_fits, bool& validate_error);
+    // Most recent native validation and slicing results, for read-only consumers
+    // such as the print assistant. plate_index stays -1 until something is recorded.
+    struct NativeCheckResult
+    {
+        int         plate_index = -1;
+        std::string status; // validation: "ok" or "error"; slicing: "running", "finished", "error" or "cancelled"
+        std::string error, warning;
+    };
+    NativeCheckResult last_validation_result() const;
+    NativeCheckResult last_slicing_result() const;
     //BBS: select the plate by index
     int select_plate(int plate_index, bool need_slice = false);
     //BBS: update progress result

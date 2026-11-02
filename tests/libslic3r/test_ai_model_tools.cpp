@@ -131,7 +131,9 @@ TEST_CASE("Assistant live preview refuses to overwrite later manual edits", "[AI
     f.cube->name = "Assistant name";
     preview.record(id());
     const auto preview_id = id();
-    f.cube->name          = "Later user name";
+    CHECK(preview.current(preview_id));
+    f.cube->name = "Later user name";
+    CHECK_FALSE(preview.current(id()));
     CHECK_THROWS(preview.verify(id()));
     CHECK_THROWS(preview.accept(id()));
     CHECK_THROWS(preview.before(id()));

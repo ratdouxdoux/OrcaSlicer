@@ -2,6 +2,7 @@
 #include "GUI_App.hpp"
 #include "GUI_ObjectList.hpp"
 #include "GLCanvas3D.hpp"
+#include "GLToolbar.hpp"
 #include "Plater.hpp"
 #include "PartPlate.hpp"
 #include "Selection.hpp"
@@ -10,11 +11,13 @@
 #include "MixedColorMatchHelpers.hpp"
 #include "MixedFilamentDialog.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/AIKnowledgeBase.hpp"
 #include "libslic3r/AISliceTools.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Utils.hpp"
 #include <boost/nowide/fstream.hpp>
 #include <algorithm>
+#include <memory>
 #include <numeric>
 #include <stdexcept>
 
@@ -40,6 +43,11 @@ const std::map<std::string, Gizmos::EType> editors = {{"move", Gizmos::Move},
                                                       {"simplify", Gizmos::Simplify},
                                                       {"brim_ears", Gizmos::BrimEars}};
 
+std::string printer_model()
+{
+    const auto* model = wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionString>("printer_model");
+    return model ? model->value : std::string();
+}
 std::vector<std::string> physical_colors()
 {
     const auto* option = wxGetApp().preset_bundle->project_config.option<ConfigOptionStrings>("filament_colour");
@@ -49,6 +57,9 @@ void ready(Plater& plater)
 {
     if (!plater.get_ui_job_worker().is_idle())
         throw std::runtime_error("Wait for the current model operation to finish.");
+    // slice_plate shows Preview like the Slice plate button; edits return to Prepare.
+    if (plater.is_preview_shown())
+        plater.select_view_3D("3D");
     if (!plater.is_view3D_shown())
         throw std::runtime_error("Switch to Prepare before editing the model.");
 }
@@ -110,15 +121,64 @@ json ai_slice_status(Plater& plater)
         return {{"status", "processing"}, {"message", "A slice or model operation is running. Wait until it finishes."}};
     if (plater.is_background_process_update_scheduled())
         return {{"status", "stale"}, {"message", "Model or settings updates are pending. Do not use the previous slice."}};
-    if (!plate->is_slice_result_valid())
+    const int plate_index = plater.get_partplate_list().get_curr_plate_index();
+    if (!plate->is_slice_result_valid()) {
+        // A failure stays current until the model or settings change, as for the native Slice button.
+        const auto last = plater.last_slicing_result();
+        if (last.plate_index == plate_index && last.status == "error")
+            return {{"status", "failed"},
+                    {"error", last.error},
+                    {"message", "The last slice of this plate failed. Fix the reported problem before slicing again."}};
         return {{"status", "needs_slice"},
-                {"message", "No current slice is available for this plate. Slice it before inspecting toolpaths."}};
+                {"message", "No current slice is available for this plate. Use slice_plate, or ask the user to slice, before inspecting "
+                            "toolpaths."}};
+    }
     auto* result = plate->get_slice_result();
     if (!result || result->moves.empty())
         return {{"status", "not_loaded"}, {"message", "A saved slice exists but its toolpaths are not loaded. Open Preview to load it."}};
+    std::lock_guard<std::mutex> lock(result->result_mutex);
+    // Native warnings are re-sent with every turn while this slice stays current.
+    auto warnings = AI::print_warnings(plater.get_partplate_list().get_current_fff_print(), 20);
+    for (auto& issue : AI::gcode_issues(*result, 20))
+        warnings.push_back(std::move(issue));
     return {{"status", "available"},
-            {"slice_id", AI::slice_identity(*result, plater.get_partplate_list().get_curr_plate_index())},
+            {"slice_id", AI::slice_identity(*result, plate_index)},
+            {"warnings", std::move(warnings)},
             {"message", "Use get_slice_context to inspect the existing slice, optionally at a height_mm, and read_gcode for excerpts."}};
+}
+
+void ai_start_slice(Plater& plater)
+{
+    // The native Slice plate action, including its confirmations and the switch to Preview.
+    SimpleEvent event(EVT_GLTOOLBAR_SLICE_PLATE);
+    plater.GetEventHandler()->ProcessEvent(event);
+}
+
+json ai_slice_outcome(Plater& plater)
+{
+    auto status           = ai_slice_status(plater);
+    const int plate_index = plater.get_partplate_list().get_curr_plate_index();
+    if (status["status"] != "available") {
+        status["plate_index"]      = plate_index;
+        status["pre_slice_checks"] = ai_plate_context(plater)["pre_slice_checks"];
+        return status;
+    }
+    auto*                       result = plater.get_partplate_list().get_curr_plate()->get_slice_result();
+    std::lock_guard<std::mutex> lock(result->result_mutex);
+    auto                        summary = AI::summarize_slice(*result, plate_index, json::object());
+    summary["status"]                   = "sliced";
+    summary["print_warnings"]           = AI::print_warnings(plater.get_partplate_list().get_current_fff_print());
+    return summary;
+}
+
+json ai_search_knowledge(const json& arguments)
+{
+    AI::validate_knowledge_query(arguments);
+    // Loaded once on first use; tool calls run on the UI thread.
+    static std::unique_ptr<AI::KnowledgeBase> knowledge;
+    if (!knowledge)
+        knowledge = std::make_unique<AI::KnowledgeBase>(AI::KnowledgeBase::load(resources_dir() + "/ai_knowledge/snapmaker_knowledge.json"));
+    return knowledge->search(arguments, AI::knowledge_machine(printer_model()));
 }
 
 json ai_read_slice_tool(Plater& plater, const std::string& name, const json& arguments)
@@ -136,17 +196,76 @@ json ai_read_slice_tool(Plater& plater, const std::string& name, const json& arg
     const auto*                 result      = plater.get_partplate_list().get_curr_plate()->get_slice_result();
     const int                   plate_index = plater.get_partplate_list().get_curr_plate_index();
     std::lock_guard<std::mutex> lock(result->result_mutex);
-    if (name == "get_slice_context")
-        return AI::summarize_slice(*result, plate_index, arguments);
+    if (name == "get_slice_context") {
+        auto summary              = AI::summarize_slice(*result, plate_index, arguments);
+        summary["print_warnings"] = AI::print_warnings(plater.get_partplate_list().get_current_fff_print());
+        return summary;
+    }
     // The path comes exclusively from the application's current processor result.
     boost::nowide::ifstream file(result->filename, std::ios::binary);
     return AI::read_slice_gcode(file, *result, plate_index, arguments);
 }
 
+namespace {
+// The slicer's own pre-slice verdict for the active plate: native validation,
+// slice blockers and the per-object issues collected in plate context.
+json pre_slice_checks(Plater& plater, PartPlate& plate, const json& objects)
+{
+    json       checks = {{"status", "ok"}, {"errors", json::array()}, {"warnings", json::array()}};
+    const int  index  = plater.get_partplate_list().get_curr_plate_index();
+    const auto add    = [&](const char* list, const char* code, const std::string& message) {
+        checks[list].push_back({{"code", code}, {"message", message}});
+    };
+    if (!plate.has_printable_instances())
+        add("errors", "no_printable_objects", "The active plate has no printable objects.");
+    // Print::validate() runs after the background update; a scheduled update makes this verdict stale.
+    const auto validation = plater.last_validation_result();
+    if (validation.plate_index == index) {
+        if (!validation.error.empty())
+            add("errors", "validation_error", validation.error);
+        if (!validation.warning.empty())
+            add("warnings", "validation_warning", validation.warning);
+    }
+    if (plater.is_plate_blocked_by_filament_temp_mixing(index))
+        add("errors", "filament_temperature_mixing", "High- and low-temperature filaments on this plate cannot be printed together.");
+    if (plater.is_plate_blocked_by_cold_plate(index))
+        add("errors", "cold_plate_incompatible", "A filament on this plate is not supported by the selected cold plate.");
+    if (plater.is_plate_blocked_by_flow_ratio_zero(index))
+        add("errors", "flow_ratio_zero", "A filament used on this plate has a flow ratio of 0.");
+    if (plater.has_incompatible_mixed_filament_in_use())
+        add("errors", "incompatible_mixed_filament", "Mixed filaments contain incompatible material types.");
+    json with_errors = json::array(), with_warnings = json::array();
+    for (const auto& object : objects) {
+        bool error = false, warning = false;
+        for (const auto& issue : object["issues"]) {
+            error   = error || issue["severity"] == "error";
+            warning = warning || issue["severity"] == "warning";
+        }
+        if (error)
+            with_errors.push_back(object["id"]);
+        else if (warning)
+            with_warnings.push_back(object["id"]);
+    }
+    checks["objects_with_errors"]   = std::move(with_errors);
+    checks["objects_with_warnings"] = std::move(with_warnings);
+    if (plater.is_background_process_update_scheduled())
+        checks["status"] = "pending";
+    else if (!checks["errors"].empty() || !checks["objects_with_errors"].empty())
+        checks["status"] = "errors";
+    else if (!checks["warnings"].empty() || !checks["objects_with_warnings"].empty())
+        checks["status"] = "warnings";
+    return checks;
+}
+} // namespace
+
 json ai_plate_context(Plater& plater)
 {
-    json  result = {{"active_plate", nullptr}, {"objects", json::array()}, {"slice", ai_slice_status(plater)}};
-    auto* plate  = plater.get_partplate_list().get_curr_plate();
+    const auto model  = printer_model();
+    json       result = {{"printer", {{"model", model}, {"knowledge_machine", AI::knowledge_machine(model)}}},
+                         {"active_plate", nullptr},
+                         {"objects", json::array()},
+                         {"slice", ai_slice_status(plater)}};
+    auto*      plate  = plater.get_partplate_list().get_curr_plate();
     if (!plate)
         return result;
     const auto center      = plate->get_center_origin();
@@ -158,21 +277,38 @@ json ai_plate_context(Plater& plater)
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const auto* object    = objects[oi];
         json        instances = json::array();
+        json        issues    = AI::mesh_issues(object->get_object_stl_stats());
         for (size_t ii = 0; ii < object->instances.size(); ++ii) {
             if (!plate->contain_instance(int(oi), int(ii)))
                 continue;
             const auto box = object->instance_bounding_box(ii);
-            instances.push_back({{"id", std::to_string(object->instances[ii]->id().id)},
+            const auto id  = std::to_string(object->instances[ii]->id().id);
+            instances.push_back({{"id", id},
                                  {"size_mm", {box.size().x(), box.size().y(), box.size().z()}},
                                  {"center_mm", {box.center().x(), box.center().y(), box.center().z()}},
                                  {"printable", object->instances[ii]->printable}});
+            // The same placement checks that drive the plate's boundary warning.
+            if (plate->check_outside(int(oi), int(ii)))
+                issues.push_back({{"code", "outside_plate"},
+                                  {"severity", "error"},
+                                  {"instance_id", id},
+                                  {"message", "Crosses the plate boundary or an exclusion area, or exceeds the build height. Move it fully "
+                                              "onto the plate or make it smaller."}});
+            if (box.min.z() < SINKING_Z_THRESHOLD)
+                issues.push_back({{"code", "below_bed"},
+                                  {"severity", "info"},
+                                  {"instance_id", id},
+                                  {"message", "Part of this instance is below the bed and will not be printed."}});
         }
         if (!instances.empty())
             result["objects"].push_back({{"id", std::to_string(object->id().id)},
                                          {"name", object->name},
                                          {"part_count", object->volumes.size()},
-                                         {"instances", std::move(instances)}});
+                                         {"instances", std::move(instances)},
+                                         {"issues", std::move(issues)}});
     }
+    if (plater.printer_technology() == ptFFF)
+        result["pre_slice_checks"] = pre_slice_checks(plater, *plate, result["objects"]);
     return result;
 }
 

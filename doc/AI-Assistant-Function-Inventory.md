@@ -20,7 +20,7 @@ The assistant is a conversational interface inside Snorca/Snapmaker Orca for und
 | P04 | Choose OpenRouter, Anthropic, official DeepSeek, BigModel or BigModel Coding Plan; edit the model ID and view the fixed endpoint. | Access depends on the provider account and model capabilities. A model ID does not change the selected endpoint or billing route. |
 | P05 | Save and restore provider, per-provider model and API key; replace or clear a saved key. | Keys use the OS credential store, separated by provider and application data directory. Availability depends on the platform build and credential service. Chat is not persisted. |
 | P06 | Inspect model/object/part/instance IDs, names, dimensions, transforms, plate membership, active-plate bounds, text and available physical/mixed filaments. | Context is structured data, not a transmitted mesh or rendered image. Settings tools target active-plate objects. Ambiguous intent still needs clarification. |
-| P07 | Show tool activity and edit summaries; stop a request; review a cumulative preview using Apply changes, Dismiss and Revert changes. | Automatic edits are already visible in the project before Apply. Apply accepts them; it does not execute them again. Later conflicting manual edits block restoration. |
+| P07 | Show tool activity and edit summaries; stop a request; review a cumulative preview using Apply changes, Dismiss and Revert changes. | Automatic edits are already visible in the project before Apply. Apply accepts them; it does not execute them again. Later manual edits end the preview, keep both sets of changes and show "Changed manually"; the chat continues from the current project. |
 | P08 | Export public assistant context and schemas, and import an offline proposal through Settings > Developer tools. | Intended for diagnostics and repeatable tests. Proposal import uses the same local validation and preview path; this is not ordinary project import/export. |
 
 The default provider remains OpenRouter. The direct DeepSeek connection defaults to `deepseek-flash`; model defaults are configurable and may change with provider availability.
@@ -100,7 +100,7 @@ Excluded configuration includes SLA settings, read-only/internal fields, preset 
 
 ## 4. Slicing Process Control
 
-The current implementation offers slice inspection and workflow guidance. It does not expose an assistant-controlled slicing-job lifecycle.
+The current implementation offers native pre-slice checks, slicing the active plate, and slice inspection. It does not cancel, pause or compare slicing jobs.
 
 | ID | Offered function | Capability boundary |
 | --- | --- | --- |
@@ -109,8 +109,10 @@ The current implementation offers slice inspection and workflow guidance. It doe
 | S03 | Inspect a band around a specified Z height. | Reports move counts, extrusion roles, speed, fan, temperature, line width, layer height and volumetric-rate ranges; bounded move samples and relevant G-code lines. The band covers the whole active plate, including repeated heights in sequential printing. It does not isolate an object's complete path. |
 | S04 | Read a numbered excerpt from the application's current slice G-code. | Requires a fresh slice ID. At most 200 lines/64 KiB per call; individual long lines are truncated. Does not accept arbitrary file paths, write files or execute G-code. |
 | S05 | Explain likely causes and next steps using slice evidence, settings and attached images. | Must distinguish observations from hypotheses, explain unavailable/stale evidence and ask for relevant missing information. Cannot verify physical print success. |
+| S06 | Report native pre-slice checks on every turn. | Per-object mesh repair and placement issues, the last validation verdict and the slice blockers of the active plate. A pending background update marks the verdict as pending. |
+| S07 | Slice the active plate and return the outcome. | Uses the native Slice plate action and its confirmations; reuses an up-to-date slice; reports native print warnings, G-code checks or the slicing error. Does not export, send or print. |
 
-No assistant tool currently starts, cancels, pauses or waits for a slicing job; runs automated comparison slices; exports a G-code file; submits/starts/stops a print; monitors a camera; or closes a calibration loop. The native slicer still owns those workflows. Applying edits notifies the native background-processing system and invalidates previous results; this does not constitute an exposed assistant slicing-control API.
+No assistant tool currently cancels or pauses a slicing job; runs automated comparison slices; exports a G-code file; submits/starts/stops a print; monitors a camera; or closes a calibration loop. The native slicer still owns those workflows. Applying edits notifies the native background-processing system and invalidates previous results; this does not constitute an exposed assistant slicing-control API.
 
 ## Tool interface and evidence
 
@@ -126,6 +128,8 @@ The complete top-level tool interface is:
 | `propose_settings` | C06–C08 through the preview workflow |
 | `get_slice_context` | S01–S03 |
 | `read_gcode` | S04 |
+| `slice_plate` | S06–S07 |
+| `search_knowledge` | Knowledge lookup: machine specs, error codes, maintenance, calibration, materials and print-failure guidance |
 
 S05 and conversational behavior are model behavior guided by the returned evidence, not separate tools. Provider setup, image selection and preview controls are application UI functions.
 

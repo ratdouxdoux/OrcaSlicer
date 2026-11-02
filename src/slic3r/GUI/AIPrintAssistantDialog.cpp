@@ -4,12 +4,15 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstring>
+#include <deque>
 #include <memory>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <wx/base64.h>
 #include <wx/button.h>
 #include <wx/choice.h>
@@ -141,6 +144,11 @@ Button* activity_button(wxWindow* parent, const wxString& text)
 
 wxString disclosure_label(const wxString& text, bool expanded) { return wxString(expanded ? L"\u25BE  " : L"\u25B8  ") + text; }
 
+constexpr const char* PROJECT_EDITED_EVENT =
+    "[Application event] The project changed outside the assistant, so the live preview ended. Its changes and the user's edits are "
+    "both kept and are now the starting point; Apply, Dismiss and Revert no longer cover them. Read fresh context before proposing "
+    "more changes.";
+
 struct RequestResult
 {
     std::atomic<bool> cancelled{false};
@@ -157,7 +165,7 @@ public:
     void update_theme();
     void suspend()
     {
-        if (m_result) {
+        if (busy()) {
             cancel_request();
             add_message(_L("Stopped"), _L("The request was cancelled."));
         }
@@ -214,8 +222,21 @@ private:
     size_t                            m_consumed = 0;
     int                               m_rounds   = 0;
     std::optional<AI::Context>        m_pending;
+    // Tool calls of the current response, run in order. slice_plate pauses the
+    // queue until the native slice finishes.
+    std::deque<AI::ChatToolCall> m_tool_queue;
+    struct SliceWait
+    {
+        AI::ChatToolCall                      call;
+        int                                   plate   = -1;
+        bool                                  started = false;
+        std::chrono::steady_clock::time_point since;
+    };
+    std::optional<SliceWait>          m_slice;
     std::optional<AI::ModelOperation> m_model_operation;
     std::unique_ptr<AI::LivePreview>  m_preview;
+    // A preview ended by manual edits; reported to the provider with the next message.
+    bool                              m_project_edited = false;
     json                              m_last_tool_result;
     wxPoint                           m_resize_start;
     int                               m_resize_width   = 0;
@@ -248,6 +269,11 @@ private:
     void          request_proposal();
     void          start_request();
     void          poll_request();
+    bool          busy() const { return m_result || m_slice; }
+    void          run_tools();
+    bool          start_slice(const AI::ChatToolCall& call);
+    void          poll_slice();
+    void          abandon_tools();
     void          cancel_request(const wxString& status = _L("Stopped"));
     AI::Scope     selected_scope() const;
     Tab*          target_tab() const;
@@ -258,6 +284,7 @@ private:
     void          preview_image();
     void          display_proposal(AI::Proposal proposal);
     void          begin_preview();
+    void          end_preview_if_edited();
     void          record_preview();
     void          update_preview();
     void          accept_preview();
@@ -477,7 +504,7 @@ AIPrintAssistantPanel::AIPrintAssistantPanel(wxWindow* parent, Plater* plater, s
     m_send->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { request_proposal(); });
     m_prompt->Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& event) {
         if ((event.GetKeyCode() == WXK_RETURN || event.GetKeyCode() == WXK_NUMPAD_ENTER) && !event.ShiftDown()) {
-            if (!m_result)
+            if (!busy())
                 request_proposal();
         } else
             event.Skip();
@@ -496,7 +523,12 @@ AIPrintAssistantPanel::AIPrintAssistantPanel(wxWindow* parent, Plater* plater, s
     m_add_images->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { add_images(); });
     m_remove_image->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { remove_image(); });
     m_image_list->Bind(wxEVT_LISTBOX, [this](wxCommandEvent&) { preview_image(); });
-    Bind(wxEVT_TIMER, [this](wxTimerEvent&) { poll_request(); });
+    Bind(wxEVT_TIMER, [this](wxTimerEvent&) {
+        if (m_slice)
+            poll_slice();
+        else
+            poll_request();
+    });
     auto schedule_layout = [this](wxSizeEvent& event) {
         event.Skip();
         if (!m_layout_pending) {
@@ -728,6 +760,8 @@ void AIPrintAssistantPanel::add_tool_card(const AI::ChatToolCall& call, const js
 {
     auto title = call.name == "get_print_context" ? _L("Read print settings") :
                  call.name == "get_slice_context" ? _L("Inspected slice result") :
+                 call.name == "slice_plate"       ? _L("Sliced plate") :
+                 call.name == "search_knowledge"  ? _L("Searched printing knowledge") :
                  call.name == "read_gcode"        ? _L("Read slice G-code") :
                  call.name == "search_settings"   ? _L("Searched available settings") :
                  call.name == "get_model_context" ? _L("Inspected models and colors") :
@@ -928,6 +962,7 @@ void AIPrintAssistantPanel::new_chat()
     cancel_request();
     if (m_preview && m_preview->pending() && !restore_preview(false))
         return;
+    const bool edited = std::exchange(m_project_edited, false);
     m_preview.reset();
     m_pending.reset();
     invalidate_proposal();
@@ -962,7 +997,8 @@ void AIPrintAssistantPanel::new_chat()
         });
     }
     m_welcome->GetSizer()->Add(examples, 0, wxEXPAND | wxALL, FromDIP(10));
-    m_status->SetLabel(_L("Enter to send / Shift+Enter for a new line"));
+    m_status->SetLabel(edited ? _L("Started fresh from the current project. The earlier preview changes were kept.") :
+                                _L("Enter to send / Shift+Enter for a new line"));
     update_theme();
     set_busy(false);
 }
@@ -1004,6 +1040,7 @@ void AIPrintAssistantPanel::cancel_request(const wxString& status)
     m_request.reset();
     m_result.reset();
     m_stream.reset();
+    abandon_tools();
     finish_activity(status);
     set_busy(false);
 }
@@ -1026,8 +1063,9 @@ void AIPrintAssistantPanel::request_proposal()
             throw std::runtime_error("Check the API key in Settings.");
         if (m_history.size() >= 450)
             throw std::runtime_error("This conversation is full. Start a new chat to continue.");
-        if (m_preview && m_preview->pending())
-            m_preview->verify(ai_model_context(*m_plater, false).id);
+        end_preview_if_edited();
+        if (std::exchange(m_project_edited, false))
+            m_history.push_back(AI::chat_user_message(m_provider, PROJECT_EDITED_EVENT));
         invalidate_proposal();
         m_turn_images = m_images;
         m_pending.reset();
@@ -1140,44 +1178,10 @@ void AIPrintAssistantPanel::poll_request()
         m_request.reset();
         m_stream.reset();
         m_history.push_back(response);
-        for (const auto& call : calls) {
-            m_tool_summary.clear();
-            json result;
-            bool failed = false;
-            try {
-                if (m_preview && m_preview->pending())
-                    m_preview->verify(ai_model_context(*m_plater, false).id);
-                if (call.name == "get_model_context" || call.name == "list_model_tools") {
-                    if (!call.arguments.is_object() || !call.arguments.empty())
-                        throw std::runtime_error("This tool takes no arguments.");
-                    result = call.name == "get_model_context" ? ai_model_context(*m_plater).data : ai_model_tools(*m_plater);
-                } else if (call.name == "get_slice_context" || call.name == "read_gcode") {
-                    result = ai_read_slice_tool(*m_plater, call.name, call.arguments);
-                } else if (call.name == "propose_model_operation") {
-                    display_model_operation(AI::parse_model_operation(call.arguments));
-                    result = m_last_tool_result;
-                } else {
-                    if (call.name == "propose_settings") {
-                        auto proposal = AI::parse_proposal(call.arguments.dump());
-                        if (proposal.outcome != "propose_changes")
-                            throw std::runtime_error("Use normal chat for advice or questions; this tool requires proposed changes.");
-                        display_proposal(std::move(proposal));
-                        result = m_last_tool_result;
-                    } else {
-                        m_pending = current_context(nullptr, AI::read_tool_object_id(call), true);
-                        result    = AI::run_read_tool(*m_pending, call);
-                    }
-                }
-            } catch (const std::exception& error) {
-                failed = true;
-                result = {{"message", error.what()}};
-            }
-            add_tool_card(call, result, failed);
-            m_history.push_back(AI::chat_tool_result(m_provider, call, result, failed));
-        }
-        if (!calls.empty())
-            start_request();
-        else {
+        if (!calls.empty()) {
+            m_tool_queue.assign(calls.begin(), calls.end());
+            run_tools();
+        } else {
             finish_activity(_L("Activity"), true);
             set_busy(false);
             m_status->SetLabel(m_preview && m_preview->pending() ? _L("Preview ready. Apply keeps it; Dismiss removes it.") : _L("Ready"));
@@ -1188,6 +1192,153 @@ void AIPrintAssistantPanel::poll_request()
         cancel_request(_L("Interrupted"));
         show_error(error);
     }
+}
+
+void AIPrintAssistantPanel::run_tools()
+{
+    while (!m_tool_queue.empty()) {
+        const auto call = m_tool_queue.front();
+        m_tool_queue.pop_front();
+        m_tool_summary.clear();
+        json result;
+        bool failed = false;
+        try {
+            end_preview_if_edited();
+            if (call.name == "slice_plate") {
+                // poll_slice records this result and resumes the queue.
+                if (start_slice(call))
+                    return;
+                result = m_last_tool_result;
+            } else if (call.name == "get_model_context" || call.name == "list_model_tools") {
+                if (!call.arguments.is_object() || !call.arguments.empty())
+                    throw std::runtime_error("This tool takes no arguments.");
+                result = call.name == "get_model_context" ? ai_model_context(*m_plater).data : ai_model_tools(*m_plater);
+            } else if (call.name == "get_slice_context" || call.name == "read_gcode") {
+                result = ai_read_slice_tool(*m_plater, call.name, call.arguments);
+            } else if (call.name == "search_knowledge") {
+                result = ai_search_knowledge(call.arguments);
+                for (const auto& item : result["results"])
+                    m_tool_summary += (m_tool_summary.empty() ? "" : "\n") + from_utf8(item["title"].get<std::string>());
+            } else if (call.name == "propose_model_operation") {
+                display_model_operation(AI::parse_model_operation(call.arguments));
+                result = m_last_tool_result;
+            } else {
+                if (call.name == "propose_settings") {
+                    auto proposal = AI::parse_proposal(call.arguments.dump());
+                    if (proposal.outcome != "propose_changes")
+                        throw std::runtime_error("Use normal chat for advice or questions; this tool requires proposed changes.");
+                    display_proposal(std::move(proposal));
+                    result = m_last_tool_result;
+                } else {
+                    m_pending = current_context(nullptr, AI::read_tool_object_id(call), true);
+                    result    = AI::run_read_tool(*m_pending, call);
+                }
+            }
+        } catch (const std::exception& error) {
+            failed = true;
+            result = {{"message", error.what()}};
+        }
+        // A user message cannot sit between tool calls and their results.
+        if (m_project_edited && result.is_object()) {
+            result["application_event"] = PROJECT_EDITED_EVENT;
+            m_project_edited            = false;
+        }
+        add_tool_card(call, result, failed);
+        m_history.push_back(AI::chat_tool_result(m_provider, call, result, failed));
+    }
+    start_request();
+}
+
+bool AIPrintAssistantPanel::start_slice(const AI::ChatToolCall& call)
+{
+    if (!call.arguments.is_object() || !call.arguments.empty())
+        throw std::runtime_error("This tool takes no arguments.");
+    const auto status = ai_slice_status(*m_plater).value("status", "");
+    if (status == "unavailable")
+        throw std::runtime_error("Slicing is available only for an active FFF plate.");
+    if (status == "available") {
+        m_last_tool_result                 = ai_slice_outcome(*m_plater);
+        m_last_tool_result["reused_slice"] = true;
+        m_tool_summary                     = _L("The current slice is up to date.");
+        return false;
+    }
+    // A slice the user already started is awaited instead of restarted.
+    if (status != "processing")
+        ai_start_slice(*m_plater);
+    m_slice = SliceWait{call, m_plater->get_partplate_list().get_curr_plate_index(), status == "processing",
+                        std::chrono::steady_clock::now()};
+    update_activity(_L("Slicing plate..."));
+    set_busy(true);
+    m_timer.Start(250);
+    return true;
+}
+
+void AIPrintAssistantPanel::poll_slice()
+{
+    if (!m_slice)
+        return;
+    try {
+        auto&      plater  = *m_plater;
+        const auto elapsed = std::chrono::steady_clock::now() - m_slice->since;
+        const bool active  = plater.is_background_process_slicing() || plater.is_background_process_running() ||
+                            !plater.get_ui_job_worker().is_idle();
+        json       result;
+        if (plater.get_partplate_list().get_curr_plate_index() != m_slice->plate)
+            result = {{"status", "plate_changed"}, {"message", "The active plate changed while slicing. Read fresh context before continuing."}};
+        else if (active && elapsed < std::chrono::minutes(30)) {
+            m_slice->started  = true;
+            const int percent = int(plater.get_partplate_list().get_curr_plate()->get_slicing_percent());
+            update_activity(percent > 0 ? wxString::Format(_L("Slicing plate... %d%%"), percent) : _L("Slicing plate..."));
+            return;
+        } else if (active)
+            result = {{"status", "still_slicing"},
+                      {"message", "Slicing is still running. Check the slice status later instead of starting another slice."}};
+        else {
+            result            = ai_slice_outcome(plater);
+            const auto status = result.value("status", "");
+            if (!m_slice->started && (status == "needs_slice" || status == "stale")) {
+                // The native action returns without slicing when a check or the user stops it.
+                if (elapsed < std::chrono::seconds(2))
+                    return;
+                result["status"]  = "not_started";
+                result["message"] = "Slicing did not start. Resolve the errors in pre_slice_checks, or ask the user to slice and answer "
+                                    "any slicer prompts.";
+            }
+        }
+        m_timer.Stop();
+        const auto call = m_slice->call;
+        m_slice.reset();
+        if (result.value("status", "") == "sliced") {
+            const int seconds = int(result.value("estimated_time_seconds", 0.0));
+            m_tool_summary    = wxString::Format(_L("Estimated print time: %dh %02dm"), seconds / 3600, seconds / 60 % 60);
+            if (const size_t warnings = result["print_warnings"].size() + result["warnings"].size())
+                m_tool_summary += "\n" + wxString::Format(_L("Slicing warnings: %d"), int(warnings));
+        } else
+            m_tool_summary = from_utf8(result.value("error", result.value("message", "")));
+        add_tool_card(call, result, false);
+        m_history.push_back(AI::chat_tool_result(m_provider, call, result, false));
+        update_activity(_L("Thinking..."));
+        run_tools();
+    } catch (const std::exception& error) {
+        cancel_request(_L("Interrupted"));
+        show_error(error);
+    }
+}
+
+// Every tool call in the history needs a result, or the provider rejects the next request.
+void AIPrintAssistantPanel::abandon_tools()
+{
+    if (m_slice) {
+        m_history.push_back(AI::chat_tool_result(m_provider, m_slice->call,
+                                                 {{"status", "stopped"},
+                                                  {"message", "The user stopped the assistant before slicing finished. The slicer may "
+                                                              "still be slicing."}},
+                                                 true));
+        m_slice.reset();
+    }
+    for (const auto& call : m_tool_queue)
+        m_history.push_back(AI::chat_tool_result(m_provider, call, {{"message", "Not run: the user stopped the assistant."}}, true));
+    m_tool_queue.clear();
 }
 
 void AIPrintAssistantPanel::begin_preview()
@@ -1213,6 +1364,28 @@ void AIPrintAssistantPanel::begin_preview()
     update_preview();
 }
 
+// Edits made outside the assistant end its preview instead of blocking the chat.
+// Restoring the checkpoint would overwrite them, so both sets of changes stay,
+// and Undo still steps back through them.
+void AIPrintAssistantPanel::end_preview_if_edited()
+{
+    if (!m_preview || m_preview->current(ai_model_context(*m_plater, false).id))
+        return;
+    const bool pending = m_preview->pending(), shown = m_preview->steps() > 0;
+    m_preview.reset();
+    update_preview();
+    if (!shown)
+        return;
+    m_project_edited = true;
+    add_message(_L("Changed manually"),
+                pending ? _L("The project changed outside the assistant, so the live preview ended. Your edits and the assistant's "
+                             "changes are both kept, and Undo steps back through model changes. Keep chatting to continue from the "
+                             "current model and settings, or start a new chat.") :
+                          _L("The project changed after you applied the assistant's changes, so Revert is no longer available. Undo "
+                             "steps back through model changes."));
+    m_status->SetLabel(_L("Changed manually. The assistant will use the current project."));
+}
+
 void AIPrintAssistantPanel::record_preview()
 {
     m_preview->record(ai_model_context(*m_plater, false).id);
@@ -1235,13 +1408,17 @@ void AIPrintAssistantPanel::update_preview()
     m_preview_label->SetLabel(
         m_preview ? wxString::Format(pending ? _L("Live preview (%d)") : _L("Applied (%d)"), int(m_preview->steps())) : _L("Live preview"));
     m_preview_bar->Layout();
-    set_busy(bool(m_result));
+    set_busy(busy());
 }
 
 void AIPrintAssistantPanel::accept_preview()
 {
     try {
-        if (!m_preview || m_result)
+        if (!m_preview || busy())
+            return;
+        // Manual edits already ended the preview with every change kept.
+        end_preview_if_edited();
+        if (!m_preview)
             return;
         m_preview->accept(ai_model_context(*m_plater, false).id);
         update_preview();
@@ -1260,6 +1437,9 @@ bool AIPrintAssistantPanel::restore_preview(bool notify)
         if (!m_preview)
             return true;
         cancel_request();
+        end_preview_if_edited();
+        if (!m_preview)
+            return true;
         if (m_preview->steps() == 0) {
             m_preview.reset();
             update_preview();
@@ -1311,8 +1491,6 @@ bool AIPrintAssistantPanel::restore_preview(bool notify)
 
 void AIPrintAssistantPanel::display_proposal(AI::Proposal proposal)
 {
-    if (m_preview && m_preview->pending())
-        m_preview->verify(ai_model_context(*m_plater, false).id);
     ModelObject* object  = nullptr;
     const auto   context = current_context(&object, proposal.object_id);
     if (proposal.context_id != context.id || proposal.object_id != context.public_context.at("object_id"))
@@ -1350,8 +1528,6 @@ void AIPrintAssistantPanel::display_proposal(AI::Proposal proposal)
 
 void AIPrintAssistantPanel::display_model_operation(AI::ModelOperation operation)
 {
-    if (m_preview && m_preview->pending())
-        m_preview->verify(ai_model_context(*m_plater, false).id);
     if (operation.context_id != ai_model_context(*m_plater).id)
         throw std::runtime_error("The model, selection or filaments changed. Read get_model_context again before proposing an edit.");
     std::unique_ptr<AI::PreparedModelEdit> prepared;
@@ -1439,7 +1615,7 @@ void AIPrintAssistantPanel::display_model_operation(AI::ModelOperation operation
         m_last_tool_result = {{"status", "requires_user_interaction"}, {"committed", false}};
         m_tool_summary     = _L("This step needs interaction in the workspace.");
     }
-    set_busy(bool(m_result));
+    set_busy(busy());
     layout_chat();
 }
 
@@ -1448,6 +1624,7 @@ void AIPrintAssistantPanel::apply_model_operation()
     try {
         if (!m_model_operation)
             return;
+        end_preview_if_edited();
         if (m_preview && m_preview->pending() && m_preview->steps() > 0)
             throw std::runtime_error("Apply or Dismiss the live preview before using a native workspace tool.");
         if (ai_model_context(*m_plater).id != m_model_operation->context_id)
@@ -1574,9 +1751,9 @@ void AIPrintAssistantPanel::preview_image()
 {
     const int index = m_image_list->GetSelection();
     m_image_preview->SetBitmap(index == wxNOT_FOUND ? wxNullBitmap : m_thumbnails[size_t(index)]);
-    m_remove_image->Enable(!m_result && index != wxNOT_FOUND);
+    m_remove_image->Enable(!busy() && index != wxNOT_FOUND);
     m_attachments->Show(!m_images.empty());
-    m_add_images->Enable(!m_result && m_images.size() < AI::MAX_IMAGES);
+    m_add_images->Enable(!busy() && m_images.size() < AI::MAX_IMAGES);
     m_composer->Layout();
     Layout();
 }
@@ -1745,6 +1922,7 @@ void AIPrintAssistantPanel::import_proposal()
         if (file.Read(text.data(), text.size()) != text.size())
             throw std::runtime_error("Could not read the proposal file.");
         const auto document = AI::parse_json(text);
+        end_preview_if_edited();
         if (m_welcome)
             m_welcome->Hide();
         begin_activity();

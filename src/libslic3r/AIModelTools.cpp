@@ -870,7 +870,7 @@ LivePreview::LivePreview(PreviewCheckpoint before, std::string state_id) : m_bef
 
 void LivePreview::verify(const std::string& state_id) const
 {
-    if (state_id != m_state_id)
+    if (!current(state_id))
         throw std::runtime_error("The project was edited outside this preview. Undo those later edits before applying or dismissing the "
                                  "preview, so they are not overwritten.");
 }
