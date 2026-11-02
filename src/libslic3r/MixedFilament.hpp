@@ -311,7 +311,7 @@ struct MixedFilamentPreviewSettings
     double preferred_a_height{0.0};
     double preferred_b_height{0.0};
     bool   local_z_mode{false};
-    bool   local_z_direct_multicolor{false};
+    bool   local_z_direct_multicolor{true};
     size_t wall_loops{1};
     bool   local_z_independent_layer_height{true};
     double gradient_cycle_height{0.20};

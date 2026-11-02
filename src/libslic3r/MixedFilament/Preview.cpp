@@ -422,8 +422,8 @@ std::vector<double> build_local_z_preview_pass_heights(double nominal_layer_heig
     const int    mix_b        = std::clamp(mix_b_percent, 0, 100);
     const double pct_b        = double(mix_b) / 100.0;
     const double pct_a        = 1.0 - pct_b;
-    const double gradient_h_a = lo + pct_a * (hi - lo);
-    const double gradient_h_b = lo + pct_b * (hi - lo);
+    const double gradient_h_a = pct_a * (lo + hi);
+    const double gradient_h_b = pct_b * (lo + hi);
     return build_alternating(gradient_h_a, gradient_h_b);
 }
 }} // namespace Slic3r::MixedFilamentInternal

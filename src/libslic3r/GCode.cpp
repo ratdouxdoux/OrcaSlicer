@@ -768,7 +768,7 @@ std::string WipeTowerIntegration::append_tcr2(GCode& gcodegen, const WipeTower::
 {
     if (new_extruder_id != -1 && new_extruder_id != tcr.new_tool)
         throw Slic3r::InvalidArgument(Slic3r::format(
-            "Error: WipeTowerIntegration::append_tcr unexpected toolchange: layer_idx=%1% tool_change_idx=%2% requested=%3% expected=%4% initial=%5%",
+            "Error: WipeTowerIntegration::append_tcr2 unexpected toolchange: layer_idx=%1% tool_change_idx=%2% requested=%3% expected=%4% initial=%5%",
             m_layer_idx, m_tool_change_idx, new_extruder_id, tcr.new_tool, tcr.initial_tool));
 
     std::string gcode;
@@ -1735,16 +1735,9 @@ bool WipeTowerIntegration::is_empty_wipe_tower_gcode(GCode& gcodegen, int extrud
     return true;
 }
 
-// Print is finished. Now it remains to unload the filament safely with ramming over the wipe tower.
 std::string WipeTowerIntegration::finalize(GCode& gcodegen)
 {
     std::string gcode;
-    if (!gcodegen.is_BBL_Printer()) {
-        if (std::abs(gcodegen.writer().get_position().z() - m_final_purge.print_z) > EPSILON)
-            gcode += gcodegen.change_layer(m_final_purge.print_z);
-        gcode += append_tcr2(gcodegen, m_final_purge, -1);
-    }
-
     return gcode;
 }
 
@@ -5484,13 +5477,17 @@ LayerResult GCode::process_layer(const Print& print,
         }
 
         // Reset TRAVEL acceleration and jerk at second layer
+        auto first_layer_travel_accel = m_config.first_layer_travel_acceleration.get_abs_value(
+            this->process_flow_value(m_config.travel_acceleration));
         if (this->process_flow_value(m_config.default_acceleration) > 0 && this->process_flow_value(m_config.travel_acceleration) > 0
-            && m_config.get_abs_value("first_layer_travel_acceleration") > 0) {
+            && first_layer_travel_accel > 0) {
             gcode += m_writer.set_travel_acceleration(
                 (unsigned int) floor(this->process_flow_value(m_config.travel_acceleration) + 0.5));
         }
+        auto first_layer_travel_jerk_val = m_config.first_layer_travel_jerk.get_abs_value(
+            this->process_flow_value(m_config.travel_jerk));
         if (this->process_flow_value(m_config.default_jerk) > 0 && this->process_flow_value(m_config.travel_jerk) > 0
-            && m_config.get_abs_value("first_layer_travel_jerk") > 0) {
+            && first_layer_travel_jerk_val > 0) {
             gcode += m_writer.set_jerk_xy(this->process_flow_value(m_config.travel_jerk));
         }
 
@@ -6810,7 +6807,18 @@ LayerResult GCode::process_layer(const Print& print,
         // even when Local-Z phase-b has consumed all first-layer extrusions
         // and by_extruder is empty for this extruder.
         if (first_layer) {
+            // Sequential (by-object) mode invokes process_layer once per object,
+            // so only brims of the objects printed in this pass may be consumed
+            // here; brims of later objects are emitted when their own pass starts.
+            std::set<ObjectID> objs_printed_in_this_pass;
+            for (const LayerToPrint& layer_to_print : layers)
+                if (layer_to_print.object() != nullptr)
+                    objs_printed_in_this_pass.insert(layer_to_print.object()->id());
             for (std::set<ObjectID>::iterator brim_it = this->m_objsWithBrim.begin(); brim_it != this->m_objsWithBrim.end(); ) {
+                if (objs_printed_in_this_pass.find(*brim_it) == objs_printed_in_this_pass.end()) {
+                    ++brim_it;
+                    continue;
+                }
                 std::map<ObjectID, ExtrusionEntityCollection>::const_iterator brim_map_it = print.m_brimMap.find(*brim_it);
                 if (brim_map_it != print.m_brimMap.end() && !brim_map_it->second.empty()) {
                     this->set_origin(0., 0.);
@@ -8787,11 +8795,13 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
     double       jerk_to_set         = 0.0;
     unsigned int acceleration_to_set = 0;
     if (this->on_first_layer()) {
-        auto first_layer_travel_accel = m_config.get_abs_value("first_layer_travel_acceleration");
+        auto first_layer_travel_accel = m_config.first_layer_travel_acceleration.get_abs_value(
+            this->process_flow_value(m_config.travel_acceleration));
         if (this->process_flow_value(m_config.default_acceleration) > 0 && first_layer_travel_accel > 0) {
             acceleration_to_set = (unsigned int) floor(first_layer_travel_accel + 0.5);
         }
-        auto first_layer_travel_jerk_val = m_config.get_abs_value("first_layer_travel_jerk");
+        auto first_layer_travel_jerk_val = m_config.first_layer_travel_jerk.get_abs_value(
+            this->process_flow_value(m_config.travel_jerk));
         if (this->process_flow_value(m_config.default_jerk) > 0 && first_layer_travel_jerk_val > 0) {
             jerk_to_set = first_layer_travel_jerk_val;
         }
