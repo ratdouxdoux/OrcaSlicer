@@ -72,6 +72,7 @@ add_executable(ai_print_assistant_tests
     test_ai_print_assistant.cpp
     test_ai_model_tools.cpp
     test_ai_slice_tools.cpp
+    test_ai_knowledge.cpp
     test_ai_chat_markdown.cpp
     ../../src/slic3r/Utils/AIChatMarkdown.cpp
     ../../src/slic3r/Utils/AIPrintAssistantChat.cpp

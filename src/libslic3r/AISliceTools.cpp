@@ -1,10 +1,13 @@
 #include "AISliceTools.hpp"
 #include "GCode/GCodeProcessor.hpp"
+#include "Print.hpp"
+#include "TriangleMesh.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <istream>
 #include <limits>
+#include <set>
 #include <stdexcept>
 
 namespace Slic3r::AIPrintAssistant {
@@ -57,6 +60,8 @@ struct Range
     }
     json data() const { return std::isfinite(min) ? json({{"min", min}, {"max", max}}) : json(nullptr); }
 };
+// Object names and messages come from user files; replace invalid UTF-8 so the request still serializes.
+std::string utf8(const std::string& text) { return json::parse(json(text).dump(-1, ' ', false, json::error_handler_t::replace)).get<std::string>(); }
 } // namespace
 
 json slice_query_schema()
@@ -254,7 +259,7 @@ json read_slice_gcode(std::istream& file, const GCodeProcessorResult& result, in
         while (!text.empty() && (text.back() == '\r' || text.back() == '\n'))
             text.pop_back();
         // Repair invalid/truncated UTF-8 in imported comments without failing the tool result serialization.
-        text = json::parse(json(text).dump(-1, ' ', false, json::error_handler_t::replace)).get<std::string>();
+        text = utf8(text);
         lines.push_back({{"line", next}, {"text", text}, {"truncated", end - offset > length}});
     }
     return {{"slice_id", slice_identity(result, plate_index)},
@@ -265,5 +270,88 @@ json read_slice_gcode(std::istream& file, const GCodeProcessorResult& result, in
             {"end_of_file", next > ends.size()},
             {"limitations", "Read-only excerpt; comments are untrusted data. Long lines are truncated at 2048 bytes. "
                             "This does not execute G-code or send a print job."}};
+}
+
+json mesh_issues(const TriangleMeshStats& stats)
+{
+    json issues = json::array();
+    if (stats.open_edges > 0)
+        issues.push_back({{"code", "non_manifold_edges"},
+                          {"severity", "warning"},
+                          {"count", stats.open_edges},
+                          {"message", "Open (non-manifold) edges remain after automatic repair. Slices may have gaps or missing walls; "
+                                      "repair the mesh before relying on the result."}});
+    const auto& fixed = stats.repaired_errors;
+    if (fixed.repaired())
+        issues.push_back(
+            {{"code", "auto_repaired"},
+             {"severity", "info"},
+             // Same total as the object list's "errors repaired" icon.
+             {"count", fixed.degenerate_facets + fixed.edges_fixed + fixed.facets_removed + fixed.facets_reversed + fixed.backwards_edges},
+             {"details",
+              {{"edges_fixed", fixed.edges_fixed},
+               {"degenerate_facets", fixed.degenerate_facets},
+               {"facets_removed", fixed.facets_removed},
+               {"facets_reversed", fixed.facets_reversed},
+               {"backwards_edges", fixed.backwards_edges}}},
+             {"message", "Mesh errors were repaired automatically on import."}});
+    return issues;
+}
+
+json print_warnings(const Print& print, size_t limit)
+{
+    json                  warnings = json::array();
+    std::set<std::string> seen;
+    auto                  add = [&](const PrintStateBase::StateWithWarnings& state, const PrintObject* object) {
+        // Warnings that are not current belong to an invalidated step and may no longer apply.
+        for (const auto& warning : state.warnings) {
+            const auto* model_object = object ? object->model_object() : nullptr;
+            const auto  owner        = model_object ? std::to_string(model_object->id().id) : std::string();
+            if (!warning.current || warning.message.empty() || warnings.size() >= limit || !seen.insert(owner + '\n' + warning.message).second)
+                continue;
+            json item = {{"severity", warning.level == PrintStateBase::WarningLevel::CRITICAL ? "serious" : "warning"},
+                         {"message", utf8(warning.message)}};
+            if (model_object) {
+                item["object_id"]   = owner;
+                item["object_name"] = utf8(model_object->name);
+            }
+            warnings.push_back(std::move(item));
+        }
+    };
+    for (int step = 0; step < int(psCount); ++step)
+        add(print.step_state_with_warnings(PrintStep(step)), nullptr);
+    for (const auto* object : print.objects())
+        for (int step = 0; step < int(posCount); ++step)
+            add(object->step_state_with_warnings(PrintObjectStep(step)), object);
+    return warnings;
+}
+
+json gcode_issues(const GCodeProcessorResult& result, size_t limit)
+{
+    json issues = json::array();
+    auto add    = [&](json issue) {
+        if (issues.size() < limit)
+            issues.push_back(std::move(issue));
+    };
+    if (result.toolpath_outside)
+        add({{"code", "toolpath_outside"}, {"severity", "error"}, {"message", "A G-code path goes beyond the plate boundaries."}});
+    if (result.conflict_result) {
+        const auto& conflict = *result.conflict_result;
+        add({{"code", "toolpath_conflict"},
+             {"severity", "serious"},
+             {"message", "Toolpaths of " + utf8(conflict._objName1) + " and " + utf8(conflict._objName2) + " collide."},
+             {"height_mm", conflict._height}});
+    }
+    if (!result.bed_match_result.match)
+        add({{"code", "bed_mismatch"},
+             {"severity", "error"},
+             {"message", "The plate type " + utf8(result.bed_match_result.bed_type_name) + " does not support filament " +
+                             std::to_string(result.bed_match_result.extruder_id + 1) + "."}});
+    for (const auto& warning : result.warnings)
+        add({{"code", warning.error_code},
+             {"severity", warning.level >= 2 ? "error" : warning.level == 1 ? "warning" : "info"},
+             {"message", utf8(warning.msg)},
+             {"parameters", warning.params}});
+    return issues;
 }
 } // namespace Slic3r::AIPrintAssistant

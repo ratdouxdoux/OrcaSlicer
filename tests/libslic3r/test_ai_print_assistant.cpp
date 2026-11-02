@@ -655,7 +655,7 @@ TEST_CASE("Assistant chat requests retain conversation and images without exposi
         const auto request = json::parse(body);
         CHECK(body.find("secret-sentinel") == std::string::npos);
         CHECK(request["stream"] == true);
-        CHECK(request["tools"].size() == 8);
+        CHECK(request["tools"].size() == 10);
         CHECK(request["messages"].back()["content"][0]["text"] == "On the top surface.");
         CHECK(body.find("Where do they appear?") != std::string::npos);
         CHECK_FALSE(request.contains("response_format"));
@@ -827,7 +827,7 @@ TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter paramet
             CHECK_FALSE(request.contains("system"));
             CHECK_FALSE(request.contains("output_config"));
             CHECK_FALSE(request.contains("response_format"));
-            REQUIRE(request["tools"].size() == 8);
+            REQUIRE(request["tools"].size() == 10);
             for (const auto& tool : request["tools"]) {
                 CHECK(tool["type"] == "function");
                 CHECK(tool["function"]["parameters"].is_object());

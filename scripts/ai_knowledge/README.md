@@ -1,0 +1,23 @@
+# Print assistant knowledge base
+
+`resources/ai_knowledge/snapmaker_knowledge.json` is the knowledge base behind the assistant's
+`search_knowledge` tool (`src/libslic3r/AIKnowledgeBase.cpp`). Each entry is an original summary
+of one topic (a machine spec sheet, an error code, a print failure, a setting, a material) with
+the URLs it was written from. The format and writing rules are in [SCHEMA.md](SCHEMA.md).
+
+Sources: the English Snapmaker wiki sections for the machines Snapmaker Orca supports (U1, J1/J1s,
+Artisan, Snapmaker 2.0, the general/Dual Extrusion Module pages, Snapmaker Orca and the FAQ), plus
+public printing references (OrcaSlicer, Prusa, Bambu Lab and Klipper documentation, filament data
+sheets, the Snapmaker forum). Laser, CNC, Ray and policy pages are out of scope.
+
+## Refreshing
+
+1. `scripts/ai_knowledge/fetch_wiki.sh <cache dir>` downloads the in-scope wiki pages as plain text.
+   Pages that need a login are skipped. The cache is working material; never commit it.
+2. Write or update entries as JSON arrays in `<cache dir>/staging/*.json`, following SCHEMA.md.
+   Summarize in your own words; do not paste wiki or web text.
+3. `perl scripts/ai_knowledge/merge.pl <cache dir>` validates every entry (fields, categories,
+   machines, setting keys against `PrintConfig.cpp`, sources), reports entries that share 10 or more
+   consecutive words with a cached wiki page, and writes the sorted knowledge base.
+4. Run `ai_print_assistant_tests`; the "shipped knowledge base" test loads and validates the file
+   with the same rules the application uses.

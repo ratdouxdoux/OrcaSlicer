@@ -10525,6 +10525,9 @@ struct Plater::priv
     PrintPrepareData            m_print_job_data;
     bool                        inside_snapshot_capture() { return m_prevent_snapshots != 0; }
     int                         process_completed_with_error { -1 }; //-1 means no error
+    // Exposed through Plater::last_validation_result() / last_slicing_result().
+    Plater::NativeCheckResult   last_validation;
+    Plater::NativeCheckResult   last_slicing;
     mutable std::atomic<bool>   m_cached_incompatible_mixed{false};
 
     //BBS: project
@@ -13581,6 +13584,7 @@ unsigned int Plater::priv::update_background_process(bool force_validation, bool
         // update string by type
         q->post_process_string_object_exception(err);
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": validate err=%1%, warning=%2%")%err.string%warning.string;
+        last_validation = {partplate_list.get_curr_plate_index(), err.string.empty() ? "ok" : "error", err.string, warning.string};
 
         if (err.string.empty()) {
             // Pass a warning from validation and either show a notification,
@@ -13652,11 +13656,14 @@ unsigned int Plater::priv::update_background_process(bool force_validation, bool
             q->sync_filament_temp_mixing_notification();
             q->sync_flow_ratio_zero_notification();
             q->sync_cold_plate_notification();
+            last_validation = {partplate_list.get_curr_plate_index(), "ok"};
         }
         actualize_slicing_warnings(*this->background_process.current_print());
         actualize_object_warnings(*this->background_process.current_print());
         show_warning_dialog = false;
         process_completed_with_error = -1;
+        // A slicing failure no longer describes the changed print.
+        last_slicing = {};
     }
 
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(", Line %1%: was_running = %2%, running %3%, invalidated=%4%, return_state=%5%, internal_cancel=%6%")
@@ -15162,6 +15169,7 @@ void Plater::priv::on_slicing_began()
     if(!m_slice_timing_active)
         m_slice_start_time    = std::chrono::steady_clock::now();
     m_slice_timing_active = true;
+    last_slicing          = {partplate_list.get_curr_plate_index(), "running"};
     clear_warnings();
     notification_manager->close_notification_of_type(NotificationType::SignDetected);
     notification_manager->close_notification_of_type(NotificationType::ExportFinished);
@@ -15302,8 +15310,10 @@ void Plater::priv::on_process_completed(SlicingProcessCompletedEvent &evt)
     this->background_process.reset_export();
     // This bool stops showing export finished notification even when process_completed_with_error is false
     bool has_error = false;
+    last_slicing   = {partplate_list.get_curr_plate_index(), evt.error() ? "error" : evt.cancelled() ? "cancelled" : "finished"};
     if (evt.error()) {
         auto message = evt.format_error_message();
+        last_slicing.error = message.first;
         if (evt.critical_error()) {
             if (q->m_tracking_popup_menu) {
                 // We don't want to pop-up a message box when tracking a pop-up menu.
@@ -23817,6 +23827,9 @@ int Plater::select_sliced_plate(int plate_index)
     return ret;
 }
 
+Plater::NativeCheckResult Plater::last_validation_result() const { return p->last_validation; }
+Plater::NativeCheckResult Plater::last_slicing_result() const { return p->last_slicing; }
+
 void Plater::validate_current_plate(bool& model_fits, bool& validate_error)
 {
     model_fits = p->view3D->get_canvas3d()->check_volumes_outside_state() != ModelInstancePVS_Partly_Outside;
@@ -23831,6 +23844,7 @@ void Plater::validate_current_plate(bool& model_fits, bool& validate_error)
         // update string by type
         post_process_string_object_exception(err);
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": validate err=%1%, warning=%2%, model_fits %3%")%err.string%warning.string %model_fits;
+        p->last_validation = {p->partplate_list.get_curr_plate_index(), err.string.empty() ? "ok" : "error", err.string, warning.string};
 
         if (err.string.empty()) {
             // Print::validate() passed, but GUI-layer blockers (filament temp

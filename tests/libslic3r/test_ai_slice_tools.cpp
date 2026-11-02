@@ -2,6 +2,8 @@
 #include <catch2/catch_approx.hpp>
 #include "libslic3r/AISliceTools.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
+#include "libslic3r/Print.hpp"
+#include "libslic3r/TriangleMesh.hpp"
 #include "slic3r/Utils/AIPrintAssistantChat.hpp"
 
 #include <sstream>
@@ -187,6 +189,85 @@ TEST_CASE("Assistant slice tools are exposed on both providers with evidence-awa
         CHECK(system.find("Use get_slice_context before diagnosing") != std::string::npos);
         CHECK(system.find("No mesh, live slice analysis") == std::string::npos);
         CHECK(system.find("old slice is obsolete") != std::string::npos);
+    }
+}
+
+TEST_CASE("Assistant mesh issues report remaining open edges and automatic repairs", "[AIPrintAssistant][fast]")
+{
+    TriangleMeshStats stats;
+    CHECK(AI::mesh_issues(stats).empty());
+    stats.open_edges                        = 3;
+    stats.repaired_errors.edges_fixed       = 2;
+    stats.repaired_errors.degenerate_facets = 1;
+    stats.repaired_errors.facets_reversed   = 4;
+    const auto issues                       = AI::mesh_issues(stats);
+    REQUIRE(issues.size() == 2);
+    CHECK(issues[0]["code"] == "non_manifold_edges");
+    CHECK(issues[0]["severity"] == "warning");
+    CHECK(issues[0]["count"] == 3);
+    CHECK(issues[1]["code"] == "auto_repaired");
+    CHECK(issues[1]["severity"] == "info");
+    CHECK(issues[1]["count"] == 7);
+    CHECK(issues[1]["details"]["facets_reversed"] == 4);
+    stats.repaired_errors.clear();
+    REQUIRE(AI::mesh_issues(stats).size() == 1);
+}
+
+TEST_CASE("Assistant G-code issues list native G-code checks compactly", "[AIPrintAssistant][fast]")
+{
+    SliceFixture fixture;
+    auto&        result = fixture.result;
+    CHECK(AI::gcode_issues(result).empty());
+    result.toolpath_outside = true;
+    result.conflict_result  = ConflictResult("Cube", "Tower", 42.5, nullptr, nullptr);
+    result.bed_match_result = BedMatchResult(false, "Cool Plate", 1);
+    result.warnings.push_back({1, "bed_temperature_too_high", "1000C001", {"0"}});
+    const auto issues = AI::gcode_issues(result);
+    REQUIRE(issues.size() == 4);
+    CHECK(issues[0]["code"] == "toolpath_outside");
+    CHECK(issues[0]["severity"] == "error");
+    CHECK(issues[1]["code"] == "toolpath_conflict");
+    CHECK(issues[1]["height_mm"] == 42.5);
+    CHECK(issues[1]["message"].get<std::string>().find("Cube") != std::string::npos);
+    CHECK(issues[2]["code"] == "bed_mismatch");
+    CHECK(issues[2]["message"].get<std::string>().find("filament 2") != std::string::npos);
+    CHECK(issues[3]["code"] == "1000C001");
+    CHECK(issues[3]["severity"] == "warning");
+    CHECK(AI::gcode_issues(result, 2).size() == 2);
+    result.conflict_result = ConflictResult(std::string("Bad\xff name"), "Tower", 1.0, nullptr, nullptr);
+    CHECK_NOTHROW(AI::gcode_issues(result).dump());
+}
+
+TEST_CASE("Assistant print warnings are empty for a print that has not been sliced", "[AIPrintAssistant][fast]")
+{
+    Print      print;
+    const auto warnings = AI::print_warnings(print);
+    CHECK(warnings.is_array());
+    CHECK(warnings.empty());
+}
+
+TEST_CASE("Assistant can slice the plate and is told about native checks", "[AIPrintAssistant][fast]")
+{
+    for (auto provider : {AI::Provider::OpenRouter, AI::Provider::Anthropic}) {
+        const auto request = json::parse(AI::make_chat_request(provider, AI::provider_info(provider).default_model,
+                                                               json::array({AI::chat_user_message(provider, "Slice it.")})));
+        size_t     found   = 0;
+        for (const auto& tool : request["tools"]) {
+            const auto definition = provider == AI::Provider::OpenRouter ? tool["function"] : tool;
+            if (definition["name"] != "slice_plate")
+                continue;
+            ++found;
+            const auto schema = definition[provider == AI::Provider::OpenRouter ? "parameters" : "input_schema"];
+            CHECK(schema["properties"].empty());
+            CHECK(schema["additionalProperties"] == false);
+            CHECK(definition["description"].get<std::string>().find("Never exports, sends or prints") != std::string::npos);
+        }
+        CHECK(found == 1);
+        const std::string system = provider == AI::Provider::OpenRouter ? request["messages"][0]["content"].get<std::string>() :
+                                                                          request["system"].get<std::string>();
+        CHECK(system.find("pre_slice_checks") != std::string::npos);
+        CHECK(system.find("only slice_plate starts slicing") != std::string::npos);
+        CHECK(system.find("does not Apply") != std::string::npos);
     }
 }
 

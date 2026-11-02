@@ -53,6 +53,9 @@ class LivePreview
 {
 public:
     LivePreview(PreviewCheckpoint before, std::string state_id);
+    // False once the project changed outside the preview; restoring the
+    // checkpoint would then overwrite those edits.
+    bool                     current(const std::string& state_id) const { return state_id == m_state_id; }
     void                     verify(const std::string& state_id) const;
     void                     record(const std::string& state_id);
     void                     accept(const std::string& state_id);
