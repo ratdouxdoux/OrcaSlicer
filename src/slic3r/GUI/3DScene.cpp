@@ -1063,12 +1063,14 @@ int GLVolumeCollection::load_wipe_tower_preview(
     GUI::PartPlateList&    ppl              = GUI::wxGetApp().plater()->get_partplate_list();
     std::vector<int>       plate_extruders  = ppl.get_plate(plate_idx)->get_extruders(true);
     TriangleMesh           wipe_tower_shell = make_cube(width, depth, height);
-    for (int extruder_id : plate_extruders) {
-        if (extruder_id <= extruder_colors.size())
+    // Only physical filaments are purged into the tower. Mixed filaments are virtual IDs
+    // after them, and get_extruders() already lists the physical filaments they blend.
+    const int physical_count = std::min(GUI::wxGetApp().filaments_cnt(), int(extruder_colors.size()));
+    for (int extruder_id : plate_extruders)
+        if (extruder_id >= 1 && extruder_id <= physical_count)
             colors.push_back(extruder_colors[extruder_id - 1]);
-        else
-            colors.push_back(extruder_colors[0]);
-    }
+    if (colors.empty() && !plate_extruders.empty() && !extruder_colors.empty())
+        colors.push_back(extruder_colors[0]);
 
     // Orca: make it transparent
     for (auto& color : colors)
@@ -1316,7 +1318,10 @@ void GLVolumeCollection::render(GLVolumeCollection::ERenderType      type,
         const Matrix3d view_normal_matrix = view_matrix.matrix().block(0, 0, 3, 3) *
                                             model_matrix.matrix().block(0, 0, 3, 3).inverse().transpose();
         shader->set_uniform("view_normal_matrix", view_normal_matrix);
-        {
+        // The wipe tower draws one band per filament in its own render().
+        if (auto* wipe_tower = dynamic_cast<GLWipeTowerVolume*>(volume.first))
+            wipe_tower->render();
+        else {
             auto& objects = GUI::wxGetApp().model().objects;
             auto  colors  = get_extruders_colors();
             volume.first->simple_render(shader, objects, colors, false, &m_z_range);
