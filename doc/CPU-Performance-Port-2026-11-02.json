@@ -1,0 +1,1326 @@
+{
+  "date": "2026-11-02",
+  "baseline_commit": "3aa93c405337767b4371631828ee901d53ea90c4",
+  "source_branch": "proposal_UI_changes_GPU_Accelerate_V2",
+  "source_branch_tip": "02628d988e06894780043d1902938b1f9b61c8f1",
+  "organization": {
+    "src/libslic3r/LocalZ": "Exact clipping, bounded result cache and conservative integer index",
+    "src/libslic3r/MixedFilament": "Channel snapshots and component activation tracking alongside the existing mixed-filament module",
+    "src/libslic3r/Slicing": "Shared preparation batching, outline reuse and developer diagnostics",
+    "tests/libslic3r/slicing": "Focused preparation/clipping tests and captured-operation replay",
+    "scripts/performance": "Isolated Windows benchmarks, run comparison and modal G-code audits"
+  },
+  "complexity_assessment": {
+    "tradeoff": "The clipping index/cache and parallel geometry staging add real complexity. File organization makes their responsibilities and lifetimes easier to inspect; it does not remove that maintenance cost.",
+    "boundaries": [
+      "Exact clipping and its conservative index live under LocalZ",
+      "Mixed-filament channel resolution and sequential activation tracking live under MixedFilament",
+      "Shared batching, outline reuse and developer instrumentation live under Slicing"
+    ],
+    "lifetime": "Clipping caches belong to an export layer; outline caches belong to a source-layer preparation task. Borrowed geometry must remain immutable for the documented lifetime.",
+    "geometry_admission": "At most 64 layers and 131072 input points per batch, with one neighboring layer on each side. An oversized single layer is admitted to guarantee progress; this is not a hard cap on Boolean output memory.",
+    "clipping_cache_budget": "32 MiB accounted entry storage and 65536 entries per layer, excluding allocator and index/mask bookkeeping overhead.",
+    "scope": "All selected performance mechanisms retained; existing cadence, ratio and tool-scheduling policy stay sequential."
+  },
+  "ported_features": [
+    "Opt-in Local-Z SVG/JSON and expensive leak diagnostics",
+    "Borrowed extrusion traversal, wall outlines, graph input and synchronous G-code buffers",
+    "Mixed-component tracking early-outs, one-time region bounds and reusable surface buckets",
+    "Compact graph candidates, selector reuse and compact strict painted meshes",
+    "Parallel painted occlusion and bounded outline reuse using current shell gathering",
+    "Bounded parallel Local-Z geometry with immutable mixed-row snapshots and serial cadence",
+    "Conservative empty-path index, exact Clipper results and bounded repeated-mask cache",
+    "Parallel wipe-pass eligibility with sequential tool scheduling"
+  ],
+  "source_commits": [
+    "df79223de4e1f17c56f1aeeccec8637c387d3ccd",
+    "2dc608e57e1ce728996bf5837686ba38fa2c133b",
+    "874ea12936e0e0602f70b2e9a910c3a191f7f3c6",
+    "b21f39fbd1041152f9b81bdf0a4bd2efbb6d5dfb",
+    "6186e404192943854104eafed0c07e37ca88fa46",
+    "020414d3d6a52c588a17e11be2c3b654e8780daf",
+    "5dff53f7c036392b3c3f96cea0426f328b984752",
+    "db8987b95007fce4e3aa355fbbeeae6115d73214",
+    "a2a071be961e9469872a3a59ad7101ab4ff0827d",
+    "02635b725a8f8cf3f121062de0f5adf6e1b71096",
+    "d6fb12f40f38a18279bcb237fe2eb67f23471a7c",
+    "6d601c2bd01cc32bd07bb816a37068fd78152aaf",
+    "046ef0c7af7ac9a198b1e1a2f0a913876974cf17",
+    "93a9800635385edcf8847662fbb8ac8d4850aefc",
+    "c294f2b5e9ae2dddb356dd10e34a1f4e505b1cf1",
+    "66e289737747266d013e40168aef9b6ad04497e8",
+    "f0d9347251da4c670a207ce7594432c5b4293b96"
+  ],
+  "source_commit_note": "Selected hunks and adapted implementations, not whole-commit cherry-picks.",
+  "excluded_changes": [
+    "Whole-path reuse (720a634227)",
+    "GPU/Vulkan",
+    "Painted-islands shortcut",
+    "Temporal ownership changes",
+    "Wall/roof geometry changes",
+    "V2 paint-priority and slab-order overrides"
+  ],
+  "ordering_policy": "Keep current paint precedence and slab ordering. The V2 ordering overrides caused a large systematic U1 output difference; restoring current ordering removed that large difference while keeping the performance mechanisms. Final end-to-end output is still not bitwise identical.",
+  "preserved_behavior": [
+    "Current same-mix paint identity",
+    "Current first-layer handling",
+    "Current two-color ratio solver",
+    "Current A/B cadence",
+    "Current shell gathering"
+  ],
+  "host": {
+    "cpu": "Intel Core Ultra 9 285H",
+    "logical_processors": 16,
+    "physical_memory_gib": 63.435,
+    "os": "Windows-11-10.0.26200-SP0"
+  },
+  "build": {
+    "configuration": "Release",
+    "directory": "build-dev-release",
+    "generator": "Visual Studio 17 2022",
+    "targets": [
+      "Snapmaker_Orca",
+      "libslic3r_tests"
+    ],
+    "SLIC3R_ENC_CHECK": false
+  },
+  "timing_protocol": {
+    "baseline_repetitions": 3,
+    "candidate_repetitions": 3,
+    "baseline_collection": "Both builds rerun after the user switched out of power saving. No power-saving runs are pooled into the final comparison.",
+    "final_collection_order": [
+      "baseline 1",
+      "candidate 1",
+      "candidate 2",
+      "baseline 2",
+      "baseline 3",
+      "candidate 3"
+    ],
+    "power_state": {
+      "timestamp": "2026-11-02T18:48:08.464870+08:00",
+      "user_reported_mode": "Switched out of power saving before rerun",
+      "active_base_scheme": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)",
+      "system_power_status": {
+        "ACLineStatus": 1,
+        "BatteryFlag": 1,
+        "BatteryLifePercent": 100,
+        "SystemStatusFlag": 0,
+        "BatteryLifeTime": 4294967295,
+        "BatteryFullLifeTime": 4294967295
+      },
+      "runtime": "final_runtime",
+      "protocol": "Three fresh-process runs per build, alternating before/after, after/before, before/after; no concurrent validation or audit jobs.",
+      "completed": {
+        "timestamp": "2026-11-02T19:18:34.981696+08:00",
+        "active_base_scheme": "Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)",
+        "system_power_status": {
+          "ACLineStatus": 1,
+          "BatteryFlag": 1,
+          "BatteryLifePercent": 98,
+          "SystemStatusFlag": 0,
+          "BatteryLifeTime": 4294967295,
+          "BatteryFullLifeTime": 4294967295
+        },
+        "successful_runs": 24
+      }
+    },
+    "fresh_processes": true,
+    "isolated_data_directories": true,
+    "debug_level": 3,
+    "parallel_benchmark_processes": 1,
+    "validation_in_timing_runs": false,
+    "wall_clock": "GetProcessTimes exit minus creation",
+    "peak_memory": "PeakPagefileUsage (process private commit), sampled at 100 ms",
+    "includes": "Project loading, slicing, G-code generation/processing and cleanup; excludes graphical preview"
+  },
+  "reproduction_command": [
+    "python",
+    "scripts/performance/benchmark_cpu_slicing.py",
+    "--exe",
+    "<preserved-runtime>/snapmaker-orca.exe",
+    "--project",
+    "<unchanged-input.3mf>",
+    "--output",
+    "<new-run-directory>",
+    "--debug",
+    "3"
+  ],
+  "audit_requirements": [
+    "numpy",
+    "shapely"
+  ],
+  "diagnostics_note": "The baseline unconditionally writes Local-Z diagnostic files. Making those opt-in is one of the selected optimizations, so its avoided work is intentionally included in the default-path timings. Debug reference validation and profiling are disabled during timing.",
+  "gcode_hash_note": "Comparison hashes normalize only the generated-at timestamp; motion, extrusion, ordering, settings, comments and print estimates remain included.",
+  "tests": {
+    "targeted": {
+      "test_cases": 22,
+      "assertions": 202962,
+      "failed": 0,
+      "exact_clipping_and_preparation_reference_checks": true
+    },
+    "targeted_filter": "[CPUSlicing]~[.],[PaintPreparation]~[.],[ClipIndex]~[.],[TriangleSelector]~[.]",
+    "regression_filter": "[MixedFilament]~[.],[ProductPort]~[.],[LocalZ]~[.]",
+    "regression_before": {
+      "test_cases": 256,
+      "passed": 252,
+      "failed": 1,
+      "skipped": 1,
+      "failed_as_expected": 2,
+      "unexpected_failed_assertions": 960
+    },
+    "regression_final": {
+      "test_cases": 268,
+      "passed": 264,
+      "failed": 1,
+      "skipped": 1,
+      "failed_as_expected": 2,
+      "unexpected_failed_assertions": 960
+    },
+    "failure_comparison": {
+      "baseline_failed_assertions_including_expected": 962,
+      "candidate_failed_assertions_including_expected": 962,
+      "identical_failure_multiset": true,
+      "new_failures": 0,
+      "removed_failures": 0
+    },
+    "existing_failure": "Local-Z two-color sublayers preserve requested ratios within height bounds",
+    "python_audit_tests": {
+      "test_cases": 7,
+      "failed": 0
+    },
+    "captured_clipping_replay": {
+      "legacy": {
+        "assertions": 81,
+        "test_cases": 1,
+        "failed": 0
+      },
+      "index": {
+        "assertions": 81,
+        "test_cases": 1,
+        "failed": 0
+      },
+      "all": {
+        "assertions": 81,
+        "test_cases": 1,
+        "failed": 0
+      }
+    }
+  },
+  "full_model_validation": [
+    {
+      "fixture": "cube_surface",
+      "project_sha256": "5a3971f652be5e1b0d09986b1f7548e0f3ec266f68249513f8c33d4f510a6505",
+      "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+      "exact_ordered_clipping_reference": true,
+      "validated_reuse_paths": [
+        "selector facets and matched serial projection",
+        "graph arc choices",
+        "painted outline chains",
+        "mixed component activation",
+        "Local-Z prepared masks",
+        "wipe-pass eligibility"
+      ],
+      "clipping_operations": {
+        "difference": 2786,
+        "intersection": 4304
+      },
+      "exit_code": 0
+    },
+    {
+      "fixture": "u1",
+      "project_sha256": "8e6e6441decac1408721b30d76597a4d343b81bf06882adb9feeb9ffe69edb8e",
+      "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+      "exact_ordered_clipping_reference": true,
+      "validated_reuse_paths": [
+        "selector facets and matched serial projection",
+        "graph arc choices",
+        "painted outline chains",
+        "mixed component activation",
+        "Local-Z prepared masks",
+        "wipe-pass eligibility"
+      ],
+      "clipping_operations": {
+        "difference": 247216,
+        "intersection": 1330008
+      },
+      "exit_code": 0
+    },
+    {
+      "fixture": "terrain",
+      "project_sha256": "0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63",
+      "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+      "exact_ordered_clipping_reference": true,
+      "validated_reuse_paths": [
+        "selector facets and matched serial projection",
+        "graph arc choices",
+        "painted outline chains",
+        "mixed component activation",
+        "Local-Z prepared masks",
+        "wipe-pass eligibility"
+      ],
+      "clipping_operations": {
+        "difference": 62895,
+        "intersection": 125790
+      },
+      "exit_code": 0
+    }
+  ],
+  "benchmarks": {
+    "cube_sml": {
+      "all_normalized_gcode_equal": false,
+      "all_local_z_warning_counts_equal": true,
+      "all_local_z_schedules_equal": true,
+      "comparisons": {
+        "wall_seconds": {
+          "before_median": 2.064584732055664,
+          "after_median": 1.8661231994628906,
+          "reduction_percent": 9.612661060181793,
+          "before_range": [
+            2.050863265991211,
+            2.1145801544189453
+          ],
+          "after_range": [
+            1.8416976928710938,
+            1.8702468872070312
+          ]
+        },
+        "cpu_seconds": {
+          "before_median": 3.84375,
+          "after_median": 3.40625,
+          "reduction_percent": 11.382113821138212,
+          "before_range": [
+            3.640625,
+            3.953125
+          ],
+          "after_range": [
+            3.203125,
+            4.328125
+          ]
+        },
+        "slice_seconds": {
+          "before_median": 0.348206,
+          "after_median": 0.220654,
+          "reduction_percent": 36.63118958317778,
+          "before_range": [
+            0.341188,
+            0.385366
+          ],
+          "after_range": [
+            0.219868,
+            0.223429
+          ]
+        },
+        "pipeline_seconds": {
+          "before_median": 1.395522,
+          "after_median": 1.251479,
+          "reduction_percent": 10.32180073119592,
+          "before_range": [
+            1.388155,
+            1.431575
+          ],
+          "after_range": [
+            1.24954,
+            1.261668
+          ]
+        },
+        "mesh_paint_local_z_seconds": {
+          "before_median": 0.148052,
+          "after_median": 0.040002,
+          "reduction_percent": 72.9811147434685,
+          "before_range": [
+            0.146988,
+            0.183515
+          ],
+          "after_range": [
+            0.038868,
+            0.040207
+          ]
+        },
+        "export_seconds": {
+          "before_median": 1.046209,
+          "after_median": 1.030613,
+          "reduction_percent": 1.4907155262476182,
+          "before_range": [
+            1.039949,
+            1.054334
+          ],
+          "after_range": [
+            1.026111,
+            1.041014
+          ]
+        },
+        "peak_working_set_mib": {
+          "before_median": 393.3515625,
+          "after_median": 391.97265625,
+          "reduction_percent": 0.3505531390891577,
+          "before_range": [
+            390.015625,
+            395.8828125
+          ],
+          "after_range": [
+            391.68359375,
+            392.6640625
+          ]
+        },
+        "peak_commit_mib": {
+          "before_median": 428.59765625,
+          "after_median": 424.64453125,
+          "reduction_percent": 0.9223393880843229,
+          "before_range": [
+            423.1328125,
+            430.7265625
+          ],
+          "after_range": [
+            423.25,
+            426.3359375
+          ]
+        }
+      },
+      "input": {
+        "bytes": 45550,
+        "sha256": "c0bbdd62899fa4052fc3530f7378f403fb837a3ed8d9f4f6f558a2b6db729275"
+      },
+      "local_z_enabled": true,
+      "runs": {
+        "before": [
+          {
+            "directory": "cube_sml-normal-before-1",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 2.064584732055664,
+            "cpu_seconds": 3.84375,
+            "peak_commit_mib": 430.7265625,
+            "diagnostic_files": 403,
+            "diagnostic_bytes": 995330,
+            "gcode_sha256": "c4348cf77b5cf0938379b7fee722c7ef54d64811da21ce5720570f86cd06fcae"
+          },
+          {
+            "directory": "cube_sml-normal-before-2",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 2.1145801544189453,
+            "cpu_seconds": 3.953125,
+            "peak_commit_mib": 423.1328125,
+            "diagnostic_files": 403,
+            "diagnostic_bytes": 995290,
+            "gcode_sha256": "dc7a0098406421ed750aaccf42ff9efe51523bd513b44bfb2900d3e2ca586ded"
+          },
+          {
+            "directory": "cube_sml-normal-before-3",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 2.050863265991211,
+            "cpu_seconds": 3.640625,
+            "peak_commit_mib": 428.59765625,
+            "diagnostic_files": 403,
+            "diagnostic_bytes": 995290,
+            "gcode_sha256": "656b5f7088df85f0dce2878e0150ea7bc89f126dc5779b8a9b41bb6723b6089e"
+          }
+        ],
+        "after": [
+          {
+            "directory": "cube_sml-normal-after-1",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 1.8661231994628906,
+            "cpu_seconds": 3.40625,
+            "peak_commit_mib": 426.3359375,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "66275b6861d00b2e88d63c5f18322abb3b7ad62b8873121f37a459c4934cf6fc"
+          },
+          {
+            "directory": "cube_sml-normal-after-2",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 1.8416976928710938,
+            "cpu_seconds": 3.203125,
+            "peak_commit_mib": 423.25,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "4a5efa7371da2be818d8505bdf56b347577dfecde7c7db423e62521ce3319ecc"
+          },
+          {
+            "directory": "cube_sml-normal-after-3",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 1.8702468872070312,
+            "cpu_seconds": 4.328125,
+            "peak_commit_mib": 424.64453125,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "f2d1bec53db62a45b0c69efe3d2bce457504a900caacda8f20291470ed4308a7"
+          }
+        ]
+      },
+      "final_output_audit": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": -0.05573999999614898,
+          "1": 0.002729999998337007
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 367,
+        "sum_absolute_group_e_delta_mm": 1.3014699999999984,
+        "missing_length_mm": 739.1407383419752,
+        "added_length_mm": 734.6483255707719,
+        "reference": "before-control",
+        "candidate": "final-1",
+        "seconds": 3.9617526999791153,
+        "collection": "Final binaries before the power-mode change; independent of the normal-power timing samples"
+      },
+      "baseline_variation_audits": [
+        {
+          "same_commands": false,
+          "same_tool_sequence": true,
+          "same_layer_sequence": true,
+          "deposited_e_delta_mm_by_tool": {
+            "0": -0.003880000002027373,
+            "1": -0.01723999999830994
+          },
+          "tolerance_mm": 0.01,
+          "changed_groups": 362,
+          "sum_absolute_group_e_delta_mm": 1.3427800000000027,
+          "missing_length_mm": 737.2263736087601,
+          "added_length_mm": 734.6182832129557,
+          "side": "before",
+          "repetition": 2,
+          "settings_differences": {},
+          "seconds": 3.8555620999541134
+        },
+        {
+          "same_commands": false,
+          "same_tool_sequence": true,
+          "same_layer_sequence": true,
+          "deposited_e_delta_mm_by_tool": {
+            "0": -0.025480000007519266,
+            "1": -0.011039999996683036
+          },
+          "tolerance_mm": 0.01,
+          "changed_groups": 349,
+          "sum_absolute_group_e_delta_mm": 0.7990400000000031,
+          "missing_length_mm": 739.0559170146964,
+          "added_length_mm": 735.764176296422,
+          "side": "before",
+          "repetition": 3,
+          "settings_differences": {},
+          "seconds": 3.9766758999903686
+        }
+      ]
+    },
+    "u1": {
+      "all_normalized_gcode_equal": false,
+      "all_local_z_warning_counts_equal": true,
+      "all_local_z_schedules_equal": true,
+      "comparisons": {
+        "wall_seconds": {
+          "before_median": 75.00769424438477,
+          "after_median": 38.10482978820801,
+          "reduction_percent": 49.19877197656877,
+          "before_range": [
+            74.89118766784668,
+            75.58942222595215
+          ],
+          "after_range": [
+            38.052616119384766,
+            39.54627799987793
+          ]
+        },
+        "cpu_seconds": {
+          "before_median": 239.953125,
+          "after_median": 205.0,
+          "reduction_percent": 14.566647131601224,
+          "before_range": [
+            239.90625,
+            243.3125
+          ],
+          "after_range": [
+            201.4375,
+            206.375
+          ]
+        },
+        "slice_seconds": {
+          "before_median": 35.503904,
+          "after_median": 22.073733,
+          "reduction_percent": 37.82730766734835,
+          "before_range": [
+            35.118784,
+            35.592987
+          ],
+          "after_range": [
+            22.056038,
+            23.349285
+          ]
+        },
+        "pipeline_seconds": {
+          "before_median": 72.717101,
+          "after_median": 35.793461,
+          "reduction_percent": 50.77710674962139,
+          "before_range": [
+            72.602589,
+            73.348367
+          ],
+          "after_range": [
+            35.766936,
+            37.302933
+          ]
+        },
+        "mesh_paint_local_z_seconds": {
+          "before_median": 11.194502,
+          "after_median": 4.488151,
+          "reduction_percent": 59.90754211308372,
+          "before_range": [
+            11.110983,
+            11.40551
+          ],
+          "after_range": [
+            4.44597,
+            4.659294
+          ]
+        },
+        "export_seconds": {
+          "before_median": 37.598317,
+          "after_median": 13.737423,
+          "reduction_percent": 63.46266509748296,
+          "before_range": [
+            37.098685,
+            37.75538
+          ],
+          "after_range": [
+            13.693203,
+            13.952644
+          ]
+        },
+        "peak_working_set_mib": {
+          "before_median": 2623.33984375,
+          "after_median": 2645.44140625,
+          "reduction_percent": -0.8424971149908796,
+          "before_range": [
+            2607.796875,
+            2626.36328125
+          ],
+          "after_range": [
+            2629.94140625,
+            2652.9375
+          ]
+        },
+        "peak_commit_mib": {
+          "before_median": 2854.13671875,
+          "after_median": 2835.46875,
+          "reduction_percent": 0.6540670819082499,
+          "before_range": [
+            2794.41796875,
+            2855.95703125
+          ],
+          "after_range": [
+            2806.8984375,
+            2841.1953125
+          ]
+        }
+      },
+      "input": {
+        "bytes": 8738757,
+        "sha256": "8e6e6441decac1408721b30d76597a4d343b81bf06882adb9feeb9ffe69edb8e"
+      },
+      "local_z_enabled": true,
+      "runs": {
+        "before": [
+          {
+            "directory": "u1-normal-before-1",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 75.00769424438477,
+            "cpu_seconds": 239.90625,
+            "peak_commit_mib": 2855.95703125,
+            "diagnostic_files": 3464,
+            "diagnostic_bytes": 33602048,
+            "gcode_sha256": "4aa76cd9c3de5e92ac5003b33dae95da0d6051cd9bed54b73fc3189c570764ef"
+          },
+          {
+            "directory": "u1-normal-before-2",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 75.58942222595215,
+            "cpu_seconds": 243.3125,
+            "peak_commit_mib": 2794.41796875,
+            "diagnostic_files": 3464,
+            "diagnostic_bytes": 33601146,
+            "gcode_sha256": "93169c406aec5a7465d688db4aa26747a94bcf2c527903d7d7379f6ac4a8173f"
+          },
+          {
+            "directory": "u1-normal-before-3",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 74.89118766784668,
+            "cpu_seconds": 239.953125,
+            "peak_commit_mib": 2854.13671875,
+            "diagnostic_files": 3464,
+            "diagnostic_bytes": 33601824,
+            "gcode_sha256": "f8937f19a930f161fcfd4385a7d264eaa87ab44d6095949ba3144118d0665964"
+          }
+        ],
+        "after": [
+          {
+            "directory": "u1-normal-after-1",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 38.052616119384766,
+            "cpu_seconds": 201.4375,
+            "peak_commit_mib": 2806.8984375,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "48d79e0363739e5962da691cd599b8809f11ef7eb33691f719edad8dc7b40e42"
+          },
+          {
+            "directory": "u1-normal-after-2",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 38.10482978820801,
+            "cpu_seconds": 206.375,
+            "peak_commit_mib": 2841.1953125,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "382522ea4f25f45e2f174788a7f0aabf8bee0c59b79dfe1f80a375b1ba595571"
+          },
+          {
+            "directory": "u1-normal-after-3",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 39.54627799987793,
+            "cpu_seconds": 205.0,
+            "peak_commit_mib": 2835.46875,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "42d12e34f82a749b3d357966ee4905d8dd7bbed6032c1ef450039bb646ff8170"
+          }
+        ]
+      },
+      "final_output_audit": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": -0.03374999999505235,
+          "1": -0.07010999997146428,
+          "2": 0.14183999999659136,
+          "3": -9.000000000014552e-05
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 1118,
+        "sum_absolute_group_e_delta_mm": 3.227530000000007,
+        "missing_length_mm": 54.328488392349676,
+        "added_length_mm": 57.63456697978188,
+        "reference": "before-control",
+        "candidate": "final-1",
+        "seconds": 32.62064829998417,
+        "collection": "Final binaries before the power-mode change; independent of the normal-power timing samples"
+      },
+      "baseline_variation_audits": [
+        {
+          "same_commands": false,
+          "same_tool_sequence": true,
+          "same_layer_sequence": true,
+          "deposited_e_delta_mm_by_tool": {
+            "0": -7.070499999976164,
+            "1": 0.015479999994568061,
+            "2": -0.09800999999788473,
+            "3": 0.00010999999949490302
+          },
+          "tolerance_mm": 0.01,
+          "changed_groups": 1754,
+          "sum_absolute_group_e_delta_mm": 8.636540000000005,
+          "missing_length_mm": 506.92871480338954,
+          "added_length_mm": 31.87673180086747,
+          "side": "before",
+          "repetition": 2,
+          "settings_differences": {},
+          "seconds": 24.67761299997801
+        },
+        {
+          "same_commands": false,
+          "same_tool_sequence": true,
+          "same_layer_sequence": true,
+          "deposited_e_delta_mm_by_tool": {
+            "0": 0.001909999999043066,
+            "1": 0.05058999999528169,
+            "2": -0.0935700000009092,
+            "3": 0.00010999999949490302
+          },
+          "tolerance_mm": 0.01,
+          "changed_groups": 916,
+          "sum_absolute_group_e_delta_mm": 2.2117800000000063,
+          "missing_length_mm": 36.89867412521405,
+          "added_length_mm": 32.94933206058093,
+          "side": "before",
+          "repetition": 3,
+          "settings_differences": {},
+          "seconds": 23.432833699975163
+        }
+      ],
+      "audit_interpretation": "Restoring current ordering reduced the large V2 mismatch to about 54 mm unmatched baseline centerlines and 58 mm unmatched candidate centerlines at 0.01 mm tolerance. Baseline repeat comparisons measured about 37-507 mm and 32-33 mm respectively. The candidate-added length exceeds that measured baseline range; describing all differences as within baseline variation would be incorrect. These lengths are not a direct measure of missing printed material."
+    },
+    "terrain": {
+      "all_normalized_gcode_equal": false,
+      "all_local_z_warning_counts_equal": true,
+      "all_local_z_schedules_equal": true,
+      "comparisons": {
+        "wall_seconds": {
+          "before_median": 273.8402919769287,
+          "after_median": 61.919090270996094,
+          "reduction_percent": 77.38861223672197,
+          "before_range": [
+            272.9243221282959,
+            274.8759956359863
+          ],
+          "after_range": [
+            61.5759162902832,
+            62.117210388183594
+          ]
+        },
+        "cpu_seconds": {
+          "before_median": 315.515625,
+          "after_median": 110.53125,
+          "reduction_percent": 64.96805823800327,
+          "before_range": [
+            312.203125,
+            317.140625
+          ],
+          "after_range": [
+            109.4375,
+            111.75
+          ]
+        },
+        "slice_seconds": {
+          "before_median": 16.953735,
+          "after_median": 9.967275,
+          "reduction_percent": 41.208972536140266,
+          "before_range": [
+            16.874654,
+            17.002552
+          ],
+          "after_range": [
+            9.798934,
+            10.011796
+          ]
+        },
+        "pipeline_seconds": {
+          "before_median": 272.132558,
+          "after_median": 60.234188,
+          "reduction_percent": 77.8658649142599,
+          "before_range": [
+            270.872603,
+            272.896664
+          ],
+          "after_range": [
+            59.884017,
+            60.407941
+          ]
+        },
+        "mesh_paint_local_z_seconds": {
+          "before_median": 4.898323,
+          "after_median": 3.134332,
+          "reduction_percent": 36.012141298154496,
+          "before_range": [
+            4.877252,
+            4.972734
+          ],
+          "after_range": [
+            2.97918,
+            3.255362
+          ]
+        },
+        "export_seconds": {
+          "before_median": 255.178823,
+          "after_median": 50.265409,
+          "reduction_percent": 80.30188853093031,
+          "before_range": [
+            253.870051,
+            256.02201
+          ],
+          "after_range": [
+            50.085083,
+            50.395139
+          ]
+        },
+        "peak_working_set_mib": {
+          "before_median": 1122.5625,
+          "after_median": 1143.42578125,
+          "reduction_percent": -1.8585407271310062,
+          "before_range": [
+            1121.171875,
+            1126.40234375
+          ],
+          "after_range": [
+            1140.1953125,
+            1148.51953125
+          ]
+        },
+        "peak_commit_mib": {
+          "before_median": 1182.84375,
+          "after_median": 1205.37109375,
+          "reduction_percent": -1.9045071464426304,
+          "before_range": [
+            1178.90234375,
+            1185.90625
+          ],
+          "after_range": [
+            1200.703125,
+            1210.53125
+          ]
+        }
+      },
+      "input": {
+        "bytes": 6030854,
+        "sha256": "0747970025e0dbc758023833e51173c42395c82966ece97f44445b62e64e2f63"
+      },
+      "local_z_enabled": true,
+      "runs": {
+        "before": [
+          {
+            "directory": "terrain-normal-before-1",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 272.9243221282959,
+            "cpu_seconds": 317.140625,
+            "peak_commit_mib": 1185.90625,
+            "diagnostic_files": 43,
+            "diagnostic_bytes": 13654745,
+            "gcode_sha256": "0101450efe71ad3d5fe86ff5b2f9327dac661ed6b6d5c84248a43d8c4cf46a19"
+          },
+          {
+            "directory": "terrain-normal-before-2",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 273.8402919769287,
+            "cpu_seconds": 312.203125,
+            "peak_commit_mib": 1178.90234375,
+            "diagnostic_files": 43,
+            "diagnostic_bytes": 13651772,
+            "gcode_sha256": "43e295c924e34893d826a32bbaa3c40addfe1d32efe63574f9e28bae5e427337"
+          },
+          {
+            "directory": "terrain-normal-before-3",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 274.8759956359863,
+            "cpu_seconds": 315.515625,
+            "peak_commit_mib": 1182.84375,
+            "diagnostic_files": 43,
+            "diagnostic_bytes": 13652807,
+            "gcode_sha256": "66fe68d8c880a09d542ae81eb98fece7858649fd7963eb73cc7be46c0da262c2"
+          }
+        ],
+        "after": [
+          {
+            "directory": "terrain-normal-after-1",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 61.919090270996094,
+            "cpu_seconds": 111.75,
+            "peak_commit_mib": 1210.53125,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "27ac2baf9f0693de132d51357b829f848ebb44dd5e83e8805dc96236237fb1e8"
+          },
+          {
+            "directory": "terrain-normal-after-2",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 61.5759162902832,
+            "cpu_seconds": 110.53125,
+            "peak_commit_mib": 1205.37109375,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "02c32ff19210354a43fac482b4cacbf33c077d686ca644bda9a493fce8915c35"
+          },
+          {
+            "directory": "terrain-normal-after-3",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 62.117210388183594,
+            "cpu_seconds": 109.4375,
+            "peak_commit_mib": 1200.703125,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "9f7cc021b718cfb6d5c981daf9d20877ab7b2fe9d3409fd1aff7ac060e7b5973"
+          }
+        ]
+      },
+      "final_output_audit": {
+        "same_commands": false,
+        "same_tool_sequence": false,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": -65.56799999998839,
+          "1": -100.37543000000278
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 10067,
+        "sum_absolute_group_e_delta_mm": 333.5349100000001,
+        "missing_length_mm": 10213.400643307501,
+        "added_length_mm": 5986.215134002339,
+        "reference": "before-control",
+        "candidate": "final-1",
+        "seconds": 214.2621409999556,
+        "collection": "Final binaries before the power-mode change; independent of the normal-power timing samples"
+      },
+      "baseline_variation_audits": [
+        {
+          "same_commands": false,
+          "same_tool_sequence": true,
+          "same_layer_sequence": true,
+          "deposited_e_delta_mm_by_tool": {
+            "0": -6.562920000027589,
+            "1": -11.42243999999937
+          },
+          "tolerance_mm": 0.01,
+          "changed_groups": 11176,
+          "sum_absolute_group_e_delta_mm": 427.36980000000005,
+          "missing_length_mm": 7334.839138466884,
+          "added_length_mm": 6998.97279060506,
+          "side": "before",
+          "repetition": 2,
+          "settings_differences": {},
+          "seconds": 147.21927150001284
+        },
+        {
+          "same_commands": false,
+          "same_tool_sequence": false,
+          "same_layer_sequence": true,
+          "deposited_e_delta_mm_by_tool": {
+            "0": -25.66433999999026,
+            "1": -57.34247000000232
+          },
+          "tolerance_mm": 0.01,
+          "changed_groups": 17808,
+          "sum_absolute_group_e_delta_mm": 448.43545,
+          "missing_length_mm": 10939.044066991673,
+          "added_length_mm": 8775.65746305918,
+          "side": "before",
+          "repetition": 3,
+          "settings_differences": {},
+          "seconds": 148.27839659998426
+        }
+      ],
+      "audit_deposited_e_delta_mm_by_role": {
+        "Prime tower": -163.43750000000009,
+        "Inner wall": -1.9227899999999822,
+        "Internal solid infill": -1.180250000000001,
+        "Gap infill": 0.2215,
+        "Outer wall": -3.527720000000032,
+        "Sparse infill": 0.1533199999999857,
+        "Top surface": 1.1482599999999996,
+        "Overhang wall": -0.004799999999999999,
+        "Internal Bridge": 2.6065499999999973
+      },
+      "audit_note": "Tool selections differed (52 baseline, 48 candidate); repeated baseline runs also differed. Most of the deposited-filament delta is prime tower extrusion, not model extrusion. This is an observed source of variation, not a proof of end-to-end equivalence."
+    },
+    "bridge": {
+      "all_normalized_gcode_equal": false,
+      "all_local_z_warning_counts_equal": true,
+      "all_local_z_schedules_equal": true,
+      "comparisons": {
+        "wall_seconds": {
+          "before_median": 53.39743614196777,
+          "after_median": 53.89258575439453,
+          "reduction_percent": -0.9272909866127345,
+          "before_range": [
+            52.389448165893555,
+            53.9000186920166
+          ],
+          "after_range": [
+            53.526594161987305,
+            54.15982246398926
+          ]
+        },
+        "cpu_seconds": {
+          "before_median": 371.78125,
+          "after_median": 383.578125,
+          "reduction_percent": -3.1730688408842567,
+          "before_range": [
+            366.75,
+            384.203125
+          ],
+          "after_range": [
+            378.609375,
+            386.625
+          ]
+        },
+        "slice_seconds": {
+          "before_median": 37.390551,
+          "after_median": 37.627015,
+          "reduction_percent": -0.6324164626512137,
+          "before_range": [
+            36.025111,
+            37.603664
+          ],
+          "after_range": [
+            37.379311,
+            37.933713
+          ]
+        },
+        "pipeline_seconds": {
+          "before_median": 48.688239,
+          "after_median": 49.1834,
+          "reduction_percent": -1.0170033054594476,
+          "before_range": [
+            47.574591,
+            49.179344
+          ],
+          "after_range": [
+            48.794022,
+            49.447638
+          ]
+        },
+        "mesh_paint_local_z_seconds": {
+          "before_median": 2.662932,
+          "after_median": 2.661805,
+          "reduction_percent": 0.042321771641178896,
+          "before_range": [
+            2.649008,
+            2.680913
+          ],
+          "after_range": [
+            2.636639,
+            2.727826
+          ]
+        },
+        "export_seconds": {
+          "before_median": 11.548475,
+          "after_median": 11.513925,
+          "reduction_percent": 0.29917370042364394,
+          "before_range": [
+            11.297688,
+            11.57568
+          ],
+          "after_range": [
+            11.414711,
+            11.554679
+          ]
+        },
+        "peak_working_set_mib": {
+          "before_median": 3148.91796875,
+          "after_median": 3148.09765625,
+          "reduction_percent": 0.02605061510464284,
+          "before_range": [
+            3140.78125,
+            3178.50390625
+          ],
+          "after_range": [
+            3137.39453125,
+            3175.5078125
+          ]
+        },
+        "peak_commit_mib": {
+          "before_median": 3321.5390625,
+          "after_median": 3318.2734375,
+          "reduction_percent": 0.09831662185968948,
+          "before_range": [
+            3317.22265625,
+            3364.4765625
+          ],
+          "after_range": [
+            3307.1328125,
+            3346.703125
+          ]
+        }
+      },
+      "input": {
+        "bytes": 43493855,
+        "sha256": "e7f5810db93300928eec92c6f648b731d1c49995266411d62b45a4c770e11f2a"
+      },
+      "local_z_enabled": false,
+      "runs": {
+        "before": [
+          {
+            "directory": "bridge-normal-before-1",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 52.389448165893555,
+            "cpu_seconds": 366.75,
+            "peak_commit_mib": 3317.22265625,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "b2941b6cf62912831e51aab5f7e4139465a61e2ab2f7ec7d3a661cd06ed3c075"
+          },
+          {
+            "directory": "bridge-normal-before-2",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 53.39743614196777,
+            "cpu_seconds": 384.203125,
+            "peak_commit_mib": 3364.4765625,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "576eb75ad0cf89ef37c0dd7cc1412a1f5101305a9f10ff942c9eb716973828c2"
+          },
+          {
+            "directory": "bridge-normal-before-3",
+            "dll_sha256": "43e7c114856841e113bc5ca51960564d0f7d16b743517eba082966bcc87adb7d",
+            "wall_seconds": 53.9000186920166,
+            "cpu_seconds": 371.78125,
+            "peak_commit_mib": 3321.5390625,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "431efad52c6f6e8f86e0c6da4a89e75f9001fa53e0bafbde7628d1f8a797ef43"
+          }
+        ],
+        "after": [
+          {
+            "directory": "bridge-normal-after-1",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 53.89258575439453,
+            "cpu_seconds": 378.609375,
+            "peak_commit_mib": 3318.2734375,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "b91a1ca63d2ad680aa3e95189bfbfe00e77e13defe148cc6f869d4237d6339bd"
+          },
+          {
+            "directory": "bridge-normal-after-2",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 53.526594161987305,
+            "cpu_seconds": 386.625,
+            "peak_commit_mib": 3346.703125,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "8d780255356b5b6a5345f5ee45856f14b03ddef60dcbcfad94dace9ca2bf4447"
+          },
+          {
+            "directory": "bridge-normal-after-3",
+            "dll_sha256": "5464a01a148973643cc0280191f077b8f96fbdc621f0a81a0e2fb569ba5b24b9",
+            "wall_seconds": 54.15982246398926,
+            "cpu_seconds": 383.578125,
+            "peak_commit_mib": 3307.1328125,
+            "diagnostic_files": 0,
+            "diagnostic_bytes": 0,
+            "gcode_sha256": "7e6554023a26bc1792db4475ff561f8973d1adffc1e546e1afcf618f23f23581"
+          }
+        ]
+      },
+      "final_output_audit": {
+        "same_commands": false,
+        "same_tool_sequence": true,
+        "same_layer_sequence": true,
+        "settings_differences": {},
+        "deposited_e_delta_mm_by_tool": {
+          "0": 5.937050000036834
+        },
+        "tolerance_mm": 0.01,
+        "changed_groups": 3775,
+        "sum_absolute_group_e_delta_mm": 242.08080999999999,
+        "missing_length_mm": 8449.857326718517,
+        "added_length_mm": 8554.805015118161,
+        "reference": "before-control",
+        "candidate": "final-1",
+        "seconds": 260.47502529999474,
+        "collection": "Final binaries before the power-mode change; independent of the normal-power timing samples"
+      },
+      "baseline_variation_audits": [
+        {
+          "same_commands": false,
+          "same_tool_sequence": true,
+          "same_layer_sequence": true,
+          "deposited_e_delta_mm_by_tool": {
+            "0": -0.5648099999671103
+          },
+          "tolerance_mm": 0.01,
+          "changed_groups": 1271,
+          "sum_absolute_group_e_delta_mm": 125.73237,
+          "missing_length_mm": 4115.861040749078,
+          "added_length_mm": 4098.663260659636,
+          "side": "before",
+          "repetition": 2,
+          "settings_differences": {},
+          "seconds": 121.27139290003106
+        },
+        {
+          "same_commands": false,
+          "same_tool_sequence": true,
+          "same_layer_sequence": true,
+          "deposited_e_delta_mm_by_tool": {
+            "0": -0.12739000000874512
+          },
+          "tolerance_mm": 0.01,
+          "changed_groups": 2772,
+          "sum_absolute_group_e_delta_mm": 97.56972999999996,
+          "missing_length_mm": 3089.595734340291,
+          "added_length_mm": 3089.456944195842,
+          "side": "before",
+          "repetition": 3,
+          "settings_differences": {},
+          "seconds": 156.07276449998608
+        }
+      ]
+    }
+  },
+  "superseded_power_saving_benchmarks": {
+    "cube_sml": {
+      "baseline_repetitions": 1,
+      "candidate_repetitions": 3,
+      "wall_seconds": {
+        "before_median": 4.334926605224609,
+        "after_median": 3.989093780517578,
+        "reduction_percent": 7.977824221757783,
+        "before_range": [
+          4.334926605224609,
+          4.334926605224609
+        ],
+        "after_range": [
+          3.7589492797851562,
+          4.17413330078125
+        ]
+      }
+    },
+    "u1": {
+      "baseline_repetitions": 1,
+      "candidate_repetitions": 3,
+      "wall_seconds": {
+        "before_median": 126.2142505645752,
+        "after_median": 61.15043640136719,
+        "reduction_percent": 51.550291565467326,
+        "before_range": [
+          126.2142505645752,
+          126.2142505645752
+        ],
+        "after_range": [
+          58.82261848449707,
+          62.54977035522461
+        ]
+      }
+    },
+    "terrain": {
+      "baseline_repetitions": 1,
+      "candidate_repetitions": 3,
+      "wall_seconds": {
+        "before_median": 411.33738899230957,
+        "after_median": 114.53892707824707,
+        "reduction_percent": 72.15450621718502,
+        "before_range": [
+          411.33738899230957,
+          411.33738899230957
+        ],
+        "after_range": [
+          109.19843482971191,
+          118.74337768554688
+        ]
+      }
+    },
+    "bridge": {
+      "baseline_repetitions": 1,
+      "candidate_repetitions": 3,
+      "wall_seconds": {
+        "before_median": 73.03763580322266,
+        "after_median": 75.67649459838867,
+        "reduction_percent": -3.613012341028679,
+        "before_range": [
+          73.03763580322266,
+          73.03763580322266
+        ],
+        "after_range": [
+          73.47090148925781,
+          76.76418685913086
+        ]
+      }
+    }
+  },
+  "limitations": [
+    "The unchanged baseline produces different G-code across repeated runs, including tool-order variation on terrain. This report does not claim bitwise identical output.",
+    "Modal spatial audits compare extrusion centerlines at 0.01 mm by material, physical Z, role and layer height; strict grouping also retains width. These audits use the final binaries before the power-mode change (before-control versus final-1); they are separate from the normal-power timing runs.",
+    "Observed baseline variability does not prove every end-to-end output difference is harmless. Exact reference checks cover the optimized kernels and reuse decisions; full G-code remains nondeterministic.",
+    "One Windows workstation/toolchain with warm filesystem caches; no graphical-preview or GPU timings.",
+    "The pre-existing ratio/cadence test failure remains unchanged. No physical printer validation was performed."
+  ],
+  "raw_artifacts_directory": "build_logs/cpu-port-20261102",
+  "surface_fixture_settings": {
+    "based_on": "cube_sml.3mf",
+    "fs_surface_paint_only": "1",
+    "fs_painted_zone_extra_perimeters": "2"
+  },
+  "candidate_source_diff_sha256": "2d059b77358303664cc51d88f127eb374f1733247e83b16686eefcd7633763cd"
+}

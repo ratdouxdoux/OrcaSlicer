@@ -7,6 +7,10 @@ add_executable(${_TEST_NAME}_tests
 	test_clipper_offset.cpp
 	test_clipper_utils.cpp
 	test_config.cpp
+    slicing/test_cpu_preparation.cpp
+    slicing/test_local_z_clipper.cpp
+    slicing/test_local_z_clip_replay.cpp
+    slicing/test_painted_outline_cache.cpp
 	test_custom_gcode.cpp
 	test_elephant_foot_compensation.cpp
 	test_extrusion_entity.cpp
