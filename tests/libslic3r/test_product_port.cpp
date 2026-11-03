@@ -111,7 +111,7 @@ TEST_CASE("Tower skips must not suppress required object tool changes", "[Produc
         sparse.layer_height                   = .2f;
         nominal                               = {{sparse}, {sparse}};
     }
-    WipeTowerIntegration tower(config, 0, Vec3d::Zero(), priming, nominal, local_z, reserves, final_purge);
+    WipeTowerIntegration tower(config, 0, Vec3d::Zero(), priming, nominal, local_z, reserves, final_purge, 0.f, BoundingBoxf());
     tower.next_layer();
     tower.next_layer();
     tower.set_is_first_print(false);
@@ -167,6 +167,9 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
     config.set("enable_prime_tower", true);
     config.set("wipe_tower_no_sparse_layers", false);
     config.set("single_extruder_multi_material", false);
+    // As in the U1 profiles. With ramming on, each tool change also emits a nozzle-change
+    // ramming line that ToolChangeResult::extrusions does not record.
+    config.set("enable_filament_ramming", false);
     config.set("prime_volume", 15.);
     config.set("machine_start_gcode", "G90\nM83\n");
     config.option<ConfigOptionStrings>("filament_colour")->values  = colors;

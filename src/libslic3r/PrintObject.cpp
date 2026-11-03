@@ -1,4 +1,5 @@
 #include "Exception.hpp"
+#include "AABBTreeLines.hpp"
 #include "Print.hpp"
 #include "BoundingBox.hpp"
 #include "ClipperUtils.hpp"
@@ -126,7 +127,12 @@ PrintBase::ApplyStatus PrintObject::set_instances(PrintInstances &&instances)
     	[](const PrintInstance& lhs, const PrintInstance& rhs) { return lhs.model_instance == rhs.model_instance && lhs.shift == rhs.shift; });
     if (! equal) {
         status = PrintBase::APPLY_STATUS_CHANGED;
-        if (m_print->invalidate_steps({ psSkirtBrim, psGCodeExport }) ||
+        // Tree support branches are routed against the machine border (bed bounds) anchored to the
+        // instance shift, so a pure XY translation makes the cached tree support layers stale and they
+        // have to be regenerated. Regular supports are computed in object coordinates and stay valid
+        // when the instance is translated, so the cheap skirt/gcode-only invalidation is kept for them.
+        if ((is_tree(m_config.support_type.value) && this->invalidate_step(posSupportMaterial)) ||
+            m_print->invalidate_steps({ psSkirtBrim, psGCodeExport }) ||
             (! equal_length && m_print->invalidate_step(psWipeTower)))
             status = PrintBase::APPLY_STATUS_INVALIDATED;
         m_instances = std::move(instances);
@@ -990,30 +996,68 @@ bool PrintObject::invalidate_state_by_config_options(
             	// See GH #1482 for details.
 	            steps.emplace_back(posSlice);
 	        }
-        } else if (opt_key == "support_type" || opt_key == "support_angle" || opt_key == "support_on_build_plate_only" ||
-                   opt_key == "support_critical_regions_only" || opt_key == "support_remove_small_overhang" ||
-                   opt_key == "enforce_support_layers" || opt_key == "support_filament" || opt_key == "support_line_width" ||
-                   opt_key == "support_interface_top_layers" || opt_key == "support_interface_bottom_layers" ||
-                   opt_key == "support_interface_pattern" || opt_key == "support_interface_loop_pattern" ||
-                   opt_key == "support_interface_filament" || opt_key == "support_interface_not_for_body" ||
-                   opt_key == "support_interface_spacing" || opt_key == "support_bottom_interface_spacing" // BBS
-                   || opt_key == "support_base_pattern" || opt_key == "support_style" || opt_key == "support_object_xy_distance" ||
-                   opt_key == "support_object_first_layer_gap" || opt_key == "support_base_pattern_spacing" ||
-                   opt_key == "support_expansion"
-                   //|| opt_key == "independent_support_layer_height" // BBS
-                   || opt_key == "support_threshold_angle" || opt_key == "support_threshold_overlap" || opt_key == "support_ironing" ||
-                   opt_key == "support_ironing_pattern" || opt_key == "support_ironing_flow" || opt_key == "support_ironing_spacing" ||
-                   opt_key == "raft_expansion" || opt_key == "raft_first_layer_density" || opt_key == "raft_first_layer_expansion" ||
-                   opt_key == "bridge_no_support" || opt_key == "max_bridge_length" || opt_key == "initial_layer_line_width" ||
-                   opt_key == "tree_support_adaptive_layer_height" || opt_key == "tree_support_auto_brim" ||
-                   opt_key == "tree_support_brim_width" || opt_key == "tree_support_top_rate" ||
-                   opt_key == "tree_support_branch_distance" || opt_key == "tree_support_branch_distance_organic" ||
-                   opt_key == "tree_support_tip_diameter" || opt_key == "tree_support_branch_diameter" ||
-                   opt_key == "tree_support_branch_diameter_organic" || opt_key == "tree_support_branch_diameter_angle" ||
-                   opt_key == "tree_support_branch_angle" || opt_key == "tree_support_branch_angle_organic" ||
-                   opt_key == "tree_support_angle_slow" || opt_key == "tree_support_wall_count") {
+        } else if (
+        	   opt_key == "support_type"
+            || opt_key == "support_angle"
+            || opt_key == "support_on_build_plate_only"
+            || opt_key == "support_critical_regions_only"
+            || opt_key == "support_remove_small_overhang"
+            || opt_key == "enforce_support_layers"
+            || opt_key == "support_filament"
+            || opt_key == "support_line_width"
+            || opt_key == "support_interface_top_layers"
+            || opt_key == "support_interface_bottom_layers"
+            || opt_key == "support_interface_pattern"
+            || opt_key == "support_interface_loop_pattern"
+            || opt_key == "support_interface_filament"
+            || opt_key == "support_interface_not_for_body"
+            || opt_key == "support_interface_spacing"
+            || opt_key == "support_interface_min_area"
+            || opt_key == "support_bottom_interface_spacing" //BBS
+            || opt_key == "support_base_pattern"
+            || opt_key == "support_style"
+            || opt_key == "support_object_xy_distance"
+            || opt_key == "support_object_first_layer_gap"
+            || opt_key == "support_base_pattern_spacing"
+            || opt_key == "support_expansion"
+            //|| opt_key == "independent_support_layer_height" // BBS
+            || opt_key == "support_threshold_angle"
+            || opt_key == "support_threshold_overlap"
+            || opt_key == "support_ironing"
+            || opt_key == "support_ironing_pattern"
+            || opt_key == "support_ironing_flow"
+            || opt_key == "support_ironing_spacing"
+            || opt_key == "raft_expansion"
+            || opt_key == "raft_first_layer_density"
+            || opt_key == "raft_first_layer_expansion"
+            || opt_key == "bridge_no_support"
+            || opt_key == "max_bridge_length"
+            || opt_key == "initial_layer_line_width"
+            || opt_key == "tree_support_adaptive_layer_height"
+            || opt_key == "tree_support_auto_brim"
+            || opt_key == "tree_support_brim_width"
+            || opt_key == "tree_support_top_rate"
+            || opt_key == "tree_support_branch_distance"
+            || opt_key == "tree_support_branch_distance_organic"
+            || opt_key == "tree_support_tip_diameter"
+            || opt_key == "tree_support_branch_diameter"
+            || opt_key == "tree_support_branch_diameter_organic"
+            || opt_key == "tree_support_branch_diameter_angle"
+            || opt_key == "tree_support_branch_angle"
+            || opt_key == "tree_support_branch_angle_organic"
+            || opt_key == "tree_support_angle_slow"
+            || opt_key == "tree_support_wall_count"
+            || opt_key == "tree_support_transition_layers"
+            || opt_key == "support_transition_perimeter"
+            || opt_key == "support_transition_speed"
+            || opt_key == "support_transition_flow_ratio") {
             steps.emplace_back(posSupportMaterial);
-        } else if (opt_key == "bottom_shell_layers" || opt_key == "top_shell_layers") {
+        } else if (
+               opt_key == "bottom_shell_layers"
+            || opt_key == "top_shell_layers"
+            || opt_key == "bottom_color_penetration_layers"
+            || opt_key == "top_color_penetration_layers") {
+
             steps.emplace_back(posSlice);
 #if (0)
             const auto *old_shell_layers = old_config.option<ConfigOptionInt>(opt_key);
@@ -1078,6 +1122,11 @@ bool PrintObject::invalidate_state_by_config_options(
                    opt_key == "detect_thin_wall" || opt_key == "precise_outer_wall") {
             steps.emplace_back(posPerimeters);
             steps.emplace_back(posSupportMaterial);
+            // Whole-object Local-Z masks and tool assignments are built during
+            // slicing from the wall filament, not during perimeter generation.
+            if (opt_key == "wall_filament" && m_print->config().dithering_local_z_mode.value &&
+                m_print->config().dithering_local_z_whole_objects.value)
+                steps.emplace_back(posSlice);
         } else if (opt_key == "bridge_flow" || opt_key == "internal_bridge_flow") {
             if (m_config.support_top_z_distance > 0.) {
             	// Only invalidate due to bridging if bridging is enabled.
@@ -1116,6 +1165,17 @@ bool PrintObject::invalidate_state_by_config_options(
     sort_remove_duplicates(steps);
     for (PrintObjectStep step : steps)
         invalidated |= this->invalidate_step(step);
+
+    // Changing extruder-related filament options invalidates the local-z plan,
+    // because the plan depends on which extruders are used for each sublayer.
+    // Without this, stale local-z data referencing removed extruders can cause crashes.
+    for (const std::string &opt_key : opt_keys) {
+        if (opt_key == "extruder" || opt_key == "wall_filament" ||
+            opt_key == "sparse_infill_filament" || opt_key == "solid_infill_filament") {
+            this->clear_local_z_plan();
+            break;
+        }
+    }
     return invalidated;
 }
 
@@ -1205,18 +1265,11 @@ void PrintObject::detect_surfaces_type()
             		// In non-spiral vase mode, go over all layers.
             		m_layers.size()),
             [this, region_id, interface_shells, &surfaces_new](const tbb::blocked_range<size_t>& range) {
-                // If we have soluble support material, don't bridge. The overhang will be squished against a soluble layer separating
-                // the support from the print.
-                // BBS: the above logic only applys for normal(auto) support. Complete logic:
-                // 1. has support, top z distance=0 (soluble material), auto support
-                // 2. for normal(auto), bridge_no_support is off
-                // 3. for tree(auto), interface top layers=0, max bridge length=0, support_critical_regions_only=false (only in this way the bridge is fully supported)
-                bool bottom_is_fully_supported = this->has_support() && m_config.support_top_z_distance.value == 0 && is_auto(m_config.support_type.value);
-                if (m_config.support_type.value == stNormalAuto)
-                    bottom_is_fully_supported &= !m_config.bridge_no_support.value;
-                else if (m_config.support_type.value == stTreeAuto) {
-                    bottom_is_fully_supported &= (m_config.support_interface_top_layers.value > 0 && m_config.max_bridge_length.value == 0 && m_config.support_critical_regions_only.value==false);
-                }
+                // Only normal automatic support may replace bridge infill with bottom infill
+                // on a zero-gap interface. Tree support contacts may be filtered or reduced,
+                // so even max_bridge_length == 0 does not guarantee full bottom coverage.
+                const bool bottom_is_fully_supported = this->has_support() && m_config.support_top_z_distance.value == 0 &&
+                                                       m_config.support_type.value == stNormalAuto && !m_config.bridge_no_support.value;
                 SurfaceType surface_type_bottom_other = bottom_is_fully_supported ? stBottom : stBottomBridge;
                 for (size_t idx_layer = range.begin(); idx_layer < range.end(); ++ idx_layer) {
                     m_print->throw_if_canceled();
@@ -4280,7 +4333,8 @@ void PrintObject::remove_bridges_from_contacts(
     float extrusion_width,
     PolysType* overhang_regions,
     float max_bridge_length,
-    bool break_bridge)
+    bool break_bridge,
+    std::vector<std::pair<ExPolygon, int>>* overhang_regions_with_type)
 {
     // Extrusion width accounts for the roundings of the extrudates.
     // It is the maximum widh of the extrudate.
@@ -4396,6 +4450,28 @@ void PrintObject::remove_bridges_from_contacts(
     else if (typeid(overhang_regions) == typeid(Polygons*)) {
         *(Polygons*)overhang_regions = diff(*overhang_regions, all_bridges, ApplySafetyOffset::Yes);
     }
+
+    // Keep an optional typed overhang list in sync by diffing against the same bridge set.
+    // Skip items whose bbox doesn't overlap the bridges bbox to avoid unnecessary Clipper calls.
+    if (overhang_regions_with_type != nullptr && !overhang_regions_with_type->empty() && !all_bridges.empty()) {
+        BoundingBox bridges_bbox = get_extents(all_bridges);
+        std::vector<std::pair<ExPolygon, int>> kept;
+        kept.reserve(overhang_regions_with_type->size());
+        bool any_trimmed = false;
+        for (auto &overhang_part : *overhang_regions_with_type) {
+            BoundingBox part_bbox = get_extents(overhang_part.first);
+            if (!bridges_bbox.overlap(part_bbox)) {
+                kept.emplace_back(std::move(overhang_part.first), overhang_part.second);
+                continue;
+            }
+            ExPolygons remaining = diff_ex({overhang_part.first}, all_bridges, ApplySafetyOffset::Yes);
+            any_trimmed = true;
+            for (auto &expoly : remaining)
+                kept.emplace_back(std::move(expoly), overhang_part.second);
+        }
+        if (any_trimmed)
+            *overhang_regions_with_type = std::move(kept);
+    }
 }
 
 template void PrintObject::remove_bridges_from_contacts<ExPolygons>(
@@ -4403,13 +4479,15 @@ template void PrintObject::remove_bridges_from_contacts<ExPolygons>(
     const Layer* current_layer,
     float extrusion_width,
     ExPolygons* overhang_regions,
-    float max_bridge_length, bool break_bridge);
+    float max_bridge_length, bool break_bridge,
+    std::vector<std::pair<ExPolygon, int>>* overhang_regions_with_type);
 template void PrintObject::remove_bridges_from_contacts<Polygons>(
     const Layer* lower_layer,
     const Layer* current_layer,
     float extrusion_width,
     Polygons* overhang_regions,
-    float max_bridge_length, bool break_bridge);
+    float max_bridge_length, bool break_bridge,
+    std::vector<std::pair<ExPolygon, int>>* overhang_regions_with_type);
 
 
 SupportNecessaryType PrintObject::is_support_necessary()

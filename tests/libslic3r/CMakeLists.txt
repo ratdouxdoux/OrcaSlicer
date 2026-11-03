@@ -9,7 +9,9 @@ add_executable(${_TEST_NAME}_tests
 	test_config.cpp
 	test_custom_gcode.cpp
 	test_elephant_foot_compensation.cpp
+	test_extrusion_entity.cpp
 	test_geometry.cpp
+	test_icns.cpp
 	test_mixed_filament.cpp
 	test_full_spectrum_ks_pair_residual.cpp
     test_product_port.cpp
@@ -25,6 +27,7 @@ add_executable(${_TEST_NAME}_tests
 	test_meshboolean.cpp
 	test_marchingsquares.cpp
 	test_timeutils.cpp
+	test_tree_support_wall.cpp
 	test_voronoi.cpp
     test_optimizers.cpp
     test_png_io.cpp

@@ -435,9 +435,7 @@ float MixedFilamentManager::canonical_signed_bias_value(float component_a_surfac
 }
 std::string MixedFilamentManager::format_surface_offset_token(float value)
 {
-    std::ostringstream ss;
-    ss << std::fixed << std::setprecision(4) << clamp_surface_offset(value);
-    std::string out = ss.str();
+    std::string out = float_to_string_decimal_point(clamp_surface_offset(value), 4);
     while (!out.empty() && out.back() == '0')
         out.pop_back();
     if (!out.empty() && out.back() == '.')

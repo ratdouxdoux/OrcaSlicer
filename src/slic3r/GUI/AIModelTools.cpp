@@ -1,6 +1,8 @@
 #include "AIModelTools.hpp"
 #include "GUI_App.hpp"
 #include "GUI_ObjectList.hpp"
+#include "FilamentGroupDialog.hpp"
+#include "FlowTypeHelper.hpp"
 #include "GLCanvas3D.hpp"
 #include "GLToolbar.hpp"
 #include "Plater.hpp"
@@ -149,7 +151,18 @@ json ai_slice_status(Plater& plater)
 
 void ai_start_slice(Plater& plater)
 {
-    // The native Slice plate action, including its confirmations and the switch to Preview.
+    // What the Slice button does (MainFrame): settle nozzle flow types, asking for the filament
+    // grouping on high-flow setups, then the native Slice plate action with its confirmations
+    // and the switch to Preview.
+    if (FlowType::any_nozzle_high_flow()) {
+        FilamentGroupDialog dlg(&plater, FlowType::distinct_nozzle_flow_type_count() < 2);
+        if (dlg.ShowModal() != wxID_OK)
+            return;
+    } else {
+        FlowType::sync_filament_volume_types_for_slice();
+    }
+    plater.exit_gizmo();
+    plater.update(true, true);
     SimpleEvent event(EVT_GLTOOLBAR_SLICE_PLATE);
     plater.GetEventHandler()->ProcessEvent(event);
 }
