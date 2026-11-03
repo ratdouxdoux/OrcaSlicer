@@ -655,7 +655,7 @@ TEST_CASE("Assistant chat requests retain conversation and images without exposi
         const auto request = json::parse(body);
         CHECK(body.find("secret-sentinel") == std::string::npos);
         CHECK(request["stream"] == true);
-        CHECK(request["tools"].size() == 10);
+        CHECK(request["tools"].size() == 11);
         CHECK(request["messages"].back()["content"][0]["text"] == "On the top surface.");
         CHECK(body.find("Where do they appear?") != std::string::npos);
         CHECK_FALSE(request.contains("response_format"));
@@ -827,7 +827,7 @@ TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter paramet
             CHECK_FALSE(request.contains("system"));
             CHECK_FALSE(request.contains("output_config"));
             CHECK_FALSE(request.contains("response_format"));
-            REQUIRE(request["tools"].size() == 10);
+            REQUIRE(request["tools"].size() == 11);
             for (const auto& tool : request["tools"]) {
                 CHECK(tool["type"] == "function");
                 CHECK(tool["function"]["parameters"].is_object());
@@ -1344,4 +1344,64 @@ TEST_CASE("Assistant complex objects do not block global settings or inject thei
     auto object_proposal = feature_proposal(AI::capture_read_context(fixture.inherited, fixture.object, AI::Scope::Object));
     object_proposal.object_id.clear();
     CHECK_THROWS(AI::prepare_apply(context, object_proposal, transaction));
+}
+
+TEST_CASE("Assistant asks the user before switching the edit scope", "[AIPrintAssistant][fast]")
+{
+    for (const auto provider : {AI::Provider::OpenRouter, AI::Provider::Anthropic}) {
+        const auto request = json::parse(AI::make_chat_request(provider, AI::provider_info(provider).default_model,
+                                                               json::array({AI::chat_user_message(provider, "Raise the bed temperature.")})));
+        size_t     found   = 0;
+        for (const auto& tool : request["tools"]) {
+            const auto definition = AI::uses_chat_completions(provider) ? tool["function"] : tool;
+            if (definition["name"] != "request_edit_scope")
+                continue;
+            ++found;
+            const auto schema = definition[AI::uses_chat_completions(provider) ? "parameters" : "input_schema"];
+            CHECK(schema["properties"]["scope"]["enum"] == json({"object", "process", "filament", "printer"}));
+            CHECK(schema["required"] == json({"scope", "reason"}));
+            CHECK(schema["additionalProperties"] == false);
+        }
+        CHECK(found == 1);
+        const std::string system = AI::uses_chat_completions(provider) ? request["messages"][0]["content"].get<std::string>() :
+                                                                         request["system"].get<std::string>();
+        CHECK(system.find("call request_edit_scope") != std::string::npos);
+        CHECK(system.find("do not ask again") != std::string::npos);
+    }
+
+    for (const auto scope : {AI::Scope::Object, AI::Scope::Process, AI::Scope::Filament, AI::Scope::Printer}) {
+        const auto parsed = AI::parse_scope_request({{"scope", AI::scope_name(scope)}, {"reason", "Bed temperature is a filament setting."}});
+        CHECK(parsed.scope == scope);
+        CHECK(parsed.reason == "Bed temperature is a filament setting.");
+    }
+    // The reason is shown on one line in the confirmation card.
+    CHECK(AI::parse_scope_request({{"scope", "filament"}, {"reason", "  Line one\nline two\t "}}).reason == "Line one line two");
+    CHECK_NOTHROW(AI::parse_scope_request({{"scope", "process"}, {"reason", std::string(300, 'a')}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "process"}, {"reason", std::string(301, 'a')}}));
+    // The limit counts characters, not UTF-8 bytes.
+    std::string accented;
+    for (int i = 0; i < 300; ++i)
+        accented += "\xC3\xA9";
+    CHECK_NOTHROW(AI::parse_scope_request({{"scope", "process"}, {"reason", accented}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "process"}, {"reason", accented + "e"}}));
+    CHECK_THROWS(AI::parse_scope_request(json::array()));
+    CHECK_THROWS(AI::parse_scope_request({{"reason", "Missing scope."}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "global"}, {"reason", "Unknown scope."}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", 1}, {"reason", "Scope is not a string."}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "printer"}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "printer"}, {"reason", " \n "}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "printer"}, {"reason", "Nozzle size."}, {"object_id", "1"}}));
+
+    // A proposal outside the active scope points the assistant at the tool.
+    Fixture         fixture;
+    const auto      context  = fixture.context();
+    const auto      proposal = AI::parse_proposal(proposal_json(context, {{{"key", "nozzle_diameter"}, {"value", "[0.6]"}}}).dump());
+    AI::Transaction transaction;
+    std::string     message;
+    try {
+        AI::prepare_apply(context, proposal, transaction);
+    } catch (const std::exception& error) {
+        message = error.what();
+    }
+    CHECK(message.find("request_edit_scope") != std::string::npos);
 }
