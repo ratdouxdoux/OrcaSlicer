@@ -532,7 +532,8 @@ DynamicPrintConfig prepare_apply(const Context& current, const Proposal& proposa
     prepared.before          = current.overrides;
     for (const auto& key : proposal.changes.keys()) {
         if (std::find(current.editable_keys.begin(), current.editable_keys.end(), key) == current.editable_keys.end())
-            throw std::runtime_error("The setting does not belong to the selected scope: " + key);
+            throw std::runtime_error("The setting does not belong to the selected scope: " + key +
+                                     ". Use request_edit_scope to ask the user to switch scopes.");
         const auto* before = current.effective.option(key);
         const auto* after  = proposal.changes.option(key);
         if (before->type() != after->type())

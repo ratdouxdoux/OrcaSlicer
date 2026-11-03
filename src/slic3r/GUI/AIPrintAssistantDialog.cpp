@@ -144,6 +144,17 @@ Button* activity_button(wxWindow* parent, const wxString& text)
 
 wxString disclosure_label(const wxString& text, bool expanded) { return wxString(expanded ? L"\u25BE  " : L"\u25B8  ") + text; }
 
+// Edit scopes in the order of the scope combo box.
+wxString scope_label(AI::Scope scope)
+{
+    switch (scope) {
+    case AI::Scope::Process: return _L("Global process");
+    case AI::Scope::Filament: return _L("Global filament");
+    case AI::Scope::Printer: return _L("Global printer");
+    default: return _L("Object");
+    }
+}
+
 constexpr const char* PROJECT_EDITED_EVENT =
     "[Application event] The project changed outside the assistant, so the live preview ended. Its changes and the user's edits are "
     "both kept and are now the starting point; Apply, Dismiss and Revert no longer cover them. Read fresh context before proposing "
@@ -232,7 +243,17 @@ private:
         bool                                  started = false;
         std::chrono::steady_clock::time_point since;
     };
-    std::optional<SliceWait>          m_slice;
+    std::optional<SliceWait> m_slice;
+    // request_edit_scope pauses the queue until the user answers its confirmation card.
+    struct ScopeWait
+    {
+        AI::ChatToolCall  call;
+        AI::Scope         from = AI::Scope::Object, to = AI::Scope::Object;
+        std::string       preset;
+        wxWeakRef<Button> confirm, keep;
+        wxWeakRef<Label>  outcome;
+    };
+    std::optional<ScopeWait>          m_scope_wait;
     std::optional<AI::ModelOperation> m_model_operation;
     std::unique_ptr<AI::LivePreview>  m_preview;
     // A preview ended by manual edits; reported to the provider with the next message.
@@ -269,10 +290,12 @@ private:
     void          request_proposal();
     void          start_request();
     void          poll_request();
-    bool          busy() const { return m_result || m_slice; }
+    bool          busy() const { return m_result || m_slice || m_scope_wait; }
     void          run_tools();
     bool          start_slice(const AI::ChatToolCall& call);
     void          poll_slice();
+    bool          request_scope(const AI::ChatToolCall& call);
+    void          answer_scope_request(bool confirmed);
     void          abandon_tools();
     void          cancel_request(const wxString& status = _L("Stopped"));
     AI::Scope     selected_scope() const;
@@ -758,14 +781,15 @@ void AIPrintAssistantPanel::render_stream()
 
 void AIPrintAssistantPanel::add_tool_card(const AI::ChatToolCall& call, const json& result, bool error)
 {
-    auto title = call.name == "get_print_context" ? _L("Read print settings") :
-                 call.name == "get_slice_context" ? _L("Inspected slice result") :
-                 call.name == "slice_plate"       ? _L("Sliced plate") :
-                 call.name == "search_knowledge"  ? _L("Searched printing knowledge") :
-                 call.name == "read_gcode"        ? _L("Read slice G-code") :
-                 call.name == "search_settings"   ? _L("Searched available settings") :
-                 call.name == "get_model_context" ? _L("Inspected models and colors") :
-                 call.name == "list_model_tools"  ? _L("Read available model tools") :
+    auto title = call.name == "get_print_context"  ? _L("Read print settings") :
+                 call.name == "get_slice_context"  ? _L("Inspected slice result") :
+                 call.name == "slice_plate"        ? _L("Sliced plate") :
+                 call.name == "search_knowledge"   ? _L("Searched printing knowledge") :
+                 call.name == "read_gcode"         ? _L("Read slice G-code") :
+                 call.name == "search_settings"    ? _L("Searched available settings") :
+                 call.name == "get_model_context"  ? _L("Inspected models and colors") :
+                 call.name == "list_model_tools"   ? _L("Read available model tools") :
+                 call.name == "request_edit_scope" ? _L("Asked to change the edit scope") :
                  call.name == "propose_model_operation" && call.arguments.is_object() && call.arguments.contains("operation") &&
                          call.arguments["operation"].is_string() ?
                                                    model_action_label(call.arguments["operation"].get<std::string>()) :
@@ -1209,6 +1233,11 @@ void AIPrintAssistantPanel::run_tools()
                 if (start_slice(call))
                     return;
                 result = m_last_tool_result;
+            } else if (call.name == "request_edit_scope") {
+                // answer_scope_request records this result and resumes the queue.
+                if (request_scope(call))
+                    return;
+                result = m_last_tool_result;
             } else if (call.name == "get_model_context" || call.name == "list_model_tools") {
                 if (!call.arguments.is_object() || !call.arguments.empty())
                     throw std::runtime_error("This tool takes no arguments.");
@@ -1273,6 +1302,98 @@ bool AIPrintAssistantPanel::start_slice(const AI::ChatToolCall& call)
     return true;
 }
 
+bool AIPrintAssistantPanel::request_scope(const AI::ChatToolCall& call)
+{
+    const auto request = AI::parse_scope_request(call.arguments);
+    const auto current = selected_scope();
+    if (request.scope == current) {
+        m_last_tool_result = {{"status", "unchanged"}, {"edit_scope", AI::scope_name(current)}};
+        m_tool_summary     = wxString::Format(_L("The edit scope is already %s."), scope_label(current));
+        return false;
+    }
+    ScopeWait wait{call, current, request.scope};
+    if (request.scope != AI::Scope::Object) {
+        auto* tab = wxGetApp().get_tab(request.scope == AI::Scope::Process  ? Preset::TYPE_PRINT :
+                                       request.scope == AI::Scope::Filament ? Preset::TYPE_FILAMENT :
+                                                                              Preset::TYPE_PRINTER);
+        if (!tab || !tab->get_config())
+            throw std::runtime_error("The requested preset is unavailable.");
+        wait.preset = tab->m_presets->get_edited_preset().name;
+    }
+    // The card stays in the transcript, so the user sees what was asked and answered.
+    auto* card = add_card(_L("Change the edit scope?"));
+    add_text(card, wxString::Format(_L("The assistant wants to switch from **%s** to **%s**."), scope_label(current),
+                                    scope_label(request.scope)));
+    add_text(card, from_utf8(request.reason));
+    add_text(card, request.scope == AI::Scope::Object ?
+                       _L("Edits will be stored as overrides on individual objects; the shared presets stay unchanged.") :
+                       wxString::Format(_L("Edits will change the shared preset \"%s\" and every object that uses it."),
+                                        from_utf8(wait.preset)));
+    auto* confirm = assistant_button(card, wxString::Format(_L("Switch to %s"), scope_label(request.scope)), true);
+    auto* keep    = assistant_button(card, wxString::Format(_L("Keep %s"), scope_label(current)));
+    auto* actions = new wxBoxSizer(wxHORIZONTAL);
+    actions->Add(confirm, 0, wxRIGHT, FromDIP(6));
+    actions->Add(keep);
+    card->GetSizer()->Add(actions, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+    auto* outcome = add_label(card, wxEmptyString, Label::Body_12, true);
+    outcome->Hide();
+    card->GetSizer()->Add(outcome, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+    confirm->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { answer_scope_request(true); });
+    keep->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { answer_scope_request(false); });
+    wait.confirm = confirm;
+    wait.keep    = keep;
+    wait.outcome = outcome;
+    m_scope_wait = std::move(wait);
+    update_activity(_L("Waiting for your answer..."));
+    set_busy(true);
+    m_status->SetLabel(_L("The assistant is waiting for you to confirm or keep the edit scope."));
+    layout_chat();
+    return true;
+}
+
+void AIPrintAssistantPanel::answer_scope_request(bool confirmed)
+{
+    if (!m_scope_wait)
+        return;
+    try {
+        auto wait = std::move(*m_scope_wait);
+        m_scope_wait.reset();
+        for (auto* button : {wait.confirm.get(), wait.keep.get()})
+            if (button)
+                button->Disable();
+        json result;
+        if (confirmed) {
+            // Matches selected_scope(): the combo lists the scopes in enum order.
+            m_scope->SetSelection(int(wait.to));
+            invalidate_proposal();
+            result = {{"status", "switched"},
+                      {"previous_scope", AI::scope_name(wait.from)},
+                      {"edit_scope", AI::scope_name(wait.to)},
+                      {"message", "Read get_print_context again before proposing settings; earlier context IDs are stale."}};
+            if (!wait.preset.empty())
+                result["preset"] = wait.preset;
+            m_tool_summary = wxString::Format(_L("Switched the edit scope to %s."), scope_label(wait.to));
+        } else {
+            result         = {{"status", "declined"},
+                              {"edit_scope", AI::scope_name(wait.from)},
+                              {"message", "The user kept the current edit scope. Do not ask again for this change; explain what they can "
+                                          "do instead."}};
+            m_tool_summary = wxString::Format(_L("Kept the edit scope %s."), scope_label(wait.from));
+        }
+        if (wait.outcome) {
+            wait.outcome->SetLabel(m_tool_summary);
+            wait.outcome->Show();
+        }
+        add_tool_card(wait.call, result, false);
+        m_history.push_back(AI::chat_tool_result(m_provider, wait.call, result, false));
+        update_activity(_L("Thinking..."));
+        run_tools();
+    } catch (const std::exception& error) {
+        cancel_request(_L("Interrupted"));
+        show_error(error);
+    }
+}
+
 void AIPrintAssistantPanel::poll_slice()
 {
     if (!m_slice)
@@ -1335,6 +1456,17 @@ void AIPrintAssistantPanel::abandon_tools()
                                                               "still be slicing."}},
                                                  true));
         m_slice.reset();
+    }
+    if (m_scope_wait) {
+        m_history.push_back(AI::chat_tool_result(m_provider, m_scope_wait->call,
+                                                 {{"status", "stopped"},
+                                                  {"edit_scope", AI::scope_name(m_scope_wait->from)},
+                                                  {"message", "The user stopped the assistant without answering. The edit scope did not change."}},
+                                                 true));
+        for (auto* button : {m_scope_wait->confirm.get(), m_scope_wait->keep.get()})
+            if (button)
+                button->Disable();
+        m_scope_wait.reset();
     }
     for (const auto& call : m_tool_queue)
         m_history.push_back(AI::chat_tool_result(m_provider, call, {{"message", "Not run: the user stopped the assistant."}}, true));

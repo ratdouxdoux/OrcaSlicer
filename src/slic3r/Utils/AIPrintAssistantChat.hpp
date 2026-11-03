@@ -24,6 +24,15 @@ std::string    make_chat_request(Provider provider, const std::string& model, co
 nlohmann::json run_read_tool(const Context& context, const ChatToolCall& call);
 std::string    read_tool_object_id(const ChatToolCall& call);
 
+// request_edit_scope: the assistant asks to switch the user's edit scope. The
+// panel shows the reason and switches only after the user confirms.
+struct ScopeRequest
+{
+    Scope       scope = Scope::Object;
+    std::string reason;
+};
+ScopeRequest parse_scope_request(const nlohmann::json& arguments);
+
 // Incremental SSE decoder. Tool arguments are available only after a verified
 // terminal event and successful HTTP completion, never from partial JSON.
 class ChatStream

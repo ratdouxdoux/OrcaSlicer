@@ -63,6 +63,19 @@ json tool_definitions(Provider provider)
         "Validate settings and update the live preview immediately. Continue the remaining requested work; Apply keeps the entire preview "
         "and Dismiss restores it.",
         proposal_schema());
+    add("request_edit_scope",
+        "Ask the user to switch the edit scope when a needed change belongs to another scope: object for overrides on individual "
+        "objects, or process, filament or printer for the shared preset. The app shows your reason and waits for the user to confirm. "
+        "Returns switched, declined or unchanged. After a switch, read get_print_context again; earlier context IDs are stale.",
+        {{"type", "object"},
+         {"properties",
+          {{"scope", {{"type", "string"}, {"enum", {"object", "process", "filament", "printer"}}}},
+           {"reason",
+            {{"type", "string"},
+             {"maxLength", 300},
+             {"description", "One sentence shown to the user: which change needs this scope and why."}}}}},
+         {"required", {"scope", "reason"}},
+         {"additionalProperties", false}});
     add("get_model_context",
         "Read all model/part/instance IDs, plate membership, active-plate inventory, geometry bounds and available physical/mixed "
         "filaments. Works with multipart "
@@ -170,8 +183,11 @@ std::string make_chat_request(Provider provider, const std::string& model, const
         "Say changes are previewed, not permanently accepted, until an application event confirms Apply. "
         "Native editors/actions need user interaction and cannot join an automatic preview: finish the automatic work first and "
         "explain any remaining interactive steps accurately. "
-        "The user selects one edit scope. Other scopes are read-only. For global parameters ask them to choose Global process, "
-        "Global filament or Global printer if necessary. Global preset edits need no object; use their empty object_id. "
+        "One edit scope is active at a time; other scopes are read-only. When a needed change belongs to another scope (a shared "
+        "process, filament or printer preset setting, or an override on one object), call request_edit_scope with the target scope "
+        "and a one-sentence reason; the user confirms or declines in the app. After a switch, read get_print_context again before "
+        "proposing. If they decline, keep the current scope and do not ask again for the same change. Global preset edits need no "
+        "object; use their empty object_id. "
         "The active plate inventory is attached to every user turn. Inspect its objects directly; do not ask the user to select an object "
         "in the UI. get_model_context refreshes object IDs, names, dimensions and plate membership. "
         "get_print_context and search_settings accept object_id. With multiple objects, inspect the relevant IDs separately. "
@@ -252,6 +268,33 @@ std::string read_tool_object_id(const ChatToolCall& call)
     if (id.size() > 32 || (!id.empty() && id.find_first_not_of("0123456789") != std::string::npos))
         throw std::runtime_error("Invalid object_id. Read the current plate inventory again.");
     return id;
+}
+
+ScopeRequest parse_scope_request(const json& arguments)
+{
+    if (!arguments.is_object())
+        throw std::runtime_error("Tool arguments must be an object.");
+    for (auto it = arguments.begin(); it != arguments.end(); ++it)
+        if (it.key() != "scope" && it.key() != "reason")
+            throw std::runtime_error("Unexpected request_edit_scope argument.");
+    ScopeRequest request;
+    const auto   scope = arguments.contains("scope") && arguments["scope"].is_string() ? arguments["scope"].get<std::string>() : "";
+    const auto   known = {Scope::Object, Scope::Process, Scope::Filament, Scope::Printer};
+    const auto   match = std::find_if(known.begin(), known.end(), [&](Scope candidate) { return scope == scope_name(candidate); });
+    if (match == known.end())
+        throw std::runtime_error("request_edit_scope requires scope object, process, filament or printer.");
+    request.scope = *match;
+    if (!arguments.contains("reason") || !arguments["reason"].is_string())
+        throw std::runtime_error("request_edit_scope requires a reason to show the user.");
+    // The reason is shown in the confirmation card as one line.
+    for (char ch : arguments["reason"].get<std::string>())
+        request.reason += (unsigned char) ch < 0x20 ? ' ' : ch;
+    request.reason.erase(0, request.reason.find_first_not_of(' '));
+    request.reason.erase(request.reason.find_last_not_of(' ') + 1);
+    const auto characters = std::count_if(request.reason.begin(), request.reason.end(), [](char ch) { return (ch & 0xC0) != 0x80; });
+    if (request.reason.empty() || characters > 300)
+        throw std::runtime_error("The request_edit_scope reason must be one sentence of at most 300 characters.");
+    return request;
 }
 
 json run_read_tool(const Context& context, const ChatToolCall& call)
