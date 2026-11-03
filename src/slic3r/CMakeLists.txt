@@ -638,6 +638,8 @@ set(SLIC3R_GUI_SOURCES
     Utils/AIPrintAssistantProvider.cpp
     Utils/AIPrintAssistantChat.cpp
     Utils/AIPrintAssistantChat.hpp
+    Utils/AIOpenSCAD.cpp
+    Utils/AIOpenSCAD.hpp
     Utils/AIPrintAssistantCredentials.cpp
     Utils/AIPrintAssistantCredentials.hpp
     Utils/AIChatMarkdown.cpp

@@ -32,6 +32,16 @@ const char* provider_id(Provider provider);
 std::string provider_error(
     Provider provider, unsigned status, const std::string& body, const std::string& api_key = {}, const std::string& transport_error = {});
 
+// Busy, overloaded, rate-limited and dropped requests are retried; a rejected
+// key, missing credits or an invalid request are not. Status 0 is a network failure.
+inline constexpr int MAX_RETRIES = 3;
+bool                 retryable_status(unsigned status);
+// The same for an error event inside a streamed response.
+bool retryable_stream_error(const nlohmann::json& event);
+// Seconds before retry number `attempt` (from 0): the provider's Retry-After
+// header when it sends one, at most 60, else 2, 5 and 15.
+int retry_delay_seconds(int attempt, const std::string& headers);
+
 struct ImageInput
 {
     std::string media_type;

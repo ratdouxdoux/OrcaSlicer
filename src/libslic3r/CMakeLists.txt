@@ -373,6 +373,8 @@ set(lisbslic3r_sources
     AIKnowledgeBase.hpp
     AIModelTools.cpp
     AIModelTools.hpp
+    AIGeneratedModel.cpp
+    AIGeneratedModel.hpp
     AIPrintAssistantCatalog.cpp
     AIPrintAssistant.hpp
     PrintConfig.hpp

@@ -105,6 +105,9 @@ public:
 	Http& timeout_connect(long timeout);
     // Sets a maximum total request timeout in seconds
     Http& timeout_max(long timeout);
+    // Fails when no data arrives for this many seconds. Unlike timeout_max, a
+    // response that keeps arriving, however slowly, is not cut off.
+    Http& timeout_idle(long timeout);
 	// Sets a maximum size of the data that can be received.
 	// A value of zero sets the default limit, which is is 5MB.
 	Http& size_limit(size_t sizeLimit);

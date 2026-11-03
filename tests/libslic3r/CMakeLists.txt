@@ -74,14 +74,22 @@ catch_discover_tests(${_TEST_NAME}_tests TEST_PREFIX "${_TEST_NAME}: " EXTRA_ARG
 add_executable(ai_print_assistant_tests
     test_ai_print_assistant.cpp
     test_ai_model_tools.cpp
+    test_ai_generated_model.cpp
     test_ai_slice_tools.cpp
     test_ai_knowledge.cpp
     test_ai_chat_markdown.cpp
     ../../src/slic3r/Utils/AIChatMarkdown.cpp
+    ../../src/slic3r/Utils/AIOpenSCAD.cpp
     ../../src/slic3r/Utils/AIPrintAssistantChat.cpp
     ../../src/slic3r/Utils/AIPrintAssistantProvider.cpp)
 target_link_libraries(ai_print_assistant_tests PRIVATE ${TEST_LINK_LIBS})
 target_compile_definitions(ai_print_assistant_tests PRIVATE AI_ASSISTANT_RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources")
+# The OpenSCAD that src/CMakeLists.txt bundles, for the generate_model runner test.
+file(GLOB _openscad_test_executable "${CMAKE_BINARY_DIR}/openscad/*/openscad.exe")
+if (_openscad_test_executable)
+    list(GET _openscad_test_executable 0 _openscad_test_executable)
+    target_compile_definitions(ai_print_assistant_tests PRIVATE OPENSCAD_TEST_EXECUTABLE="${_openscad_test_executable}")
+endif ()
 if(WIN32)
     target_link_libraries(ai_print_assistant_tests PRIVATE bcrypt.lib crypt32.lib)
 endif()

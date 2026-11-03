@@ -1,0 +1,10 @@
+OpenSCAD 2026.11-RC0
+https://openscad.org
+
+Snapmaker Orca runs this unmodified OpenSCAD release as a separate program to
+build models for its AI assistant. OpenSCAD is free software, licensed under the
+GNU General Public License, and includes other libraries under their own
+licenses.
+
+Binary:      https://files.openscad.org/rc/OpenSCAD-2026.11-RC0-x86-64.zip
+Source code: https://files.openscad.org/rc/openscad-2026.11-RC0.src.tar.gz

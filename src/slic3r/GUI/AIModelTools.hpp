@@ -1,7 +1,7 @@
 #ifndef slic3r_GUI_AIModelTools_hpp_
 #define slic3r_GUI_AIModelTools_hpp_
 
-#include "libslic3r/AIModelTools.hpp"
+#include "libslic3r/AIGeneratedModel.hpp"
 
 namespace Slic3r::GUI {
 class Plater;
@@ -19,5 +19,10 @@ nlohmann::json                      ai_model_tools(Plater& plater);
 AIPrintAssistant::PreparedModelEdit ai_prepare_model_edit(Plater& plater, const AIPrintAssistant::ModelOperation& operation);
 void           ai_commit_model_edit(Plater& plater, AIPrintAssistant::PreparedModelEdit&& edit, const std::string& snapshot_name);
 nlohmann::json ai_run_native_model_tool(Plater& plater, const AIPrintAssistant::ModelOperation& operation);
+// Parts made by generate_model in this session, with their OpenSCAD code.
+AIPrintAssistant::GeneratedModels& ai_generated_models();
+// The generated part of object_id. Throws unless exactly one of its parts still matches its code.
+const ModelVolume& ai_generated_part(Plater& plater, const std::string& object_id);
+nlohmann::json     ai_model_source(Plater& plater, const nlohmann::json& arguments);
 } // namespace Slic3r::GUI
 #endif

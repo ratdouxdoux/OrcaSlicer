@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <iterator>
 #include <regex>
 #include <stdexcept>
+#include <vector>
 #include <openssl/sha.h>
 
 namespace Slic3r::AIPrintAssistant {
@@ -226,6 +228,52 @@ std::string provider_error(
         detail += "...";
     }
     return message + "\n" + detail;
+}
+
+bool retryable_status(unsigned status)
+{
+    // 529 is Anthropic's "overloaded"; 520 to 524 are Cloudflare's origin failures.
+    return status == 0 || status == 408 || status == 425 || status == 429 || status == 500 || status == 502 || status == 503 ||
+           status == 504 || (status >= 520 && status <= 524) || status == 529;
+}
+
+bool retryable_stream_error(const nlohmann::json& event)
+{
+    if (!event.is_object())
+        return false;
+    // Anthropic: {"type":"error","error":{"type":"overloaded_error"}}. OpenRouter and
+    // chat-completions providers: {"error":{"code":503,...}}, also inside a choice.
+    std::vector<const nlohmann::json*> errors;
+    if (event.contains("error"))
+        errors.push_back(&event["error"]);
+    if (event.contains("choices") && event["choices"].is_array())
+        for (const auto& choice : event["choices"])
+            if (choice.is_object() && choice.contains("error"))
+                errors.push_back(&choice["error"]);
+    for (const auto* error : errors) {
+        if (!error->is_object())
+            continue;
+        const auto type = error->value("type", "");
+        if (type == "overloaded_error" || type == "api_error" || type == "rate_limit_error" || type == "timeout_error")
+            return true;
+        const auto code = error->contains("code") && (*error)["code"].is_number_integer() ? (*error)["code"].get<long long>() : 0;
+        if (code >= 100 && code < 600 && retryable_status(unsigned(code)))
+            return true;
+    }
+    return false;
+}
+
+int retry_delay_seconds(int attempt, const std::string& headers)
+{
+    // Headers accumulate across redirects; the last Retry-After is the final response's.
+    static const std::regex retry_after(R"((?:^|\n)retry-after:[ \t]*(\d{1,6})[ \t]*\r?(?:\n|$))", std::regex::icase);
+    int  seconds = -1;
+    for (std::sregex_iterator it(headers.begin(), headers.end(), retry_after), end; it != end; ++it)
+        seconds = std::stoi((*it)[1].str());
+    if (seconds >= 0)
+        return std::clamp(seconds, 1, 60);
+    static constexpr int delays[] = {2, 5, 15};
+    return delays[std::clamp(attempt, 0, int(std::size(delays)) - 1)];
 }
 
 std::string make_request(
