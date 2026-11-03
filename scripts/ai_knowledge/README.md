@@ -10,6 +10,13 @@ Artisan, Snapmaker 2.0, the general/Dual Extrusion Module pages, Snapmaker Orca 
 public printing references (OrcaSlicer, Prusa, Bambu Lab and Klipper documentation, filament data
 sheets, the Snapmaker forum). Laser, CNC, Ray and policy pages are out of scope.
 
+The `u1q-*` entries come from Snapmaker's U1 print quality corpus (108 issues from Snapmaker's
+internal print-quality log, against Snapmaker Orca 2.4.1), translated from Chinese. That log is not
+public, so corpus sources cite the public U1 knowledge base (`https://wiki.snapmaker.com/en/snapmaker_u1`)
+and name the corpus issue code in the source title. Where a corpus issue duplicated an existing entry
+(or another corpus issue) the two were merged into one entry citing both sources; where they disagree,
+the summary names both positions.
+
 ## Refreshing
 
 1. `scripts/ai_knowledge/fetch_wiki.sh <cache dir>` downloads the in-scope wiki pages as plain text.
