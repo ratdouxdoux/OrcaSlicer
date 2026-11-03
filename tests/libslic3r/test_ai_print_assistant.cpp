@@ -655,7 +655,7 @@ TEST_CASE("Assistant chat requests retain conversation and images without exposi
         const auto request = json::parse(body);
         CHECK(body.find("secret-sentinel") == std::string::npos);
         CHECK(request["stream"] == true);
-        CHECK(request["tools"].size() == 11);
+        CHECK(request["tools"].size() == 13);
         CHECK(request["messages"].back()["content"][0]["text"] == "On the top surface.");
         CHECK(body.find("Where do they appear?") != std::string::npos);
         CHECK_FALSE(request.contains("response_format"));
@@ -827,7 +827,7 @@ TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter paramet
             CHECK_FALSE(request.contains("system"));
             CHECK_FALSE(request.contains("output_config"));
             CHECK_FALSE(request.contains("response_format"));
-            REQUIRE(request["tools"].size() == 11);
+            REQUIRE(request["tools"].size() == 13);
             for (const auto& tool : request["tools"]) {
                 CHECK(tool["type"] == "function");
                 CHECK(tool["function"]["parameters"].is_object());
@@ -840,7 +840,7 @@ TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter paramet
     CHECK(router["provider"]["require_parameters"] == true);
     CHECK_FALSE(router.contains("tool_stream"));
     CHECK_FALSE(router.contains("thinking"));
-    CHECK(router["max_tokens"] == 4096);
+    CHECK(router["max_tokens"] == 8192);
 }
 
 TEST_CASE("Assistant direct providers preserve streamed reasoning through tool continuations", "[AIPrintAssistant][fast]")
@@ -1404,4 +1404,50 @@ TEST_CASE("Assistant asks the user before switching the edit scope", "[AIPrintAs
         message = error.what();
     }
     CHECK(message.find("request_edit_scope") != std::string::npos);
+}
+
+TEST_CASE("Assistant retries busy providers but not rejected requests", "[AIPrintAssistant][fast]")
+{
+    for (const unsigned status : {0u, 408u, 429u, 500u, 502u, 503u, 504u, 522u, 529u})
+        CHECK(AI::retryable_status(status));
+    for (const unsigned status : {200u, 400u, 401u, 402u, 403u, 404u, 413u, 422u})
+        CHECK_FALSE(AI::retryable_status(status));
+
+    CHECK(AI::retry_delay_seconds(0, {}) == 2);
+    CHECK(AI::retry_delay_seconds(1, {}) == 5);
+    CHECK(AI::retry_delay_seconds(2, {}) == 15);
+    CHECK(AI::retry_delay_seconds(9, {}) == 15);
+    CHECK(AI::retry_delay_seconds(0, "HTTP/2 529\r\nRetry-After: 7\r\ncontent-type: application/json\r\n\r\n") == 7);
+    CHECK(AI::retry_delay_seconds(0, "HTTP/1.1 429 Too Many Requests\r\nretry-after: 600\r\n\r\n") == 60);
+    CHECK(AI::retry_delay_seconds(0, "HTTP/1.1 503\r\nretry-after: 0\r\n\r\n") == 1);
+    // Only the final response's header counts; dates are not parsed.
+    CHECK(AI::retry_delay_seconds(1, "HTTP/1.1 307\r\nRetry-After: 3\r\n\r\nHTTP/1.1 503\r\nRetry-After: 9\r\n\r\n") == 9);
+    CHECK(AI::retry_delay_seconds(1, "HTTP/1.1 503\r\nRetry-After: Wed, 21 Oct 2026 07:28:00 GMT\r\n\r\n") == 5);
+    CHECK(AI::retry_delay_seconds(0, "HTTP/1.1 503\r\nx-retry-after: 9\r\n\r\n") == 2);
+
+    CHECK(AI::retryable_stream_error({{"type", "error"}, {"error", {{"type", "overloaded_error"}, {"message", "Overloaded"}}}}));
+    CHECK(AI::retryable_stream_error({{"error", {{"code", 503}, {"message", "Provider returned error"}}}}));
+    CHECK(AI::retryable_stream_error({{"choices", {{{"index", 0}, {"error", {{"code", 502}}}}}}}));
+    CHECK_FALSE(AI::retryable_stream_error({{"type", "error"}, {"error", {{"type", "invalid_request_error"}}}}));
+    CHECK_FALSE(AI::retryable_stream_error({{"error", {{"code", 400}}}}));
+    CHECK_FALSE(AI::retryable_stream_error(json::array()));
+
+    // Error events in a stream carry the decision.
+    AI::ChatStream anthropic(AI::Provider::Anthropic);
+    bool           retryable = false;
+    try {
+        anthropic.feed(anthropic_start() + sse({{"type", "error"}, {"error", {{"type", "overloaded_error"}, {"message", "Overloaded"}}}}));
+    } catch (const AI::StreamError& error) {
+        retryable = error.retryable;
+        CHECK(std::string(error.what()).find("Overloaded") != std::string::npos);
+    }
+    CHECK(retryable);
+    AI::ChatStream router(AI::Provider::OpenRouter);
+    retryable = true;
+    try {
+        router.feed(sse({{"error", {{"code", 401}, {"message", "No auth credentials found"}}}}));
+    } catch (const AI::StreamError& error) {
+        retryable = error.retryable;
+    }
+    CHECK_FALSE(retryable);
 }

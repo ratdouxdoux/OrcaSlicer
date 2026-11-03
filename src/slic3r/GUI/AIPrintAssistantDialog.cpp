@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -39,6 +40,7 @@
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "slic3r/Utils/AIOpenSCAD.hpp"
 #include "slic3r/Utils/AIPrintAssistantChat.hpp"
 #include "slic3r/Utils/AIPrintAssistantCredentials.hpp"
 #include "slic3r/Utils/AIChatMarkdown.hpp"
@@ -164,8 +166,9 @@ struct RequestResult
 {
     std::atomic<bool> cancelled{false};
     std::mutex        mutex;
-    bool              done = false;
-    std::string       body, error;
+    bool              done   = false;
+    unsigned          status = 0;
+    std::string       body, error, headers;
 };
 
 class AIPrintAssistantPanel final : public wxPanel
@@ -232,6 +235,11 @@ private:
     std::unique_ptr<AI::ChatStream>   m_stream;
     size_t                            m_consumed = 0;
     int                               m_rounds   = 0;
+    std::chrono::steady_clock::time_point m_request_since;
+    // A busy or dropped request is sent again after a pause, up to MAX_RETRIES times per round.
+    int                                                  m_attempt = 0;
+    std::optional<std::chrono::steady_clock::time_point> m_retry_at;
+    wxString                                             m_retry_reason;
     std::optional<AI::Context>        m_pending;
     // Tool calls of the current response, run in order. slice_plate pauses the
     // queue until the native slice finishes.
@@ -253,8 +261,31 @@ private:
         wxWeakRef<Button> confirm, keep;
         wxWeakRef<Label>  outcome;
     };
-    std::optional<ScopeWait>          m_scope_wait;
-    std::optional<AI::ModelOperation> m_model_operation;
+    std::optional<ScopeWait> m_scope_wait;
+    // generate_model pauses the queue while OpenSCAD runs on a worker thread.
+    struct GenerationWait
+    {
+        AI::ChatToolCall                      call;
+        AI::GenerateModelRequest              request;
+        std::string                           volume_id; // The generated part to rebuild; empty for a new object.
+        std::unique_ptr<AI::OpenSCADRun>      run;
+        std::chrono::steady_clock::time_point since;
+    };
+    std::optional<GenerationWait> m_generation;
+    // A generated model goes straight onto the plate. Its card's Discard removes
+    // it, or restores the version a rebuild replaced, while the mesh is unchanged.
+    struct GeneratedCard
+    {
+        std::string                 object_id, volume_id, name;
+        std::uint64_t               mesh = 0;
+        std::optional<TriangleMesh> previous_mesh;
+        AI::GeneratedModels::Source previous;
+        wxWeakRef<Button>           discard;
+        wxWeakRef<Label>            outcome;
+        bool                        active = true;
+    };
+    std::vector<std::shared_ptr<GeneratedCard>> m_generated;
+    std::optional<AI::ModelOperation>           m_model_operation;
     std::unique_ptr<AI::LivePreview>  m_preview;
     // A preview ended by manual edits; reported to the provider with the next message.
     bool                              m_project_edited = false;
@@ -288,14 +319,21 @@ private:
     void          set_busy(bool busy);
     void          show_error(const std::exception& error);
     void          request_proposal();
-    void          start_request();
+    void          start_request(bool retry = false);
     void          poll_request();
-    bool          busy() const { return m_result || m_slice || m_scope_wait; }
+    bool          schedule_retry(bool retryable, const std::string& headers, const wxString& reason);
+    void          poll_retry();
+    bool          busy() const { return m_result || m_slice || m_scope_wait || m_generation || m_retry_at; }
     void          run_tools();
     bool          start_slice(const AI::ChatToolCall& call);
     void          poll_slice();
     bool          request_scope(const AI::ChatToolCall& call);
     void          answer_scope_request(bool confirmed);
+    void          start_generation(const AI::ChatToolCall& call);
+    void          poll_generation();
+    json          import_generated(const GenerationWait& wait, AI::OpenSCADRun::Result&& outcome, std::vector<AI::ImageInput>& images);
+    void          discard_generated(const std::shared_ptr<GeneratedCard>& card);
+    void          commit_generated(AI::PreparedModelEdit&& edit, const std::string& snapshot);
     void          abandon_tools();
     void          cancel_request(const wxString& status = _L("Stopped"));
     AI::Scope     selected_scope() const;
@@ -549,6 +587,10 @@ AIPrintAssistantPanel::AIPrintAssistantPanel(wxWindow* parent, Plater* plater, s
     Bind(wxEVT_TIMER, [this](wxTimerEvent&) {
         if (m_slice)
             poll_slice();
+        else if (m_generation)
+            poll_generation();
+        else if (m_retry_at)
+            poll_retry();
         else
             poll_request();
     });
@@ -790,6 +832,8 @@ void AIPrintAssistantPanel::add_tool_card(const AI::ChatToolCall& call, const js
                  call.name == "get_model_context"  ? _L("Inspected models and colors") :
                  call.name == "list_model_tools"   ? _L("Read available model tools") :
                  call.name == "request_edit_scope" ? _L("Asked to change the edit scope") :
+                 call.name == "generate_model"     ? _L("Generated a model") :
+                 call.name == "get_model_source"   ? _L("Read the model's code") :
                  call.name == "propose_model_operation" && call.arguments.is_object() && call.arguments.contains("operation") &&
                          call.arguments["operation"].is_string() ?
                                                    model_action_label(call.arguments["operation"].get<std::string>()) :
@@ -997,6 +1041,7 @@ void AIPrintAssistantPanel::new_chat()
     m_activity.reset();
     m_tool_summary.clear();
     m_texts.clear();
+    m_generated.clear();
     m_messages->Clear(true);
     m_history = json::array();
     m_images.clear();
@@ -1007,11 +1052,11 @@ void AIPrintAssistantPanel::new_chat()
     m_prompt->Clear();
     m_welcome = add_card(_L("Let's work on your print"));
     static_cast<Label*>(m_welcome->GetChildren().GetFirst()->GetData())->SetFont(Label::Head_18);
-    add_text(m_welcome, _L("Describe what you want to make or improve, or attach a photo. I can edit models, add text, mix colors and "
-                           "adjust print settings."));
+    add_text(m_welcome, _L("Describe what you want to make or improve, or attach a photo. I can design new models, edit models, add "
+                           "text, mix colors and adjust print settings."));
     auto* examples = new wxBoxSizer(wxVERTICAL);
-    for (const auto& suggestion :
-         {_L("Add hello to the top of this model"), _L("Help with a failed print"), _L("Mix a color for this model")}) {
+    for (const auto& suggestion : {_L("Design a phone stand with a cable slot"), _L("Add hello to the top of this model"),
+                                   _L("Help with a failed print")}) {
         auto* button = assistant_button(m_welcome, suggestion);
         examples->Add(button, 0, wxEXPAND | wxBOTTOM, FromDIP(8));
         button->Bind(wxEVT_BUTTON, [this, suggestion](wxCommandEvent&) {
@@ -1048,6 +1093,9 @@ void AIPrintAssistantPanel::set_busy(bool busy)
     m_revert->Enable(!busy && m_preview && !m_preview->pending());
     if (m_native_apply)
         m_native_apply->Enable(!busy && m_model_operation.has_value());
+    for (const auto& card : m_generated)
+        if (card->discard)
+            card->discard->Enable(!busy && card->active);
     m_composer->Layout();
     Layout();
 }
@@ -1059,6 +1107,7 @@ void AIPrintAssistantPanel::show_error(const std::exception& error)
 void AIPrintAssistantPanel::cancel_request(const wxString& status)
 {
     m_timer.Stop();
+    m_retry_at.reset();
     if (m_result)
         m_result->cancelled.store(true);
     m_request.reset();
@@ -1118,11 +1167,14 @@ void AIPrintAssistantPanel::request_proposal()
         show_error(error);
     }
 }
-void AIPrintAssistantPanel::start_request()
+void AIPrintAssistantPanel::start_request(bool retry)
 {
-    if (++m_rounds > 32)
-        throw std::runtime_error("The assistant reached this message's work limit. The preview is still available: send Continue to "
-                                 "finish, Apply to keep it, or Dismiss to remove it.");
+    if (!retry) {
+        if (++m_rounds > 32)
+            throw std::runtime_error("The assistant reached this message's work limit. The preview is still available: send Continue "
+                                     "to finish, Apply to keep it, or Dismiss to remove it.");
+        m_attempt = 0;
+    }
     const auto body = AI::make_chat_request(m_provider, m_model, m_history);
     m_stream        = std::make_unique<AI::ChatStream>(m_provider, m_key);
     m_consumed      = 0;
@@ -1136,10 +1188,18 @@ void AIPrintAssistantPanel::start_request()
         request.header("Authorization", "Bearer " + m_key);
     else
         request.header("anthropic-version", "2023-06-01").header("x-api-key", m_key);
-    m_request = request.header("Content-Type", "application/json")
+    // A busy provider may queue the request and send only keep-alive comments for
+    // minutes, so the reply fails when nothing arrives rather than after a fixed time.
+    m_request_since = std::chrono::steady_clock::now();
+    m_request       = request.header("Content-Type", "application/json")
                     .timeout_connect(15)
-                    .timeout_max(180)
+                    .timeout_idle(90)
+                    .timeout_max(30 * 60)
                     .size_limit(2 * 1024 * 1024)
+                    .on_header_callback([result](std::string headers) {
+                        std::lock_guard<std::mutex> lock(result->mutex);
+                        result->headers = headers.substr(0, 16 * 1024);
+                    })
                     .set_post_body(body)
                     .on_progress([result](Http::Progress progress, bool& cancel) {
                         cancel = result->cancelled.load();
@@ -1157,8 +1217,9 @@ void AIPrintAssistantPanel::start_request()
                     .on_error(
                         [result, provider = m_provider, api_key = m_key](std::string body, std::string transport_error, unsigned status) {
                             std::lock_guard<std::mutex> lock(result->mutex);
-                            result->error = AI::provider_error(provider, status, body, api_key, transport_error);
-                            result->done  = true;
+                            result->error  = AI::provider_error(provider, status, body, api_key, transport_error);
+                            result->status = status;
+                            result->done   = true;
                         })
                     .perform();
     set_busy(true);
@@ -1170,24 +1231,44 @@ void AIPrintAssistantPanel::poll_request()
 {
     if (!m_result)
         return;
+    const auto provider = from_utf8(AI::provider_info(m_provider).name);
+    // After the last retry, the error says how often the request was sent.
+    auto failure = [this](const std::string& error) {
+        return m_attempt ? error + "\nTried " + std::to_string(m_attempt + 1) + " times." : error;
+    };
     try {
-        std::string delta, error;
+        std::string delta, error, headers;
+        unsigned    status = 0;
         bool        done;
         {
             std::lock_guard<std::mutex> lock(m_result->mutex);
-            done  = m_result->done;
-            error = m_result->error;
+            done    = m_result->done;
+            error   = m_result->error;
+            status  = m_result->status;
+            headers = m_result->headers;
             if (m_result->body.size() > m_consumed) {
                 delta      = m_result->body.substr(m_consumed);
                 m_consumed = m_result->body.size();
             }
         }
-        if (!error.empty())
-            throw std::runtime_error(error);
+        if (!error.empty()) {
+            const auto reason = status == 0   ? wxString::Format(_L("Could not reach %s"), provider) :
+                                status == 429 ? wxString::Format(_L("%s is limiting requests"), provider) :
+                                                wxString::Format(_L("%s is busy (HTTP %u)"), provider, status);
+            if (schedule_retry(AI::retryable_status(status), headers, reason))
+                return;
+            throw std::runtime_error(failure(error));
+        }
         if (!delta.empty()) {
             m_stream->feed(delta);
             render_stream();
             layout_chat();
+        }
+        // A busy provider can hold the request in a queue, sending only keep-alive comments.
+        if (!done && !m_stream->thinking() && m_stream->text().empty() && m_stream->active_tools().empty()) {
+            const auto waited = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - m_request_since);
+            if (waited.count() >= 10)
+                update_activity(wxString::Format(_L("Waiting for %s to respond... %ds"), provider, int(waited.count())));
         }
         if (!done)
             return;
@@ -1212,6 +1293,53 @@ void AIPrintAssistantPanel::poll_request()
             layout_chat();
             m_prompt->SetFocus();
         }
+    } catch (const AI::StreamError& error) {
+        if (schedule_retry(error.retryable, {}, wxString::Format(_L("%s is overloaded"), provider)))
+            return;
+        cancel_request(_L("Interrupted"));
+        show_error(std::runtime_error(failure(error.what())));
+    } catch (const std::exception& error) {
+        cancel_request(_L("Interrupted"));
+        show_error(error);
+    }
+}
+
+// Busy, overloaded and dropped requests are sent again after a pause while the
+// reply has shown nothing: no tool has run and no text would need replacing.
+bool AIPrintAssistantPanel::schedule_retry(bool retryable, const std::string& headers, const wxString& reason)
+{
+    const bool shown = m_stream && (!m_stream->text().empty() || !m_stream->active_tools().empty());
+    if (!retryable || shown || m_attempt >= AI::MAX_RETRIES)
+        return false;
+    const int seconds = AI::retry_delay_seconds(m_attempt, headers);
+    ++m_attempt;
+    m_timer.Stop();
+    if (m_result)
+        m_result->cancelled.store(true);
+    m_request.reset();
+    m_result.reset();
+    m_stream.reset();
+    m_retry_at     = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    m_retry_reason = reason;
+    poll_retry();
+    m_timer.Start(250);
+    return true;
+}
+
+void AIPrintAssistantPanel::poll_retry()
+{
+    if (!m_retry_at)
+        return;
+    const auto left = std::chrono::ceil<std::chrono::seconds>(*m_retry_at - std::chrono::steady_clock::now()).count();
+    if (left > 0) {
+        update_activity(wxString::Format(_L("%s. Retrying in %ds (attempt %d of %d)..."), m_retry_reason, int(left), m_attempt + 1,
+                                         AI::MAX_RETRIES + 1));
+        m_status->SetLabel(_L("Waiting to retry. Stop cancels the request."));
+        return;
+    }
+    m_retry_at.reset();
+    try {
+        start_request(true);
     } catch (const std::exception& error) {
         cancel_request(_L("Interrupted"));
         show_error(error);
@@ -1238,6 +1366,13 @@ void AIPrintAssistantPanel::run_tools()
                 if (request_scope(call))
                     return;
                 result = m_last_tool_result;
+            } else if (call.name == "generate_model") {
+                // poll_generation records this result and resumes the queue.
+                start_generation(call);
+                return;
+            } else if (call.name == "get_model_source") {
+                result         = ai_model_source(*m_plater, call.arguments);
+                m_tool_summary = from_utf8(result["name"].get<std::string>());
             } else if (call.name == "get_model_context" || call.name == "list_model_tools") {
                 if (!call.arguments.is_object() || !call.arguments.empty())
                     throw std::runtime_error("This tool takes no arguments.");
@@ -1446,6 +1581,226 @@ void AIPrintAssistantPanel::poll_slice()
     }
 }
 
+void AIPrintAssistantPanel::start_generation(const AI::ChatToolCall& call)
+{
+    auto        request = AI::parse_generate_model(call.arguments);
+    std::string volume_id;
+    if (!request.object_id.empty())
+        volume_id = std::to_string(ai_generated_part(*m_plater, request.object_id).id().id);
+    if (AI::find_openscad().empty())
+        throw std::runtime_error("OpenSCAD is not installed with this copy of Snapmaker Orca, so models cannot be generated from code. "
+                                 "Use the native model tools instead.");
+    auto run     = std::make_unique<AI::OpenSCADRun>(request.code);
+    m_generation = GenerationWait{call, std::move(request), std::move(volume_id), std::move(run), std::chrono::steady_clock::now()};
+    update_activity(_L("Generating model..."));
+    set_busy(true);
+    m_timer.Start(250);
+}
+
+void AIPrintAssistantPanel::poll_generation()
+{
+    if (!m_generation)
+        return;
+    try {
+        if (!m_generation->run->done()) {
+            const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - m_generation->since);
+            if (seconds.count() >= 2)
+                update_activity(wxString::Format(_L("Generating model... %ds"), int(seconds.count())));
+            return;
+        }
+        m_timer.Stop();
+        const auto wait = std::move(*m_generation);
+        m_generation.reset();
+        auto                        outcome = wait.run->take();
+        json                        result;
+        bool                        failed = false;
+        std::vector<AI::ImageInput> images;
+        if (outcome.ok) {
+            try {
+                result = import_generated(wait, std::move(outcome), images);
+            } catch (const std::exception& error) {
+                failed         = true;
+                result         = {{"status", "failed"}, {"message", error.what()}};
+                m_tool_summary = from_utf8(error.what());
+            }
+        } else {
+            failed = true;
+            result = {{"status", "failed"}, {"message", outcome.error}};
+            if (!outcome.messages.empty())
+                result["openscad_output"] = outcome.messages;
+            m_tool_summary = from_utf8(outcome.error);
+        }
+        add_tool_card(wait.call, result, failed);
+        m_history.push_back(AI::chat_tool_result(m_provider, wait.call, result, failed, images));
+        update_activity(_L("Thinking..."));
+        run_tools();
+    } catch (const std::exception& error) {
+        cancel_request(_L("Interrupted"));
+        show_error(error);
+    }
+}
+
+json AIPrintAssistantPanel::import_generated(const GenerationWait& wait, AI::OpenSCADRun::Result&& outcome, std::vector<AI::ImageInput>& images)
+{
+    auto card  = std::make_shared<GeneratedCard>();
+    card->name = wait.request.name;
+    if (!wait.volume_id.empty()) {
+        const auto& part = ai_generated_part(*m_plater, wait.request.object_id);
+        if (std::to_string(part.id().id) != wait.volume_id)
+            throw std::runtime_error("The model changed while OpenSCAD was running. Read get_model_context again.");
+        card->previous_mesh = part.mesh();
+        card->previous      = *ai_generated_models().find(part);
+    }
+    std::optional<Vec3d> plate_center;
+    if (auto* plate = m_plater->get_partplate_list().get_curr_plate())
+        plate_center = plate->get_center_origin();
+    auto edit       = AI::prepare_generated_model(m_plater->model(), std::move(outcome.mesh), wait.request, wait.volume_id, plate_center);
+    card->object_id = edit.result["object_id"].get<std::string>();
+    card->volume_id = edit.result["volume_id"].get<std::string>();
+    {
+        wxBusyCursor busy;
+        commit_generated(std::move(edit), wait.volume_id.empty() ? "Add generated model" : "Rebuild generated model");
+    }
+    const ModelObject* object = nullptr;
+    const ModelVolume* volume = nullptr;
+    for (const auto* candidate : m_plater->model().objects)
+        if (std::to_string(candidate->id().id) == card->object_id)
+            for (const auto* part : candidate->volumes)
+                if (std::to_string(part->id().id) == card->volume_id) {
+                    object = candidate;
+                    volume = part;
+                }
+    if (!volume)
+        throw std::runtime_error("The generated model was not found after importing it.");
+    ai_generated_models().record(*volume, wait.request.name, wait.request.code);
+    card->mesh       = AI::mesh_fingerprint(volume->mesh().its);
+    const auto size  = object->instance_bounding_box(0).size();
+    auto       tenth = [](double value) { return std::round(value * 10.) / 10.; };
+    json       result = {{"status", wait.volume_id.empty() ? "imported" : "rebuilt"},
+                         {"object_id", card->object_id},
+                         {"volume_id", card->volume_id},
+                         {"size_mm", {tenth(size.x()), tenth(size.y()), tenth(size.z())}},
+                         {"triangles", volume->mesh().facets_count()},
+                         {"openscad_seconds", tenth(outcome.seconds)},
+                         {"next", "The model is in the slicer now and the user can Discard it. Read get_model_context before other model "
+                                  "edits. To change this model, call generate_model again with its object_id."}};
+    if (!outcome.messages.empty())
+        result["openscad_output"] = outcome.messages;
+    // OpenSCAD calls a closed, valid solid "simple".
+    const auto simple = outcome.summary.is_object() ? outcome.summary.value(json::json_pointer("/geometry/simple"), true) : true;
+    if (!simple)
+        result["manifold"] = false;
+    if (!outcome.view_png_base64.empty() && !AI::uses_chat_completions(m_provider)) {
+        images.push_back({"image/png", std::move(outcome.view_png_base64), 512, 512});
+        result["rendered_view"] = "Attached: the imported mesh seen from the front left and above.";
+    }
+    const auto dimensions = wxString::Format(L"%g × %g × %g mm", tenth(size.x()), tenth(size.y()), tenth(size.z()));
+    m_tool_summary        = from_utf8(card->name) + "\n" + dimensions;
+    // The card is outside the activity disclosure, so Discard stays in view.
+    auto* panel = add_card(wait.volume_id.empty() ? _L("Added a generated model") : _L("Rebuilt a generated model"));
+    add_text(panel, "**" + from_utf8(card->name) + L"** · " + dimensions);
+    add_text(panel, wait.volume_id.empty() ? _L("It is on the plate now. Ask for changes and the assistant rebuilds it in place.") :
+                                             _L("Rebuilt in place, keeping its position and filament."));
+    auto* discard = assistant_button(panel, _L("Discard"));
+    panel->GetSizer()->Add(discard, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+    auto* outcome_label = add_label(panel, wxEmptyString, Label::Body_12, true);
+    outcome_label->Hide();
+    panel->GetSizer()->Add(outcome_label, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+    card->discard = discard;
+    card->outcome = outcome_label;
+    discard->Enable(!busy());
+    discard->Bind(wxEVT_BUTTON, [this, weak = std::weak_ptr<GeneratedCard>(card)](wxCommandEvent&) {
+        if (const auto card = weak.lock())
+            discard_generated(card);
+    });
+    m_generated.push_back(std::move(card));
+    layout_chat();
+    return result;
+}
+
+void AIPrintAssistantPanel::discard_generated(const std::shared_ptr<GeneratedCard>& card)
+{
+    if (busy() || !card->active)
+        return;
+    auto finish = [this, &card](const wxString& text) {
+        card->active = false;
+        if (card->discard)
+            card->discard->Disable();
+        if (card->outcome) {
+            card->outcome->SetLabel(text);
+            card->outcome->Show();
+        }
+        layout_chat(false);
+    };
+    try {
+        const ModelObject* object = nullptr;
+        const ModelVolume* volume = nullptr;
+        for (const auto* candidate : m_plater->model().objects)
+            if (std::to_string(candidate->id().id) == card->object_id)
+                for (const auto* part : candidate->volumes)
+                    if (std::to_string(part->id().id) == card->volume_id) {
+                        object = candidate;
+                        volume = part;
+                    }
+        if (!volume || AI::mesh_fingerprint(volume->mesh().its) != card->mesh) {
+            finish(_L("This model changed after it was generated, so Discard is no longer available. Use Undo instead."));
+            return;
+        }
+        std::string outcome;
+        if (!card->previous_mesh) {
+            AI::PreparedModelEdit edit;
+            edit.model         = m_plater->model();
+            edit.model_changed = true;
+            edit.model.delete_object(object->id());
+            commit_generated(std::move(edit), "Discard generated model");
+            finish(_L("Discarded. The model was removed from the plate."));
+            outcome = "removed it from the plate";
+        } else {
+            auto edit = AI::prepare_generated_model(m_plater->model(), *card->previous_mesh,
+                                                    {card->previous.name, card->previous.code, card->object_id}, card->volume_id,
+                                                    std::nullopt);
+            const auto restored_id = edit.result["volume_id"].get<std::string>();
+            commit_generated(std::move(edit), "Discard generated model");
+            for (const auto* candidate : m_plater->model().objects)
+                for (const auto* part : candidate->volumes)
+                    if (std::to_string(part->id().id) == restored_id)
+                        ai_generated_models().record(*part, card->previous.name, card->previous.code);
+            finish(_L("Discarded. The previous version is back."));
+            outcome = "restored the version it replaced";
+        }
+        m_history.push_back(AI::chat_user_message(m_provider, "[Application event] The user discarded the generated model \"" +
+                                                                  card->name + "\" (object " + card->object_id + "), which " + outcome +
+                                                                  ". Read get_model_context before other model edits."));
+        m_status->SetLabel(_L("Generated model discarded."));
+    } catch (const std::exception& error) {
+        show_error(error);
+    }
+}
+
+// generate_model and Discard change the project directly, each with its own Undo
+// step. During a pending live preview the change joins the preview instead, so
+// Dismiss still restores the state from before the preview.
+void AIPrintAssistantPanel::commit_generated(AI::PreparedModelEdit&& edit, const std::string& snapshot)
+{
+    end_preview_if_edited();
+    if (m_preview && m_preview->pending() && m_preview->steps() > 0) {
+        begin_preview();
+        {
+            Plater::SuppressSnapshots suppress(m_plater);
+            ai_commit_model_edit(*m_plater, std::move(edit), snapshot);
+        }
+        m_preview->record(ai_model_context(*m_plater, false).id);
+        update_preview();
+        return;
+    }
+    ai_commit_model_edit(*m_plater, std::move(edit), snapshot);
+    // An applied preview cannot be reverted over later changes.
+    if (m_preview) {
+        m_preview.reset();
+        update_preview();
+    }
+}
+
 // Every tool call in the history needs a result, or the provider rejects the next request.
 void AIPrintAssistantPanel::abandon_tools()
 {
@@ -1467,6 +1822,14 @@ void AIPrintAssistantPanel::abandon_tools()
             if (button)
                 button->Disable();
         m_scope_wait.reset();
+    }
+    if (m_generation) {
+        m_generation->run->cancel();
+        m_history.push_back(AI::chat_tool_result(
+            m_provider, m_generation->call,
+            {{"status", "stopped"}, {"message", "The user stopped the assistant while OpenSCAD was running. Nothing was imported."}},
+            true));
+        m_generation.reset();
     }
     for (const auto& call : m_tool_queue)
         m_history.push_back(AI::chat_tool_result(m_provider, call, {{"message", "Not run: the user stopped the assistant."}}, true));

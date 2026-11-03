@@ -376,6 +376,10 @@ AI::ModelToolContext ai_model_context(Plater& plater, bool include_selection)
                                                                               plate_index ==
                                                                                   plater.get_partplate_list().get_curr_plate_index();
         }
+    for (size_t oi = 0; oi < plater.model().objects.size(); ++oi)
+        for (size_t vi = 0; vi < plater.model().objects[oi]->volumes.size(); ++vi)
+            if (ai_generated_models().find(*plater.model().objects[oi]->volumes[vi]))
+                context.data["objects"][oi]["volumes"][vi]["generated_with_openscad"] = true;
     context.data["selected_parts"] = json::array();
     for (const auto index : plater.get_selection().get_volume_idxs()) {
         const auto* selected_volume = plater.get_selection().get_volume(index);
@@ -623,5 +627,42 @@ json ai_run_native_model_tool(Plater& plater, const AI::ModelOperation& operatio
     return {{"status", "native_action_dispatched"},
             {"action", action},
             {"note", "Inspect the workspace; native jobs or dialogs may still be active."}};
+}
+
+AI::GeneratedModels& ai_generated_models()
+{
+    static AI::GeneratedModels models;
+    return models;
+}
+
+const ModelVolume& ai_generated_part(Plater& plater, const std::string& object_id)
+{
+    for (const auto* object : plater.model().objects) {
+        if (std::to_string(object->id().id) != object_id)
+            continue;
+        const ModelVolume* found = nullptr;
+        for (const auto* volume : object->volumes)
+            if (ai_generated_models().find(*volume)) {
+                if (found)
+                    throw std::runtime_error("This object has several generated parts and cannot be rebuilt. Leave object_id empty to "
+                                             "create a new object.");
+                found = volume;
+            }
+        if (!found)
+            throw std::runtime_error("This object was not made by generate_model in this session, or its mesh changed since. Leave "
+                                     "object_id empty to create a new object, or use the native model tools.");
+        return *found;
+    }
+    throw std::runtime_error("The object no longer exists. Read get_model_context again.");
+}
+
+json ai_model_source(Plater& plater, const json& arguments)
+{
+    if (!arguments.is_object() || arguments.size() != 1 || !arguments.contains("object_id") || !arguments["object_id"].is_string())
+        throw std::runtime_error("get_model_source takes only object_id.");
+    const auto  object_id = arguments["object_id"].get<std::string>();
+    const auto& part      = ai_generated_part(plater, object_id);
+    const auto* source    = ai_generated_models().find(part);
+    return {{"object_id", object_id}, {"volume_id", std::to_string(part.id().id)}, {"name", source->name}, {"code", source->code}};
 }
 } // namespace Slic3r::GUI

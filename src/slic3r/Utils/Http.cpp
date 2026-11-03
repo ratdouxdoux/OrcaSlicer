@@ -562,6 +562,15 @@ Http& Http::timeout_max(long timeout)
     return *this;
 }
 
+Http& Http::timeout_idle(long timeout)
+{
+    if (p && timeout > 0) {
+        ::curl_easy_setopt(p->curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+        ::curl_easy_setopt(p->curl, CURLOPT_LOW_SPEED_TIME, timeout);
+    }
+    return *this;
+}
+
 Http& Http::size_limit(size_t sizeLimit)
 {
 	if (p) { p->limit = sizeLimit; }
