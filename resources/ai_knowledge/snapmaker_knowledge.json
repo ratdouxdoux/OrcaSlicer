@@ -36316,7 +36316,7 @@
     "material boundary",
     "parts falling off"
    ],
-   "summary" : "Different filaments meeting in one U1 part can bond poorly: PLA and PETG adhere weakly by nature, PLA Silk on ordinary PLA delaminates, and a small toolhead offset error can break off delicate sections. Enable beam interlocking with more depth and width, print hotter (silk about 230 Â°C) and slower, and redo the offset calibration with clean nozzles. Sources differ on pairs: Snapmaker's U1 print quality corpus supports dissimilar support only for Speed PLA with PETG HF, while the U1 wiki guide calls PLA+PETG and PLA+TPU common pairs.",
+   "summary" : "Different filaments meeting in one U1 part can bond poorly: PLA and PETG adhere weakly by nature, PLA Silk on ordinary PLA delaminates, and a small toolhead offset error can break off delicate sections. Enable beam interlocking with more depth and width, print hotter (silk about 230 °C) and slower, and redo the offset calibration with clean nozzles. Sources differ on pairs: Snapmaker's U1 print quality corpus supports dissimilar support only for Speed PLA with PETG HF, while the U1 wiki guide calls PLA+PETG and PLA+TPU common pairs.",
    "symptoms" : [
     "Different colors do not bond firmly; delamination at color or material boundaries",
     "A cone-shaped or small section comes off at the color change",
