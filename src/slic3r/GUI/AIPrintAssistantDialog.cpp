@@ -1195,7 +1195,7 @@ void AIPrintAssistantPanel::start_request(bool retry)
                     .timeout_connect(15)
                     .timeout_idle(90)
                     .timeout_max(30 * 60)
-                    .size_limit(2 * 1024 * 1024)
+                    .size_limit(AI::MAX_CHAT_RESPONSE_BYTES)
                     .on_header_callback([result](std::string headers) {
                         std::lock_guard<std::mutex> lock(result->mutex);
                         result->headers = headers.substr(0, 16 * 1024);
@@ -1204,9 +1204,10 @@ void AIPrintAssistantPanel::start_request(bool retry)
                     .on_progress([result](Http::Progress progress, bool& cancel) {
                         cancel = result->cancelled.load();
                         if (!cancel) {
+                            // The buffer only grows; copy just the new part.
                             std::lock_guard<std::mutex> lock(result->mutex);
-                            if (!result->done)
-                                result->body = progress.buffer;
+                            if (!result->done && progress.buffer.size() > result->body.size())
+                                result->body.append(progress.buffer, result->body.size(), std::string::npos);
                         }
                     })
                     .on_complete([result](std::string body, unsigned) {
