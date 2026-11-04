@@ -239,7 +239,10 @@ std::string make_chat_request(Provider provider, const std::string& model, const
         "For ambiguous failures ask follow-up questions. Do not expose private internal reasoning; explain your conclusions and actions "
         "briefly. ";
     json messages = history;
-    json request  = {{"model", model}, {"max_tokens", 8192}, {"stream", true}, {"tools", tool_definitions(provider)}};
+    // Every provider's default model reasons by default, and reasoning shares this
+    // per-response limit with the reply. Replies stream, so a high cap costs nothing
+    // unless it is used.
+    json request = {{"model", model}, {"max_tokens", 64000}, {"stream", true}, {"tools", tool_definitions(provider)}};
     if (uses_chat_completions(provider)) {
         // An untyped initializer list selects insert's multiple-elements overload.
         const json system_message = {{"role", "system"}, {"content", system}};
@@ -247,15 +250,12 @@ std::string make_chat_request(Provider provider, const std::string& model, const
         if (provider == Provider::OpenRouter)
             request["provider"] = {{"require_parameters", true}};
         else if (is_bigmodel(provider)) {
-            // GLM counts reasoning against the output budget and requires it
-            // verbatim on subsequent tool rounds. Keep it out of the transcript.
-            request["max_tokens"]  = 16384;
+            // GLM requires its reasoning verbatim on subsequent tool rounds. Keep it
+            // out of the transcript.
             request["thinking"]    = {{"type", "enabled"}, {"clear_thinking", false}};
             request["tool_stream"] = true;
-        } else if (provider == Provider::DeepSeek) {
-            request["max_tokens"] = 16384;
-            request["thinking"]   = {{"type", "enabled"}};
-        }
+        } else if (provider == Provider::DeepSeek)
+            request["thinking"] = {{"type", "enabled"}};
         request["tool_choice"] = "auto";
     } else {
         request["system"] = system;
@@ -359,7 +359,7 @@ json run_read_tool(const Context& context, const ChatToolCall& call)
 void ChatStream::feed(const std::string& bytes)
 {
     m_bytes += bytes.size();
-    if (m_bytes > 2 * 1024 * 1024)
+    if (m_bytes > MAX_CHAT_RESPONSE_BYTES)
         throw std::runtime_error("The assistant response exceeded its size limit.");
     for (char ch : bytes) {
         if (ch != '\n') {

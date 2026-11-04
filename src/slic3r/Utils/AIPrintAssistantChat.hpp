@@ -39,6 +39,10 @@ struct ScopeRequest
 };
 ScopeRequest parse_scope_request(const nlohmann::json& arguments);
 
+// A streamed reply wraps every token in its own event of up to about 250 bytes,
+// so a 64,000-token reply with its reasoning needs about 16 MB.
+inline constexpr size_t MAX_CHAT_RESPONSE_BYTES = 32 * 1024 * 1024;
+
 // An error event inside a streamed response. retryable marks a busy or
 // overloaded provider, as retryable_stream_error decides.
 class StreamError : public std::runtime_error

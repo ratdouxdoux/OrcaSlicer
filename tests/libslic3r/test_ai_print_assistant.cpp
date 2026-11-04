@@ -822,7 +822,7 @@ TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter paramet
             CHECK(request["tool_choice"] == "auto");
             CHECK(request["tool_stream"] == true);
             CHECK(request["thinking"] == json({{"type", "enabled"}, {"clear_thinking", false}}));
-            CHECK(request["max_tokens"] == 16384);
+            CHECK(request["max_tokens"] == 64000);
             CHECK_FALSE(request.contains("provider"));
             CHECK_FALSE(request.contains("system"));
             CHECK_FALSE(request.contains("output_config"));
@@ -840,7 +840,12 @@ TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter paramet
     CHECK(router["provider"]["require_parameters"] == true);
     CHECK_FALSE(router.contains("tool_stream"));
     CHECK_FALSE(router.contains("thinking"));
-    CHECK(router["max_tokens"] == 8192);
+    CHECK(router["max_tokens"] == 64000);
+    const auto anthropic =
+        json::parse(AI::make_chat_request(AI::Provider::Anthropic, AI::provider_info(AI::Provider::Anthropic).default_model,
+                                          json::array({AI::chat_user_message(AI::Provider::Anthropic, "Hello")})));
+    CHECK(anthropic["max_tokens"] == 64000);
+    CHECK_FALSE(anthropic.contains("thinking"));
 }
 
 TEST_CASE("Assistant direct providers preserve streamed reasoning through tool continuations", "[AIPrintAssistant][fast]")
@@ -969,7 +974,7 @@ TEST_CASE("Assistant chat rejects incomplete errored and malformed streams", "[A
                     "data: [DONE]\n\n");
         CHECK_THROWS(stream.tool_calls());
     }
-    SECTION("Excess response") { CHECK_THROWS(stream.feed(std::string(2 * 1024 * 1024 + 1, 'x'))); }
+    SECTION("Excess response") { CHECK_THROWS(stream.feed(std::string(AI::MAX_CHAT_RESPONSE_BYTES + 1, 'x'))); }
 }
 TEST_CASE("Assistant read tools use the actual catalog and never mutate settings", "[AIPrintAssistant][fast]")
 {
@@ -1261,7 +1266,7 @@ TEST_CASE("Assistant DeepSeek uses the official protocol for chat and JSON propo
     for (const auto* model : {"deepseek-flash", "deepseek-v4-pro"}) {
         const auto request = json::parse(AI::make_chat_request(provider, model, history));
         CHECK(request["thinking"] == json({{"type", "enabled"}}));
-        CHECK(request["max_tokens"] == 16384);
+        CHECK(request["max_tokens"] == 64000);
         CHECK(request["tool_choice"] == "auto");
         CHECK(request["messages"][1] == history[0]);
         CHECK_FALSE(request.contains("tool_stream"));
