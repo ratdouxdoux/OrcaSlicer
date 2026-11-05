@@ -828,7 +828,9 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     const bool have_skylane     = have_prime_tower && config->opt_bool("enable_skylane");
     toggle_line("enable_skylane", have_prime_tower && (!is_BBL_Printer && !bSEMM || have_skylane));
     toggle_line("skylane_max_dip", have_skylane);
-    toggle_line("skylane_ramp_volume", have_skylane);
+    toggle_line("skylane_wall_height", have_skylane);
+    toggle_line("skylane_profile_speeds", have_skylane);
+    toggle_line("skylane_ramp_volume", have_skylane && config->opt_bool("skylane_profile_speeds"));
     for (auto el : { "prime_tower_width", "prime_tower_brim_width"})
         toggle_line(el, have_prime_tower);
 
@@ -873,7 +875,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     toggle_line("prime_tower_brim_chamfer", have_prime_tower);
 
     if (have_skylane) {
-        for (auto el : {"wipe_tower_extra_flow", "prime_tower_enable_framework", "prime_tower_brim_chamfer",
+        for (auto el : {"wipe_tower_extra_flow", "wipe_tower_bridging", "prime_tower_enable_framework", "prime_tower_brim_chamfer",
                         "prime_tower_brim_chamfer_max_width", "wipe_tower_filament"})
             toggle_line(el, false);
         // Keep incompatible settings visible when enabled so they can be turned off.

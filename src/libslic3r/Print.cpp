@@ -487,19 +487,20 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
                    opt_key == "other_layers_print_sequence" || opt_key == "other_layers_print_sequence_nums" ||
                    opt_key == "wipe_tower_bridging" || opt_key == "wipe_tower_extra_flow" || opt_key == "wipe_tower_no_sparse_layers" ||
                    opt_key == "enable_skylane" || opt_key == "skylane_max_dip" || opt_key == "skylane_ramp_volume" ||
-                   opt_key == "flush_volumes_matrix" || opt_key == "prime_volume" || opt_key == "prime_tower_brim_chamfer" ||
-                   opt_key == "prime_tower_brim_chamfer_max_width" || opt_key == "flush_into_infill" || opt_key == "flush_into_support" ||
-                   opt_key == "initial_layer_infill_speed" || opt_key == "travel_speed" || opt_key == "travel_speed_z" ||
-                   opt_key == "initial_layer_speed" || opt_key == "initial_layer_travel_speed" || opt_key == "slow_down_layers" ||
-                   opt_key == "idle_temperature" || opt_key == "enable_tower_interface_features" ||
-                   opt_key == "filament_tower_ironing_area" || opt_key == "filament_tower_interface_pre_extrusion_dist" ||
-                   opt_key == "filament_tower_interface_pre_extrusion_length" || opt_key == "filament_tower_interface_print_temp" ||
-                   opt_key == "wipe_tower_cone_angle" || opt_key == "wipe_tower_extra_spacing" || opt_key == "wipe_tower_max_purge_speed" ||
-                   opt_key == "wipe_tower_wall_type" || opt_key == "wipe_tower_extra_rib_length" || opt_key == "wipe_tower_rib_width" ||
-                   opt_key == "wipe_tower_fillet_wall" || opt_key == "wipe_tower_wall_gap" || opt_key == "prime_tower_enable_framework" ||
-                   opt_key == "wipe_tower_filament" || opt_key == "wiping_volumes_extruders" || opt_key == "dithering_local_z_infill" ||
-                   opt_key == "enable_filament_ramming" || opt_key == "purge_in_prime_tower" || opt_key == "z_offset" ||
-                   opt_key == "support_multi_bed_types" || opt_key == "filament_adhesiveness_category") {
+                   opt_key == "skylane_wall_height" || opt_key == "skylane_profile_speeds" || opt_key == "flush_volumes_matrix" ||
+                   opt_key == "prime_volume" || opt_key == "prime_tower_brim_chamfer" || opt_key == "prime_tower_brim_chamfer_max_width" ||
+                   opt_key == "flush_into_infill" || opt_key == "flush_into_support" || opt_key == "initial_layer_infill_speed" ||
+                   opt_key == "travel_speed" || opt_key == "travel_speed_z" || opt_key == "initial_layer_speed" ||
+                   opt_key == "initial_layer_travel_speed" || opt_key == "slow_down_layers" || opt_key == "idle_temperature" ||
+                   opt_key == "enable_tower_interface_features" || opt_key == "filament_tower_ironing_area" ||
+                   opt_key == "filament_tower_interface_pre_extrusion_dist" || opt_key == "filament_tower_interface_pre_extrusion_length" ||
+                   opt_key == "filament_tower_interface_print_temp" || opt_key == "wipe_tower_cone_angle" ||
+                   opt_key == "wipe_tower_extra_spacing" || opt_key == "wipe_tower_max_purge_speed" || opt_key == "wipe_tower_wall_type" ||
+                   opt_key == "wipe_tower_extra_rib_length" || opt_key == "wipe_tower_rib_width" || opt_key == "wipe_tower_fillet_wall" ||
+                   opt_key == "wipe_tower_wall_gap" || opt_key == "prime_tower_enable_framework" || opt_key == "wipe_tower_filament" ||
+                   opt_key == "wiping_volumes_extruders" || opt_key == "dithering_local_z_infill" || opt_key == "enable_filament_ramming" ||
+                   opt_key == "purge_in_prime_tower" || opt_key == "z_offset" || opt_key == "support_multi_bed_types" ||
+                   opt_key == "filament_adhesiveness_category") {
             steps.emplace_back(psWipeTower);
             steps.emplace_back(psSkirtBrim);
         } else if (opt_key == "filament_soluble" || opt_key == "filament_is_support" || opt_key == "independent_support_layer_height") {
@@ -3050,7 +3051,10 @@ void Print::_make_wipe_tower()
                                                   {scale_(origin.x()), scale_(origin.y())});
     } else {
         // Initialize the wipe tower.
-        WipeTower2 wipe_tower(m_config, m_default_region_config, m_plate_index, m_origin, wipe_volumes,
+        PrintConfig tower_config = m_config;
+        if (SkyLaneTower::enabled(m_config))
+            tower_config.wipe_tower_wall_type.value = WipeTowerWallType::wtwRectangle;
+        WipeTower2 wipe_tower(tower_config, m_default_region_config, m_plate_index, m_origin, wipe_volumes,
                               m_wipe_tower_data.tool_ordering.first_extruder());
         const std::vector<std::pair<coordf_t, std::vector<GCode::LayerToPrint>>> layers_to_print = GCode::collect_layers_to_print(*this);
         size_t layers_to_print_idx = 0;
@@ -3189,6 +3193,20 @@ void Print::_make_wipe_tower()
         m_wipe_tower_data.height            = wipe_tower.get_wipe_tower_height();
         m_wipe_tower_data.bbx               = wipe_tower.get_bbx();
         m_wipe_tower_data.rib_offset = wipe_tower.get_rib_offset();
+        m_wipe_tower_data.skylane.reset();
+        if (SkyLaneTower::enabled(m_config)) {
+            auto skylane = std::make_shared<SkyLaneTower>();
+            if (!skylane->plan(m_config, m_wipe_tower_data.tool_changes, m_wipe_tower_data.local_z_tool_changes,
+                               m_wipe_tower_data.brim_width))
+                throw Slic3r::InvalidArgument("SkyLane could not plan this tower; increase its width or adjust the dip limit");
+            skylane->preview(m_wipe_tower_data.tool_changes, m_wipe_tower_data.local_z_tool_changes);
+            m_wipe_tower_data.depth             = skylane->depth();
+            m_wipe_tower_data.bbx               = skylane->bounds();
+            m_wipe_tower_data.z_and_depth_pairs = {{0.f, skylane->depth()}, {m_wipe_tower_data.height, 0.f}};
+            m_wipe_tower_data.rib_offset        = Vec2f::Zero();
+            m_wipe_tower_data.skylane           = std::move(skylane);
+        }
+        const auto& tower_outlines = m_wipe_tower_data.skylane ? m_wipe_tower_data.skylane->outlines() : wipe_tower.get_outer_wall();
 
         if (m_config.enable_skylane) {
             m_wipe_tower_data.final_purge = std::make_unique<WipeTower::ToolChangeResult>();
@@ -3213,12 +3231,13 @@ void Print::_make_wipe_tower()
             m_wipe_tower_data.final_purge = Slic3r::make_unique<WipeTower::ToolChangeResult>(wipe_tower.tool_change((unsigned int) (-1)));
         }
 
-        m_wipe_tower_data.used_filament         = wipe_tower.get_used_filament();
+        m_wipe_tower_data.used_filament         = m_wipe_tower_data.skylane ? m_wipe_tower_data.skylane->used_filament() :
+                                                                              wipe_tower.get_used_filament();
         m_wipe_tower_data.number_of_toolchanges = wipe_tower.get_number_of_toolchanges();
-        m_wipe_tower_data.construct_mesh(wipe_tower.width(), wipe_tower.get_depth(), wipe_tower.get_wipe_tower_height(),
+        m_wipe_tower_data.construct_mesh(wipe_tower.width(), m_wipe_tower_data.depth, wipe_tower.get_wipe_tower_height(),
                                          wipe_tower.get_brim_width(), wipe_tower.get_is_rib_wall(), wipe_tower.get_rib_width(),
                                          wipe_tower.get_rib_length(), !m_config.enable_skylane && config().wipe_tower_fillet_wall.value);
-        if (m_config.enable_skylane && !wipe_tower.get_outer_wall().empty()) {
+        if (m_config.enable_skylane && !tower_outlines.empty()) {
             // Use the emitted contours for Prepare view too: the stock rib
             // helper assumes diagonal arms and cannot represent SkyLane's
             // 45-degree arms, cones or centred depth steps.
@@ -3252,12 +3271,12 @@ void Print::_make_wipe_tower()
             mesh.real_wipe_tower_mesh = TriangleMesh();
             mesh.real_brim_mesh       = TriangleMesh();
             float bottom              = 0.f;
-            for (const auto& [top, outlines] : wipe_tower.get_outer_wall()) {
+            for (const auto& [top, outlines] : tower_outlines) {
                 if (top > bottom && !outlines.empty())
                     mesh.real_wipe_tower_mesh.merge(slab(outlines.front(), bottom, top));
                 bottom = top;
             }
-            const auto& base = *wipe_tower.get_outer_wall().begin();
+            const auto& base = *tower_outlines.begin();
             for (size_t i = 1; i < base.second.size(); ++i)
                 mesh.real_brim_mesh.merge(slab(base.second[i], 0.f, base.first));
             mesh.bottom = Polygon(base.second.back().points);
@@ -3272,7 +3291,7 @@ void Print::_make_wipe_tower()
                                                   m_wipe_tower_data.brim_width, config().wipe_tower_rotation_angle,
                                                   m_config.enable_skylane ? 0. : config().wipe_tower_cone_angle.value,
                                                   {scale_(origin.x()), scale_(origin.y())});
-        m_fake_wipe_tower.outer_wall = wipe_tower.get_outer_wall();
+        m_fake_wipe_tower.outer_wall = tower_outlines;
     }
 }
 

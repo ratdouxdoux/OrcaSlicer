@@ -15,6 +15,7 @@
 #include "GCode/SpiralVase.hpp"
 #include "GCode/ToolOrdering.hpp"
 #include "GCode/WipeTower.hpp"
+#include "GCode/SkyLaneTower.hpp"
 #include "GCode/SeamPlacer.hpp"
 #include "GCode/GCodeProcessor.hpp"
 #include "EdgeGrid.hpp"
@@ -72,38 +73,39 @@ public:
 
 class WipeTowerIntegration {
 public:
-    WipeTowerIntegration(
-        const PrintConfig                                           &print_config,
-        // BBS: add partplate logic
-        const int                                                    plate_idx,
-        const Vec3d                                                  plate_origin,
-        const std::vector<WipeTower::ToolChangeResult>              &priming,
-        const std::vector<std::vector<WipeTower::ToolChangeResult>> &tool_changes,
-        const std::vector<std::vector<WipeTower::ToolChangeResult>> &local_z_tool_changes,
-        const std::vector<std::vector<WipeTower::box_coordinates>>  &local_z_reserve_boxes,
-        const WipeTower::ToolChangeResult                           &final_purge,
-        const float                                                  wipe_tower_depth,
-        const BoundingBoxf                                           &wipe_tower_bbx) :
-        m_left(/*float(print_config.wipe_tower_x.value)*/ 0.f),
-        m_right(float(/*print_config.wipe_tower_x.value +*/ print_config.prime_tower_width.value)),
-        m_wipe_tower_pos(float(print_config.wipe_tower_x.get_at(plate_idx)), float(print_config.wipe_tower_y.get_at(plate_idx))),
-        m_wipe_tower_rotation(float(print_config.wipe_tower_rotation_angle)),
-        m_wipe_tower_depth(wipe_tower_depth),
-        m_wipe_tower_bbx(wipe_tower_bbx),
-        m_extruder_offsets(print_config.extruder_offset.values),
-        m_priming(priming),
-        m_tool_changes(tool_changes),
-        m_local_z_tool_changes(local_z_tool_changes),
-        m_local_z_reserve_boxes(local_z_reserve_boxes),
-        m_final_purge(final_purge),
-        m_layer_idx(-1),
-        m_tool_change_idx(0),
-        m_local_z_tool_change_idx(local_z_tool_changes.size(), 0),
-        m_local_z_reserve_slot_idx(local_z_reserve_boxes.size(), 0),
-        m_plate_origin(plate_origin),
-        m_single_extruder_multi_material(print_config.single_extruder_multi_material),
-        m_enable_timelapse_print(print_config.timelapse_type.value == TimelapseType::tlSmooth),
-        m_is_first_print(true)
+    WipeTowerIntegration(const PrintConfig& print_config,
+                         // BBS: add partplate logic
+                         const int                                                    plate_idx,
+                         const Vec3d                                                  plate_origin,
+                         const std::vector<WipeTower::ToolChangeResult>&              priming,
+                         const std::vector<std::vector<WipeTower::ToolChangeResult>>& tool_changes,
+                         const std::vector<std::vector<WipeTower::ToolChangeResult>>& local_z_tool_changes,
+                         const std::vector<std::vector<WipeTower::box_coordinates>>&  local_z_reserve_boxes,
+                         const WipeTower::ToolChangeResult&                           final_purge,
+                         const float                                                  wipe_tower_depth,
+                         const BoundingBoxf&                                          wipe_tower_bbx,
+                         const SkyLaneTower*                                          skylane = nullptr)
+        : m_left(/*float(print_config.wipe_tower_x.value)*/ 0.f)
+        , m_right(float(/*print_config.wipe_tower_x.value +*/ print_config.prime_tower_width.value))
+        , m_wipe_tower_pos(float(print_config.wipe_tower_x.get_at(plate_idx)), float(print_config.wipe_tower_y.get_at(plate_idx)))
+        , m_wipe_tower_rotation(float(print_config.wipe_tower_rotation_angle))
+        , m_wipe_tower_depth(wipe_tower_depth)
+        , m_wipe_tower_bbx(wipe_tower_bbx)
+        , m_extruder_offsets(print_config.extruder_offset.values)
+        , m_priming(priming)
+        , m_tool_changes(tool_changes)
+        , m_local_z_tool_changes(local_z_tool_changes)
+        , m_local_z_reserve_boxes(local_z_reserve_boxes)
+        , m_final_purge(final_purge)
+        , m_layer_idx(-1)
+        , m_tool_change_idx(0)
+        , m_local_z_tool_change_idx(local_z_tool_changes.size(), 0)
+        , m_local_z_reserve_slot_idx(local_z_reserve_boxes.size(), 0)
+        , m_plate_origin(plate_origin)
+        , m_single_extruder_multi_material(print_config.single_extruder_multi_material)
+        , m_enable_timelapse_print(print_config.timelapse_type.value == TimelapseType::tlSmooth)
+        , m_is_first_print(true)
+        , m_skylane(skylane)
     {}
 
     std::string prime(GCode &gcodegen);
@@ -133,8 +135,10 @@ public:
 private:
     WipeTowerIntegration& operator=(const WipeTowerIntegration&);
     std::string append_tcr(GCode &gcodegen, const WipeTower::ToolChangeResult &tcr, int new_extruder_id, double z = -1.) const;
-    std::string append_tcr2(GCode &gcodegen, const WipeTower::ToolChangeResult &tcr, int new_extruder_id, double z = -1.) const;
+    const SkyLaneTower*   m_skylane = nullptr;
     std::string           append_skylane_tcr(GCode& gcodegen, const WipeTower::ToolChangeResult& tcr) const;
+    std::string append_toolchange_tcr2(GCode& gcodegen, const WipeTower::ToolChangeResult& tcr, int new_extruder_id, double z) const;
+    std::string append_tcr2(GCode &gcodegen, const WipeTower::ToolChangeResult &tcr, int new_extruder_id, double z = -1.) const;
     Polyline detour_around_wipe_tower(const Point &start_pos, 
         const Point &target_pos, const BoundingBox &avoid_bbx) const;
     Polyline generate_path_to_wipe_tower(const Point& start_pos, const Point& end_pos, 

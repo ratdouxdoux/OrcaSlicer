@@ -1242,6 +1242,8 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionBool,                enable_skylane))
     ((ConfigOptionFloat,               skylane_max_dip))
     ((ConfigOptionFloat,               skylane_ramp_volume))
+    ((ConfigOptionFloat,               skylane_wall_height))
+    ((ConfigOptionBool,                skylane_profile_speeds))
     ((ConfigOptionString,              change_filament_gcode))
     ((ConfigOptionString,              change_extrusion_role_gcode))
     ((ConfigOptionFloats,              travel_speed))

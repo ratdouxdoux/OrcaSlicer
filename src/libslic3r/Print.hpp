@@ -14,6 +14,7 @@
 #include "GCode/ToolOrdering.hpp"
 #include "GCode/WipeTower.hpp"
 #include "GCode/WipeTower2.hpp"
+#include "GCode/SkyLaneTower.hpp"
 #include "GCode/ThumbnailData.hpp"
 #include "GCode/GCodeProcessor.hpp"
 #include "MultiMaterialSegmentation.hpp"
@@ -714,6 +715,7 @@ struct WipeTowerData
     float                                                 depth;
     std::vector<std::pair<float, float>>                  z_and_depth_pairs;
     std::vector<std::vector<WipeTower::box_coordinates>>  local_z_reserve_boxes;
+    std::shared_ptr<SkyLaneTower>                         skylane;
     float                                                 brim_width;
     float                                                 height;
     BoundingBoxf bbx;
@@ -730,6 +732,7 @@ struct WipeTowerData
         depth = 0.f;
         local_z_reserve_boxes.clear();
         brim_width = 0.f;
+        skylane.reset();
         wipe_tower_mesh_data = std::nullopt;
     }
 

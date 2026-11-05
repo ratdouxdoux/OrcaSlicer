@@ -78,6 +78,10 @@ public:
         // SkyLane owns its pass heights and ends at this clearance plane.
         // Negative means the conventional, single-plane tower integration.
         float skylane_safe_z = -1.f;
+        float skylane_z        = -1.f;
+        Vec2f skylane_park     = Vec2f::Zero();
+        bool  skylane_has_park = false;
+        bool  skylane_ram      = false;
         Vec2f tool_change_start_pos;
 
         // Pass a polyline so that normal G-code generator can do a wipe for us.

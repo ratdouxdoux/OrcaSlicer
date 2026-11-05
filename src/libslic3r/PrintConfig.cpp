@@ -5514,6 +5514,23 @@ void PrintConfigDef::init_fff_params()
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(4.));
 
+    def           = this->add("skylane_wall_height", coFloat);
+    def->label    = L("SkyLane fence height");
+    def->tooltip  = L("Maximum height of the separate fence around lanes growing from the bed. The fence needs a sufficiently wide brim. "
+                       "Zero disables it.");
+    def->sidetext = "mm";
+    def->min      = 0;
+    def->max      = 1000;
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(1000.));
+
+    def          = this->add("skylane_profile_speeds", coBool);
+    def->label   = L("SkyLane profile speeds");
+    def->tooltip = L("Use filament volumetric limits, tower and first-layer speeds, and the purge ramp. When disabled, use SkyLane's fixed "
+                     "speed limits without a ramp.");
+    def->mode    = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(true));
+
     def = this->add("wipe_tower_no_sparse_layers", coBool);
     def->label = L("No sparse layers (beta)");
     def->tooltip = L("If enabled, the wipe tower will not be printed on layers with no tool changes. "

@@ -2993,6 +2993,8 @@ void TabPrint::build()
         optgroup->append_single_option_line("wipe_tower_fillet_wall", "multimaterial_settings_prime_tower#fillet-wall");
         optgroup->append_single_option_line("enable_skylane");
         optgroup->append_single_option_line("skylane_max_dip");
+        optgroup->append_single_option_line("skylane_wall_height");
+        optgroup->append_single_option_line("skylane_profile_speeds");
         optgroup->append_single_option_line("skylane_ramp_volume");
         optgroup->append_single_option_line("wipe_tower_no_sparse_layers", "multimaterial_settings_prime_tower#no-sparse-layers");
         optgroup->append_single_option_line("wipe_tower_wall_gap", "multimaterial_settings_prime_tower#wall-gap");

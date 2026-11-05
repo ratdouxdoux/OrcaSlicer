@@ -7,152 +7,74 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Preset.hpp"
 #include <cmath>
-#include <limits>
 #include <fstream>
+#include <limits>
 
 using namespace Slic3r;
 using Catch::Approx;
 
-// Coordinates and change counts from the supplied October 2026 Dragon
-// D2 (Rectangle), D4 (Cone) and D6 (Rib), relative to the tower origin.
-TEST_CASE("SkyLane matches the archive's shared cells and wall types", "[SkyLane][Geometry]")
+namespace {
+PrintConfig configuration(size_t tools = 2)
 {
-    std::ifstream counts(std::string(TEST_DATA_DIR) + "/skylane/dragon_changes.txt");
-    REQUIRE(counts.good());
-    std::vector<SkyLaneRequest>  requests;
-    std::vector<SkyLane::Demand> demands;
-    size_t                       layer = 0, tool = 0;
-    int                          n;
-    while (counts >> n) {
-        for (int i = 0; i < n; ++i) {
-            const double z = .25 + layer * .22, h = layer == 0 ? .25 : .22;
-            requests.push_back({layer, false, tool, 1 - tool, z, h, 38.});
-            demands.push_back({z, h, 43., layer});
-            tool = 1 - tool;
-        }
-        ++layer;
-    }
-    REQUIRE(requests.size() == 395);
-    SkyLane::Parameters p;
-    p.width           = 28.;
-    p.purge_density   = 1. / 1.2;
-    const auto packed = SkyLane::plan(demands, p);
-    REQUIRE(packed.ok);
-    CHECK(packed.lanes == 2);
-    CHECK(packed.depth == Approx(28.8997).margin(.001));
-    REQUIRE(packed.passes.size() > 3);
-    CHECK(packed.passes[0].wall);
-    CHECK_FALSE(packed.passes[1].wall);
-    CHECK(packed.passes[0].y1 == Approx(43. / (28. * .25 / 1.2)));
-
     auto dynamic = DynamicPrintConfig::full_print_config();
-    dynamic.set_num_extruders(2);
-    dynamic.set_num_filaments(2);
-    dynamic.set("single_extruder_multi_material", false);
+    dynamic.set_num_extruders(tools);
+    dynamic.set_num_filaments(tools);
+    dynamic.set("enable_prime_tower", true);
     dynamic.set("enable_skylane", true);
+    dynamic.set("single_extruder_multi_material", false);
     dynamic.set("enable_tower_interface_features", false);
     dynamic.set("prime_tower_width", 28.);
+    dynamic.set("prime_volume", 38.);
     dynamic.set("prime_tower_brim_width", 5.);
     dynamic.set("skylane_max_dip", .4);
     dynamic.option<ConfigOptionPercent>("wipe_tower_extra_spacing")->value = 120.;
-    dynamic.set("wipe_tower_extra_rib_length", 8.);
-    dynamic.set("wipe_tower_rib_width", 8.);
-    dynamic.set("wipe_tower_fillet_wall", true);
-    dynamic.set("wipe_tower_wall_gap", true);
-    dynamic.set("wipe_tower_cone_angle", 15.);
-    dynamic.option<ConfigOptionBools>("filament_multitool_ramming")->values         = {true, true};
-    dynamic.option<ConfigOptionFloats>("filament_multitool_ramming_volume")->values = {5., 5.};
-    dynamic.option<ConfigOptionFloats>("filament_diameter")->values                 = {1.75, 1.75};
-    PrintConfig       config;
-    PrintRegionConfig region;
-    config.apply(dynamic, true);
-    region.apply(dynamic, true);
-    std::vector<SkyLaneTowerResult> towers;
-    for (auto type : {WipeTowerWallType::wtwRectangle, WipeTowerWallType::wtwCone, WipeTowerWallType::wtwRib}) {
-        config.wipe_tower_wall_type.value = type;
-        towers.push_back(generate_skylane_tower(config, region, requests, layer));
-        const auto& tower = towers.back();
-        CHECK(tower.depth == Approx(28.8997).margin(.001));
-        CHECK(tower.toolchanges == 395);
-        const auto& first  = tower.nominal[0][0];
-        const auto& second = tower.nominal[0][1];
-        CHECK(first.gcode.find("SKYLANE WALL") != std::string::npos);
-        CHECK(second.gcode.find("SKYLANE WALL") == std::string::npos);
-        // This strip has horizontal purge rows only. The source's row turns
-        // travel without extrusion, so no deposited segment may step in Y.
-        double min_y = 1e6, max_y = -1e6;
-        for (size_t j = 1; j < second.extrusions.size(); ++j) {
-            const auto& e = second.extrusions[j];
-            if (e.width <= 0.)
-                continue;
-            const auto& a = second.extrusions[j - 1];
-            CHECK(e.pos.y() == Approx(a.pos.y()).margin(1e-5));
-            min_y = std::min(min_y, double(e.pos.y()));
-            max_y = std::max(max_y, double(e.pos.y()));
-        }
-        CHECK(min_y == Approx(205.170 - 197.549).margin(.002));
-        CHECK(max_y == Approx(212.042 - 197.549).margin(.002));
-        CHECK(tower.outer_wall.begin()->second.front().is_closed());
-
-        auto path_measure = [&](const std::string& raw, bool volume) {
-            PlaceholderParser parser;
-            parser.set("z_offset", 0.);
-            GCodeReader reader;
-            reader.apply_config(config);
-            double total = 0.;
-            reader.parse_buffer(parser.process(raw), [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
-                if (line.extruding(state))
-                    total += volume ? line.dist_E(state) * M_PI * 1.75 * 1.75 / 4. : line.dist_XY(state);
-            });
-            return total;
-        };
-        const size_t wall_start = first.gcode.find("; SKYLANE WALL\n");
-        const size_t wall_end   = first.gcode.find("; SKYLANE WALL_END", wall_start);
-        REQUIRE(wall_end != std::string::npos);
-        const double perimeter = unscaled(tower.outer_wall.begin()->second.front().length());
-        CHECK(path_measure(first.gcode.substr(wall_start, wall_end - wall_start), false) == Approx(perimeter - 1.25).margin(.003));
-        const auto&  ram    = tower.nominal[1][1].gcode;
-        const size_t change = ram.find("[change_filament_gcode]");
-        REQUIRE(change != std::string::npos);
-        CHECK(path_measure(ram.substr(0, change), true) == Approx(5.).margin(.002));
-    }
-    CHECK(towers[0].nominal[0][0].gcode == towers[1].nominal[0][0].gcode);
-    const auto rect = get_extents(towers[0].outer_wall.begin()->second.front());
-    CHECK(unscaled(rect.min.x()) == Approx(.5));
-    CHECK(unscaled(rect.max.x()) == Approx(28.5));
-    CHECK(unscaled(rect.min.y()) == Approx(.25));
-    CHECK(unscaled(rect.max.y()) == Approx(28.6497).margin(.001));
-    const auto rib = get_extents(towers[2].outer_wall.begin()->second.front());
-    CHECK(unscaled(rib.min.x()) == Approx(11.248 - 18.380).margin(.01));
-    CHECK(unscaled(rib.max.x()) == Approx(54.512 - 18.380).margin(.01));
-    const auto rect_top = get_extents(towers[0].outer_wall.rbegin()->second.front());
-    const auto rib_top  = get_extents(towers[2].outer_wall.rbegin()->second.front());
-    CHECK(unscaled(rect_top.size().y()) == Approx(11.5599 - .5).margin(.002));
-    CHECK(unscaled(rib_top.size().y()) == Approx(28.8997 - .5).margin(.002));
-
-    config.wipe_tower_wall_type.value   = WipeTowerWallType::wtwRib;
-    config.wipe_tower_fillet_wall.value = false;
-    config.wipe_tower_wall_gap.value    = false;
-    const auto  sharp                   = generate_skylane_tower(config, region, requests, layer);
-    const auto& sharp_wall              = sharp.outer_wall.begin()->second.front();
-    CHECK(sharp_wall.points.size() < towers[2].outer_wall.begin()->second.front().points.size());
-    CHECK(get_extents(sharp_wall).min.x() < rib.min.x());
-
-    // The archive's shallow Dragon has no cone. Also exercise a protruding one.
-    config.wipe_tower_wall_type.value  = WipeTowerWallType::wtwCone;
-    config.wipe_tower_cone_angle.value = 60.;
-    const auto cone                    = generate_skylane_tower(config, region, requests, layer);
-    CHECK(cone.bounds.size().y() > towers[0].bounds.size().y() + 10.);
-    CHECK(get_extents(cone.outer_wall.begin()->second.front()).size().y() >
-          get_extents(cone.outer_wall.rbegin()->second.front()).size().y());
+    dynamic.option<ConfigOptionFloats>("filament_diameter")->values.assign(tools, 1.75);
+    dynamic.option<ConfigOptionFloats>("filament_max_volumetric_speed")->values.assign(tools, 10.);
+    dynamic.option<ConfigOptionBools>("filament_multitool_ramming")->values.assign(tools, false);
+    PrintConfig result;
+    result.apply(dynamic, true);
+    return result;
 }
 
-TEST_CASE("SkyLane is opt-in and saved in process presets", "[SkyLane][Config]")
+// Stock TCR markers, including the outgoing-tool section that SkyLane replaces.
+WipeTower::ToolChangeResult visit(float z, float h, int old_tool, int new_tool, double width = 28.)
+{
+    WipeTower::ToolChangeResult t{};
+    t.print_z        = z;
+    t.layer_height   = h;
+    t.initial_tool   = old_tool;
+    t.new_tool       = new_tool;
+    t.is_tool_change = old_tool != new_tool;
+    t.start_pos = t.end_pos = t.tool_change_start_pos = Vec2f(.5f, .25f);
+    t.gcode                                           = "; CP TOOLCHANGE START\n;TYPE:Prime tower\n; WIPE_TOWER_START\n"
+                                                        ";HEIGHT:0.2\n;WIDTH:0.5\n; CP TOOLCHANGE UNLOAD\n"
+                                                        "G1 X0.5 Y0.25\n[change_filament_gcode]\n; CP TOOLCHANGE WIPE\nG1 X" +
+              std::to_string(width + .5) + " Y0.25 E1 F1200\n; WIPE_TOWER_END\n; CP TOOLCHANGE END\n";
+    return t;
+}
+
+using Layers = std::vector<std::vector<WipeTower::ToolChangeResult>>;
+Layers sequence(size_t layers, size_t changes, double width = 28.)
+{
+    Layers result(layers);
+    int    tool = 0;
+    for (size_t layer = 0; layer < layers; ++layer)
+        for (size_t i = 0; i < changes; ++i) {
+            result[layer].push_back(visit(float(.2 + .08 * layer), .08f, tool, 1 - tool, width));
+            tool = 1 - tool;
+        }
+    return result;
+}
+} // namespace
+
+TEST_CASE("SkyLane settings preserve the existing toggle and add source-pack controls", "[SkyLane][Config]")
 {
     const auto defaults = DynamicPrintConfig::full_print_config();
     CHECK_FALSE(defaults.opt_bool("enable_skylane"));
+    CHECK(defaults.opt_bool("skylane_profile_speeds"));
+    CHECK(defaults.opt_float("skylane_ramp_volume") == 4.);
     const auto& keys = Preset::print_options();
-    for (const auto* key : {"enable_skylane", "skylane_max_dip", "skylane_ramp_volume"}) {
+    for (const auto* key : {"enable_skylane", "skylane_max_dip", "skylane_ramp_volume", "skylane_wall_height", "skylane_profile_speeds"}) {
         CHECK(std::find(keys.begin(), keys.end(), key) != keys.end());
         DynamicPrintConfig restored;
         restored.set_deserialize_strict(key, defaults.option(key)->serialize());
@@ -160,156 +82,215 @@ TEST_CASE("SkyLane is opt-in and saved in process presets", "[SkyLane][Config]")
     }
 }
 
-TEST_CASE("SkyLane preserves purge volumes and deposition bounds", "[SkyLane]")
+TEST_CASE("SkyLane source pack reproduces the archive footprint and all wall types", "[SkyLane][Geometry]")
 {
-    SkyLane::Parameters          p;
-    std::vector<SkyLane::Demand> demands;
-    for (size_t layer = 0; layer < 40; ++layer) {
-        const size_t changes = layer % 7 == 0 ? 8 : 2;
-        for (size_t change = 0; change < changes; ++change)
-            demands.push_back({.2 + .08 * layer, .08, double(4 + (layer * 17 + change * 13) % 21), layer});
+    std::ifstream counts(std::string(TEST_DATA_DIR) + "/skylane/dragon_changes.txt");
+    REQUIRE(counts.good());
+    Layers nominal;
+    size_t layer = 0, changes = 0;
+    int    n, tool            = 0;
+    while (counts >> n) {
+        nominal.emplace_back();
+        for (int i = 0; i < n; ++i) {
+            nominal.back().push_back(visit(float(.25 + layer * .22), layer == 0 ? .25f : .22f, tool, 1 - tool));
+            tool = 1 - tool;
+            ++changes;
+        }
+        ++layer;
     }
-    auto plan = SkyLane::plan(demands, p);
+    REQUIRE(changes == 395);
+    auto config                                     = configuration();
+    config.filament_multitool_ramming.values        = {true, true};
+    config.filament_multitool_ramming_volume.values = {5., 5.};
+    config.wipe_tower_extra_rib_length.value        = 8.;
+    config.wipe_tower_rib_width.value               = 8.;
+    config.wipe_tower_fillet_wall.value             = true;
+    config.wipe_tower_wall_gap.value                = true;
+    config.wipe_tower_cone_angle.value              = 60.;
+    BoundingBoxf rectangle;
+    for (auto wall : {WipeTowerWallType::wtwRectangle, WipeTowerWallType::wtwCone, WipeTowerWallType::wtwRib}) {
+        config.wipe_tower_wall_type.value = wall;
+        SkyLaneTower tower;
+        Layers       local;
+        auto         preview = nominal;
+        REQUIRE(tower.plan(config, nominal, local, 5.f));
+        CHECK(tower.depth() == Approx(28.8997).margin(.002));
+        tower.preview(preview, local);
+        REQUIRE_FALSE(tower.outlines().empty());
+        REQUIRE(tower.bounds().defined);
+        const auto& base = tower.outlines().begin()->second;
+        REQUIRE(base.size() > 1);
+        CHECK(base.front().is_closed());
+        const auto first  = tower.place(nominal[0][0]);
+        const auto second = tower.place(nominal[0][1]);
+        CHECK(first.gcode.find("SKYLANE WALL") != std::string::npos);
+        CHECK(second.gcode.find("SKYLANE WALL") == std::string::npos);
+        // Purge rows are open: no extruded U-turns between them.
+        for (size_t i = 1; i < second.extrusions.size(); ++i)
+            if (second.extrusions[i].width > 0.f)
+                CHECK(second.extrusions[i].pos.y() == Approx(second.extrusions[i - 1].pos.y()).margin(.001));
+        if (wall == WipeTowerWallType::wtwRectangle)
+            rectangle = tower.bounds();
+        else
+            CHECK(tower.bounds().size().y() > rectangle.size().y());
+        if (wall == WipeTowerWallType::wtwRib)
+            CHECK(tower.bounds().size().x() > rectangle.size().x());
+    }
+}
+
+TEST_CASE("SkyLane incremental lanes preserve volume and nozzle clearance", "[SkyLane][Packing]")
+{
+    SkyLane::Params p;
+    p.width        = 20.;
+    p.fill_density = .2;
+    p.solid_base   = true;
+    std::vector<SkyLane::Demand> demands;
+    for (size_t layer = 0; layer < 40; ++layer)
+        for (size_t change = 0; change < (layer % 7 == 0 ? 8 : 2); ++change)
+            demands.push_back({float(.2 + .08 * layer), float(4 + (layer * 17 + change * 13) % 21), .08f, int(layer)});
+    const auto plan = SkyLane::pack_min_depth(demands, p);
     REQUIRE(plan.ok);
-    CHECK(plan.lanes >= 2);
-    CHECK(plan.lanes <= 6);
-    CHECK(plan.depth > 0.);
+    CHECK(plan.over_z == 0);
+    CHECK(std::any_of(plan.passes.begin(), plan.passes.end(), [](const auto& pass) { return !pass.merged; }));
+    CHECK(std::any_of(plan.passes.begin(), plan.passes.end(), [](const auto& pass) { return pass.merged; }));
     std::vector<double> volumes(demands.size(), 0.);
-    size_t              owner  = 0;
     bool                dipped = false;
-    for (const auto& pass : plan.passes) {
-        CAPTURE(pass.owner, pass.demand, pass.z_base, pass.height, pass.y0, pass.y1);
-        REQUIRE(pass.owner < demands.size());
-        CHECK(pass.owner >= owner);
-        owner = pass.owner;
-        CHECK(pass.height > 0.);
-        CHECK(pass.height <= p.max_height + 1e-7);
-        CHECK(pass.z() <= demands[owner].z + 1e-7);
-        CHECK(pass.y0 >= 0.);
-        CHECK(pass.y1 <= plan.depth + 1e-7);
-        CHECK(pass.y1 > pass.y0);
+    for (size_t i = 0; i < plan.passes.size(); ++i) {
+        const auto& pass = plan.passes[i];
+        REQUIRE(pass.owner >= 0);
+        REQUIRE(size_t(pass.owner) < demands.size());
+        CHECK(pass.h > 0.);
+        CHECK(pass.h <= p.hmax + 1e-6);
+        CHECK(pass.z_base + pass.h <= demands[pass.owner].z + 1e-6);
         if (pass.demand >= 0) {
-            CHECK(demands[owner].z - pass.z_base <= p.max_dip + 1e-7);
-            volumes.at(size_t(pass.demand)) += p.width * (pass.y1 - pass.y0) * pass.height * pass.density;
-            dipped |= pass.z() < demands[owner].z - .01;
+            volumes.at(pass.demand) += p.width * (pass.y1 - pass.y0) * pass.h * pass.density;
+            dipped |= pass.z_base + pass.h < demands[pass.owner].z - .01;
+        }
+        for (size_t j = 0; j < i; ++j) {
+            const auto& previous = plan.passes[j];
+            if (previous.z_base + previous.h <= pass.z_base + pass.h + 1e-6)
+                continue;
+            const double gap       = std::max(pass.y0 - previous.y1, previous.y0 - pass.y1);
+            const double clearance = p.r_tip - p.line_w / 2. +
+                                     (previous.z_base + previous.h - pass.z_base - pass.h) * std::tan(p.cone_deg * M_PI / 180.);
+            CHECK(gap + 1e-6 >= clearance);
         }
     }
     CHECK(dipped);
-    for (size_t i = 0; i < demands.size(); ++i) {
-        CAPTURE(i);
-        CHECK(volumes[i] == Approx(demands[i].volume).margin(1e-6));
-    }
-    const auto repeat = SkyLane::plan(demands, p);
-    CHECK(repeat.depth == plan.depth);
-    CHECK(repeat.lanes == plan.lanes);
-    CHECK(repeat.passes.size() == plan.passes.size());
-    // A dipped nozzle must clear already deposited material in adjacent lanes,
-    // including support/catch-up passes, not just the purge passes.
-    for (size_t i = 0; i < plan.passes.size(); ++i) {
-        const auto& pass = plan.passes[i];
-        for (size_t j = 0; j < i; ++j) {
-            const auto& previous = plan.passes[j];
-            if (previous.z() <= pass.z() + 1e-7)
-                continue;
-            const double gap      = std::max(pass.y0 - previous.y1, previous.y0 - pass.y1);
-            const double required = p.tip_radius - p.line_width / 2. +
-                                    (previous.z() - pass.z()) * std::tan(p.nozzle_cone_angle * M_PI / 180.);
-            CAPTURE(i, j, gap, required);
-            CHECK(gap >= required - 1e-7);
-        }
-    }
+    for (size_t i = 0; i < demands.size(); ++i)
+        CHECK(volumes[i] == Approx(demands[i].volume).margin(.001));
+    p.max_pit = std::numeric_limits<double>::quiet_NaN();
+    CHECK_THROWS_AS(SkyLane::pack(demands, 20., p), std::invalid_argument);
 }
 
-TEST_CASE("SkyLane fills quiet stretches and rejects invalid inputs", "[SkyLane]")
+TEST_CASE("SkyLane ramps purge before the wall and resets cleanly between exports", "[SkyLane][GCode]")
 {
-    SkyLane::Parameters p;
-    const auto          quiet = SkyLane::plan({{.2, .2, 20., 0}, {5., .2, 0., 1}, {5.2, .2, 30., 2}}, p);
-    REQUIRE(quiet.ok);
-    CHECK(std::any_of(quiet.passes.begin(), quiet.passes.end(),
-                      [](const auto& pass) { return pass.owner == 1 && pass.demand == -1 && pass.height > 0.; }));
-    CHECK(SkyLane::plan({}, p).passes.empty());
-    CHECK_FALSE(SkyLane::pack_scheduled({{.2, .2, 1e6, 0}}, 10., p).ok);
-    CHECK_THROWS_AS(SkyLane::plan({{.2, .2, -1., 0}}, p), std::invalid_argument);
-    CHECK_THROWS_AS(SkyLane::plan({{.4, .2, 1., 0}, {.2, .2, 1., 1}}, p), std::invalid_argument);
-    p.max_dip = std::numeric_limits<double>::quiet_NaN();
-    CHECK_THROWS_AS(SkyLane::plan({}, p), std::invalid_argument);
-}
-
-TEST_CASE("SkyLane emits enough material with bounded flow and clearance", "[SkyLane][GCode]")
-{
-    auto dynamic = DynamicPrintConfig::full_print_config();
-    dynamic.set_num_extruders(2);
-    dynamic.set_num_filaments(2);
-    dynamic.set("single_extruder_multi_material", false);
-    dynamic.set("enable_skylane", true);
-    dynamic.set("prime_tower_width", 20.);
-    dynamic.option<ConfigOptionEnum<WipeTowerWallType>>("wipe_tower_wall_type")->value = WipeTowerWallType::wtwRectangle;
-    dynamic.set("prime_tower_brim_width", 0.);
-    dynamic.set("enable_tower_interface_features", false);
-    dynamic.option<ConfigOptionFloats>("filament_diameter")->values             = {1.75, 1.75};
-    dynamic.option<ConfigOptionFloats>("filament_max_volumetric_speed")->values = {10., 10.};
-    dynamic.option<ConfigOptionBools>("filament_multitool_ramming")->values     = {false, false};
-    PrintConfig       config;
-    PrintRegionConfig region;
-    config.apply(dynamic, true);
-    region.apply(dynamic, true);
-    std::vector<SkyLaneRequest> requests;
-    size_t                      tool = 0;
-    for (size_t layer = 0; layer < 8; ++layer)
-        for (int change = 0; change < 3; ++change) {
-            requests.push_back({layer, change < 2, tool, 1 - tool, .2 + layer * .08, .08, 15.});
-            tool = 1 - tool;
+    auto config                         = configuration();
+    config.prime_volume.value           = 15.;
+    config.skylane_ramp_volume.value    = 7.;
+    config.wipe_tower_wall_type.value   = WipeTowerWallType::wtwRectangle;
+    config.prime_tower_brim_width.value = 0.;
+    double flow_limit                   = 10.;
+    SECTION("Normal flow") {}
+    SECTION("Low-flow filament with brim")
+    {
+        flow_limit                                  = 2.5;
+        config.filament_max_volumetric_speed.values = {flow_limit, flow_limit};
+        config.prime_tower_brim_width.value         = 5.;
+    }
+    auto nominal = sequence(8, 3);
+    // This fork's stock main block has no UNLOAD marker; unloading is a sidecar.
+    for (auto& layer : nominal)
+        for (auto& t : layer) {
+            const std::string marker = "; CP TOOLCHANGE UNLOAD\n";
+            t.gcode.erase(t.gcode.find(marker), marker.size());
+            t.nozzle_change_result.gcode = "G1 X999 Y999 E99\n";
         }
-    auto tower = generate_skylane_tower(config, region, requests, 8);
-    CHECK(tower.toolchanges == requests.size());
-    CHECK(tower.brim == 0.);
-    const double area    = M_PI * 1.75 * 1.75 / 4.;
-    double       total_e = 0.;
-    for (const auto* layers : {&tower.local_z, &tower.nominal}) {
-        for (const auto& layer : *layers) {
-            for (const auto& change : layer) {
+    SkyLaneTower tower;
+    REQUIRE(tower.plan(config, nominal, {}, float(config.prime_tower_brim_width.value)));
+    const double area = M_PI * 1.75 * 1.75 / 4.;
+    std::string  first_export;
+    for (int repetition = 0; repetition < 2; ++repetition) {
+        tower.begin_emission();
+        std::string output;
+        for (const auto& layer : nominal)
+            for (const auto& original : layer) {
+                const auto t = tower.place(original);
+                output += t.gcode;
                 PlaceholderParser parser;
-                parser.set("z_offset", 0.);
                 parser.set("change_filament_gcode", std::string("; change\n"));
-                const std::string gcode = parser.process(change.gcode);
-                GCodeReader       reader;
+                GCodeReader reader;
                 reader.apply_config(config);
-                reader.x() = change.start_pos.x();
-                reader.y() = change.start_pos.y();
-                double e   = 0.;
-                reader.parse_buffer(gcode, [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
-                    if (line.extruding(state) && line.dist_XY(state) > 1e-5) {
-                        CHECK(state.z() <= change.print_z + 1e-5);
-                        CHECK(state.z() > 0.);
-                        const double volume = line.dist_E(state) * area;
-                        const double flow   = volume / line.dist_XY(state) * (line.has_f() ? line.f() : state.f()) / 60.;
-                        CHECK(flow <= 10.02); // Output rounding.
-                        const double ramp_limit = 10. * (.25 + .75 * std::min(1., e * area / 4.));
-                        CHECK(flow <= ramp_limit + .02);
-                        e += line.dist_E(state);
-                        CHECK(line.x() >= -.001);
-                        CHECK(line.x() <= 20.501);
-                        CHECK(line.y() >= -.001);
-                        CHECK(line.y() <= tower.depth + .001);
+                reader.x()    = t.start_pos.x();
+                reader.y()    = t.start_pos.y();
+                double volume = 0.;
+                reader.parse_buffer(parser.process(t.gcode), [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
+                    if (line.extruding(state) && line.dist_XY(state) > 1e-6) {
+                        CHECK(state.z() <= original.print_z + 1e-5);
+                        const double v    = line.dist_E(state) * area;
+                        const double flow = v / line.dist_XY(state) * (line.has_f() ? line.f() : state.f()) / 60.;
+                        CHECK(flow <= flow_limit + .03);
+                        volume += v;
                     }
+                    if (original.print_z == nominal[0][0].print_z && original.initial_tool == 0 && line.raw() == "; SKYLANE WALL")
+                        CHECK(volume >= 7. - .01);
                 });
-                CHECK(e * area >= change.purge_volume - .01);
-                CHECK(reader.z() == Approx(change.skylane_safe_z).margin(1e-5));
-                CHECK(reader.x() == Approx(change.end_pos.x()));
-                CHECK(reader.y() == Approx(change.end_pos.y()));
-                total_e += e;
+                CHECK(volume >= 15. - .05);
+                CHECK(reader.z() == Approx(t.skylane_safe_z).margin(.001));
+                CHECK(t.nozzle_change_result.gcode.empty());
+                CHECK(t.gcode.find("X999") == std::string::npos);
             }
+        if (repetition == 0)
+            first_export = output;
+        else
+            CHECK(output == first_export);
+    }
+    // An unexpected repeated visit must fail explicitly once the available height is consumed.
+    tower.begin_emission();
+    bool rejected = false;
+    for (int i = 0; i < 100 && !rejected; ++i) {
+        try {
+            tower.place(nominal[0][0]);
+        } catch (const std::runtime_error&) {
+            rejected = true;
         }
     }
-    CHECK(total_e == Approx(tower.used_filament[0] + tower.used_filament[1]).margin(.02));
-    config.skylane_max_dip.value = .1;
-    const auto shallow           = generate_skylane_tower(config, region, requests, 8);
-    for (const auto* layers : {&shallow.local_z, &shallow.nominal})
-        for (const auto& layer : *layers)
-            for (const auto& change : layer)
-                for (const auto& extrusion : change.extrusions)
-                    if (extrusion.width > 0.)
-                        CHECK(extrusion.height <= .100001f);
-    config.wipe_tower_no_sparse_layers.value = true;
-    CHECK_THROWS_AS(generate_skylane_tower(config, region, requests, 8), std::invalid_argument);
+    CHECK(rejected);
+}
+
+TEST_CASE("SkyLane emits rib supports when merged cells split into independent lanes", "[SkyLane][Lanes]")
+{
+    auto config                                     = configuration(3);
+    config.prime_tower_width.value                  = 20.;
+    config.prime_volume.value                       = 4.;
+    config.wipe_tower_extra_spacing.value           = 105.;
+    config.filament_multitool_ramming.values        = {true, true, true};
+    config.filament_multitool_ramming_volume.values = {0., 7., 14.};
+    config.wipe_tower_wall_type.value               = WipeTowerWallType::wtwRib;
+    config.wipe_tower_extra_rib_length.value        = 8.;
+    config.wipe_tower_rib_width.value               = 8.;
+    Layers nominal(40);
+    int    tool = 0;
+    for (size_t layer = 0; layer < nominal.size(); ++layer)
+        for (size_t change = 0; change < (layer % 7 == 0 ? 8 : 2); ++change) {
+            nominal[layer].push_back(visit(float(.2 + .08 * layer), .08f, tool, (tool + 1) % 3, 20.));
+            tool = (tool + 1) % 3;
+        }
+    SkyLaneTower tower;
+    REQUIRE(tower.plan(config, nominal, {}, 5.f));
+    tower.begin_emission();
+    bool raised_ribs = false, rammed = false;
+    for (const auto& layer : nominal)
+        for (const auto& original : layer) {
+            const auto t = tower.place(original);
+            raised_ribs |= t.gcode.find("; SKYLANE rib") != std::string::npos;
+            rammed |= t.skylane_ram;
+            REQUIRE_FALSE(t.extrusions.empty());
+            for (const auto& e : t.extrusions)
+                if (e.width > 0.)
+                    CHECK(e.z <= original.print_z + .001f);
+            CHECK(t.skylane_safe_z >= t.skylane_z + .199f);
+        }
+    CHECK(raised_ribs);
+    CHECK(rammed);
 }

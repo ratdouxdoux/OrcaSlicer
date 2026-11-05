@@ -134,10 +134,11 @@ TEST_CASE("Tower skips must not suppress required object tool changes", "[Produc
 
 TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[ProductPort][LocalZ][GCode][WipeTower]")
 {
-    double layer_height = .20;
-    bool   gradient     = false;
-    bool   skylane      = false;
-    bool   local_z      = true;
+    double            layer_height = .20;
+    bool              gradient     = false;
+    bool              skylane      = false;
+    bool              ramming      = false;
+    bool              local_z      = true;
     WipeTowerWallType skylane_wall = WipeTowerWallType::wtwRectangle;
     SECTION("Independent mixes at standard layer height") {}
     SECTION("Independent mixes with single-pass intervals") { layer_height = .08; }
@@ -147,6 +148,11 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
         gradient     = true;
     }
     SECTION("SkyLane with independent mixes") { skylane = true; }
+    SECTION("SkyLane with outgoing-tool ramming")
+    {
+        skylane = true;
+        ramming = true;
+    }
     SECTION("SkyLane with rib walls")
     {
         skylane      = true;
@@ -204,6 +210,10 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
     config.option<ConfigOptionFloats>("filament_diameter")->values = {1.75, 1.75, 1.75, 1.75};
     config.option<ConfigOptionFloats>("max_layer_height")->values  = {.30, .30, .30, .30};
     config.option<ConfigOptionFloats>("flush_volumes_matrix")->values.assign(16, 100.);
+    if (ramming) {
+        config.option<ConfigOptionBools>("filament_multitool_ramming")->values = {true, true, true, true};
+        config.option<ConfigOptionFloats>("filament_multitool_ramming_volume")->values = {1., 3., 5., 7.};
+    }
     if (skylane) {
         config.set("wipe_tower_rotation_angle", 27.);
         config.set("z_offset", .13);
@@ -283,9 +293,9 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
         size_t      selections = 0, planned_selections = 0;
         std::string line;
         while (std::getline(exported, line)) {
-            if (line.find("; WIPE_TOWER_START") != std::string::npos)
+            if (line.find("CP TOOLCHANGE START") != std::string::npos)
                 inside_tower = true;
-            else if (line.find("; WIPE_TOWER_END") != std::string::npos)
+            else if (line.find("CP TOOLCHANGE END") != std::string::npos)
                 inside_tower = false;
             else if (inside_tower && line.size() > 1 && line[0] == 'T' && line[1] >= '0' && line[1] <= '9')
                 ++selections;
@@ -303,9 +313,12 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
         for (const auto& move : result.moves)
             if (move.type == EMoveType::Extrude && move.extrusion_role == erWipeTower)
                 actual_bounds.merge(move.position.head<2>().cast<double>());
-        for (const auto* layers : {&tower.tool_changes, &tower.local_z_tool_changes}) {
-            for (const auto& layer : *layers) {
-                for (const auto& change : layer) {
+        REQUIRE(tower.skylane != nullptr);
+        tower.skylane->begin_emission();
+        for (size_t index = 0; index < tower.tool_changes.size(); ++index) {
+            for (const auto* layer : {&tower.local_z_tool_changes[index], &tower.tool_changes[index]}) {
+                for (const auto& original : *layer) {
+                    const auto change = tower.skylane->place(original);
                     for (const auto& extrusion : change.extrusions)
                         if (extrusion.width > 0.f)
                             expected_bounds.merge(rotation * extrusion.pos.cast<double>() + translation);

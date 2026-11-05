@@ -1118,6 +1118,8 @@ static std::vector<std::string> s_Preset_print_options{
     "enable_skylane",
     "skylane_max_dip",
     "skylane_ramp_volume",
+    "skylane_wall_height",
+    "skylane_profile_speeds",
     "compatible_printers",
     "compatible_printers_condition",
     "inherits",
