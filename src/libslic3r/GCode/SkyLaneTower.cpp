@@ -4,6 +4,8 @@
 #include "SkyLaneTower.hpp"
 #include "SkyLanePacker.hpp"
 #include "GCodeProcessor.hpp"
+#include "WipeTower2.hpp"
+#include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
 #include <algorithm>
@@ -18,19 +20,78 @@ namespace Slic3r {
 namespace {
 constexpr double PI = 3.14159265358979323846;
 
-struct Phase
+Polygon rectangle(double x0, double y0, double x1, double y1)
 {
-    size_t request;
-    size_t tool;
-    bool   ramming;
+    return Polygon({scaled(Vec2d(x0, y0)), scaled(Vec2d(x1, y0)), scaled(Vec2d(x1, y1)), scaled(Vec2d(x0, y1))});
+}
+
+struct Geometry
+{
+    const PrintConfig& config;
+    double             width, depth, height, lw;
+
+    Polygon outline(double z, double y0, double y1) const
+    {
+        const double x0 = lw, x1 = width + lw;
+        y0 += lw / 2.;
+        y1 -= lw / 2.;
+        Polygon core = rectangle(x0, y0, x1, y1);
+        if (config.wipe_tower_wall_type == WipeTowerWallType::wtwRib) {
+            const double length = std::max(0., config.wipe_tower_extra_rib_length.value) * std::max(0., 1. - z / height);
+            const double half   = std::min(config.wipe_tower_rib_width.value, std::min(width, depth) / 2.) / 2.;
+            if (length <= 1e-6 || half <= 0.)
+                return core;
+            Polygons pieces{core};
+            for (int sx : {-1, 1})
+                for (int sy : {-1, 1}) {
+                    const Vec2d corner(sx < 0 ? x0 : x1, sy < 0 ? y0 : y1);
+                    const Vec2d axis  = Vec2d(sx, sy).normalized(), normal(-axis.y(), axis.x());
+                    const Vec2d start = corner - axis * half, end = corner + axis * length;
+                    Polygon     arm({scaled(Vec2d(start + normal * half)), scaled(Vec2d(start - normal * half)),
+                                     scaled(Vec2d(end - normal * half)), scaled(Vec2d(end + normal * half))});
+                    arm.make_counter_clockwise();
+                    pieces.push_back(std::move(arm));
+                }
+            Polygon wall = union_(pieces).front();
+            if (config.wipe_tower_fillet_wall)
+                wall = union_({rounding_polygon(wall), core}).front();
+            return wall;
+        }
+        if (config.wipe_tower_wall_type == WipeTowerWallType::wtwCone) {
+            const auto [radius, scale] = WipeTower2::get_wipe_tower_cone_base(width, height, depth, config.wipe_tower_cone_angle);
+            const double r = radius * std::max(0., 1. - z / height), half = (y1 - y0) / 2.;
+            if (r > half + .01) {
+                const Vec2d  center((x0 + x1) / 2., (y0 + y1) / 2.);
+                const double start = std::asin(half / r);
+                Points       points{scaled(Vec2d(x1, y1))};
+                for (int i = 0; i <= 40; ++i) {
+                    const double angle = start + (PI - 2. * start) * i / 40.;
+                    points.push_back(scaled(Vec2d(center + Vec2d(r * std::cos(angle) / scale, r * std::sin(angle)))));
+                }
+                points.push_back(scaled(Vec2d(x0, y1)));
+                points.push_back(scaled(Vec2d(x0, y0)));
+                for (int i = 0; i <= 40; ++i) {
+                    const double angle = PI - start - (PI - 2. * start) * i / 40.;
+                    points.push_back(scaled(Vec2d(center + Vec2d(r * std::cos(angle) / scale, -r * std::sin(angle)))));
+                }
+                points.push_back(scaled(Vec2d(x1, y0)));
+                return Polygon(std::move(points));
+            }
+        }
+        return core;
+    }
 };
 
 class Emitter
 {
 public:
-    Emitter(
-        const PrintConfig& config, const PrintRegionConfig& region, SkyLaneTowerResult& result, double width, double safe_z, double offset)
-        : config(config), region(region), result(result), width(width), safe_z(safe_z), offset(offset)
+    Emitter(const PrintConfig&       config,
+            const PrintRegionConfig& region,
+            SkyLaneTowerResult&      result,
+            const Geometry&          geometry,
+            double                   safe_z,
+            Vec2f                    park)
+        : config(config), region(region), result(result), geometry(geometry), width(geometry.width), safe_z(safe_z), park(park)
     {
         code.imbue(std::locale::classic());
         code << std::fixed << std::setprecision(5);
@@ -54,15 +115,15 @@ public:
     }
     void travel(double x, double y)
     {
-        code << "G1 X" << x - offset << " Y" << y - offset << " F"
-             << get_value_at(config, config.travel_speed, ConfigFlowDomain::Process, tool) * 60. << "\n";
+        code << "G1 X" << x << " Y" << y << " F" << get_value_at(config, config.travel_speed, ConfigFlowDomain::Process, tool) * 60.
+             << "\n";
         pos = Vec2f(float(x), float(y));
         preview.push_back({pos, 0.f, unsigned(tool)});
     }
     void leave()
     {
         lift();
-        travel(-1., -1.);
+        travel(park.x(), park.y());
     }
     void change_tool(size_t id)
     {
@@ -70,139 +131,233 @@ public:
         code << "[change_filament_gcode]\n";
         set_tool(id);
     }
+    void begin(size_t old_tool, size_t new_tool, double ramming)
+    {
+        set_tool(old_tool);
+        incoming     = new_tool;
+        ramming_left = ramming;
+        if (ramming > 0.)
+            code << "; SKYLANE RAMMING\n";
+        else if (old_tool != new_tool)
+            change_tool(new_tool);
+    }
+    void lower(double z)
+    {
+        print_z = z;
+        code << "G1 Z{" << z << "+z_offset} F"
+             << (config.travel_speed_z.value > 0. ? config.travel_speed_z.value :
+                                                    get_value_at(config, config.travel_speed, ConfigFlowDomain::Process, tool)) *
+                    60.
+             << "\n";
+    }
     void bead(double x, double y, double flow, double h, double line_width, double max_speed)
     {
         const Vec2f  end{float(x), float(y)};
         const double length = (end - pos).norm();
         if (length < 1e-7)
             return;
-        const double area         = PI * std::pow(config.filament_diameter.get_at(tool) / 2., 2);
-        const double max_flow     = get_value_at(config, config.filament_max_volumetric_speed, ConfigFlowDomain::Filament, tool);
         const double ramp         = config.skylane_ramp_volume.value;
         const double chunk_volume = ramp > 0. ? ramp / 16. : std::numeric_limits<double>::max();
         const Vec2f  start        = pos;
         double       done         = 0.;
         while (done < length - 1e-7) {
+            const double area           = PI * std::pow(config.filament_diameter.get_at(tool) / 2., 2);
+            const double max_flow       = get_value_at(config, config.filament_max_volumetric_speed, ConfigFlowDomain::Filament, tool);
             const double remaining_ramp = std::max(0., ramp - ramp_volume);
-            const double step           = remaining_ramp > 1e-7 ? std::min(length - done, std::min(chunk_volume, remaining_ramp) / flow) :
-                                                                  length - done;
-            const double fraction       = ramp > 0. ? std::min(1., ramp_volume / ramp) : 1.;
-            double       speed          = max_speed;
+            double step = remaining_ramp > 1e-7 ? std::min(length - done, std::min(chunk_volume, remaining_ramp) / flow) : length - done;
+            const bool ramming = ramming_left > 1e-7;
+            if (ramming)
+                step = std::min(step, ramming_left / flow);
+            const double fraction = ramp > 0. ? std::min(1., ramp_volume / ramp) : 1.;
+            double       speed    = max_speed;
             if (max_flow > 0.)
                 speed = std::min(speed, max_flow * (.25 + .75 * fraction) / flow);
+            if (ramming) {
+                const double limit = get_value_at(config, config.filament_multitool_ramming_flow, ConfigFlowDomain::Filament, tool);
+                if (limit > 0.)
+                    speed = std::min(speed, limit / flow);
+            }
             const Vec2f  point = start + (end - start) * float((done + step) / length);
             const double e     = step * flow / area;
-            code << "G1 X" << point.x() - offset << " Y" << point.y() - offset << " E" << e << " F" << speed * 60. << "\n";
+            code << "G1 X" << point.x() << " Y" << point.y() << " E" << e << " F" << speed * 60. << "\n";
             preview.push_back({point, float(line_width), unsigned(tool), float(print_z), float(h)});
             result.used_filament.at(tool) += float(e);
             elapsed += step / speed;
             ramp_volume += step * flow;
-            deposited_volume += step * flow;
             done += step;
+            pos = point;
+            if (ramming) {
+                ramming_left -= step * flow;
+                if (ramming_left <= 1e-7) {
+                    change_tool(incoming);
+                    travel(point.x(), point.y());
+                    lower(print_z);
+                }
+            }
         }
         pos = end;
     }
-    void pass(const SkyLane::Pass& p, size_t ordinal, double offset, double first_z, bool ramming)
+    double speed(double z_base, double first_z) const
     {
-        const double volume_before = deposited_volume;
-        print_z                    = p.z();
-        const double h             = p.height;
-        const double lw            = config.nozzle_diameter.get_at(tool) * 1.25;
-        const double flow          = h * (lw - h * (1. - PI / 4.));
-        const double x0 = offset + lw / 2., x1 = offset + width - lw / 2.;
-        const double y0 = offset + p.y0 + std::min(lw / 2., (p.y1 - p.y0) / 2.);
-        const double y1 = offset + p.y1 - std::min(lw / 2., (p.y1 - p.y0) / 2.);
-        if (flow <= 0. || x1 <= x0 || y1 < y0)
-            throw std::runtime_error("SkyLane pass has no printable area");
-        const double infill_speed = get_value_at(config, region.sparse_infill_speed, ConfigFlowDomain::Process, tool);
-        double       speed        = std::min(config.wipe_tower_max_purge_speed.value, infill_speed > 0. ? infill_speed : 80.);
-        if (ramming) {
-            const double ramming_flow = get_value_at(config, config.filament_multitool_ramming_flow, ConfigFlowDomain::Filament, tool);
-            if (ramming_flow > 0.)
-                speed = std::min(speed, ramming_flow / flow);
+        double value = config.wipe_tower_max_purge_speed.value;
+        if (z_base < first_z - 1e-6) {
+            const double first = get_value_at(config, config.initial_layer_speed, ConfigFlowDomain::Process, tool);
+            value              = std::min(value, first > 0. ? first : 30.);
         }
-        if (p.z_base < first_z - 1e-6) {
-            const double first_speed = get_value_at(config, config.initial_layer_speed, ConfigFlowDomain::Process, tool);
-            speed                    = std::min(speed, first_speed > 0. ? first_speed : 30.);
-        }
-        if (speed <= 0.)
+        if (value <= 0.)
             throw std::runtime_error("SkyLane requires positive tower and first-layer speeds");
+        return value;
+    }
+    void path(const Polygon& polygon, double h, double feed, double gap = 0.)
+    {
+        // Rotate the seam between rounds and omit exactly 2.5 bead widths of
+        // perimeter. The gap is not a wipe and is never repeated per purge strip.
+        const Points& points = polygon.points;
+        if (points.size() < 3)
+            return;
+        // Locate the entry on the contour, including rounded rib tips. Cutting
+        // by arc length keeps the gap exact even across many short segments.
+        std::vector<double> distance(points.size() + 1, 0.);
+        double              seam = 0., nearest = std::numeric_limits<double>::max();
+        for (size_t j = 0; j < points.size(); ++j) {
+            const Vec2d  a = unscale(points[j]), b = unscale(points[(j + 1) % points.size()]);
+            const Vec2d  edge   = b - a;
+            const double length = edge.norm();
+            distance[j + 1]     = distance[j] + length;
+            if (length <= 1e-8)
+                continue;
+            const double t = std::clamp((pos.cast<double>() - a).dot(edge) / edge.squaredNorm(), 0., 1.);
+            const double d = (pos.cast<double>() - (a + edge * t)).squaredNorm();
+            if (d < nearest) {
+                nearest = d;
+                seam    = distance[j] + length * t;
+            }
+        }
+        const double perimeter = distance.back();
+        if (perimeter < 1e-7)
+            return;
+        gap                = std::min(gap, perimeter / 2.);
+        const double begin = std::fmod(seam + gap / 2., perimeter), end = begin + perimeter - gap;
+        auto         point_at = [&](double at) -> Vec2d {
+            at = std::fmod(at, perimeter);
+            size_t j = std::min(points.size() - 1, size_t(std::upper_bound(distance.begin(), distance.end(), at) - distance.begin() - 1));
+            const Vec2d a = unscale(points[j]), b = unscale(points[(j + 1) % points.size()]);
+            return a + (b - a) * ((at - distance[j]) / (distance[j + 1] - distance[j]));
+        };
+        const Vec2d start = point_at(begin);
+        lift();
+        travel(start.x(), start.y());
+        lower(print_z);
+        const double flow = h * geometry.lw;
+        for (int lap = 0; lap < 2; ++lap)
+            for (size_t j = 1; j <= points.size(); ++j) {
+                const double at = distance[j] + lap * perimeter;
+                if (at > begin + 1e-7 && at < end - 1e-7) {
+                    const Vec2d next = unscale(points[j % points.size()]);
+                    bead(next.x(), next.y(), flow, h, geometry.lw, feed);
+                }
+            }
+        const Vec2d last = point_at(end);
+        bead(last.x(), last.y(), flow, h, geometry.lw, feed);
+    }
+    void base_support(const Polygon& wall, double first_z, double feed)
+    {
+        // Fill the rib/cone feet as part of the solid foundation, outside the
+        // rectangular purge cell. The brim follows this same contour.
+        const double   lw   = geometry.lw;
+        const Polygons area = diff(offset(wall, scale_(-lw / 2.)), {rectangle(lw, lw / 2., width + lw, geometry.depth - lw / 2.)});
+        if (area.empty())
+            return;
+        const BoundingBox box = get_extents(area);
+        Polylines         lines;
+        for (coord_t y = box.min.y(); y <= box.max.y(); y += scale_(lw))
+            lines.emplace_back(Points{Point(box.min.x(), y), Point(box.max.x(), y)});
+        for (const auto& line : intersection_pl(lines, area)) {
+            lift();
+            const Vec2d start = unscale(line.points.front());
+            travel(start.x(), start.y());
+            lower(first_z);
+            for (size_t j = 1; j < line.points.size(); ++j) {
+                const Vec2d end = unscale(line.points[j]);
+                bead(end.x(), end.y(), first_z * lw, first_z, lw, feed);
+            }
+        }
+    }
+    void brim(double first_z)
+    {
+        const double lw = geometry.lw, feed = speed(0., first_z);
+        print_z = first_z;
+        code << "; SKYLANE BRIM\n;" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << first_z << "\n;"
+             << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Width) << lw << "\n";
+        const Polygon wall = geometry.outline(first_z, 0., geometry.depth);
+        base_support(wall, first_z, feed);
+        // A 10% overlap on the first ring attaches the brim to the wall.
+        for (double ring = .9 * lw; ring < result.brim + 1e-6; ring += lw)
+            for (const auto& polygon : offset(wall, scale_(ring), ClipperLib::jtMiter))
+                path(polygon, first_z, feed);
+    }
+    void pass(const SkyLane::Pass& p, size_t round, double first_z, bool vertical)
+    {
+        print_z        = p.z();
+        const double h = p.height, lw = geometry.lw, feed = speed(p.z_base, first_z);
+        const double x0 = 2. * lw, x1 = width;
+        const double y0 = std::max(p.y0 + lw / 2., p.cell_y0 + 1.5 * lw);
+        const double y1 = std::min(p.y1 - lw / 2., p.cell_y1 - 1.5 * lw);
+        // Tiny residual strips are narrower than a bead; place their centreline
+        // within the strip instead of adding a frame or overflowing the cell.
+        const double ya = y1 >= y0 ? y0 : (p.y0 + p.y1) / 2.;
+        const double yb = y1 >= y0 ? y1 : ya;
         code << "; SKYLANE " << (p.demand < 0 ? "FILL" : "PURGE") << " lane=" << p.lane << " base=" << p.z_base << "\n"
              << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << h << "\n"
              << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Width) << lw << "\n";
-        lift();
-        travel(x0, y0);
-        code << "G1 Z{" << p.z() << "+z_offset} F"
-             << (config.travel_speed_z.value > 0. ? config.travel_speed_z.value :
-                                                    get_value_at(config, config.travel_speed, ConfigFlowDomain::Process, tool)) *
-                    60.
-             << "\n";
-
-        // Each independently growing lane has its own perimeter. A small gap
-        // avoids putting the first bead of a parked tool on its perimeter.
-        double perimeter_volume = 0.;
-        if (y1 - y0 > 2. * lw) {
-            const double gap = config.wipe_tower_wall_gap.value ? std::min(2.5 * lw, x1 - x0) : 0.;
-            travel(x0 + gap, y0);
-            bead(x1, y0, flow, h, lw, speed);
-            bead(x1, y1, flow, h, lw, speed);
-            bead(x0, y1, flow, h, lw, speed);
-            bead(x0, y0, flow, h, lw, speed);
-            perimeter_volume = (2. * (x1 - x0 + y1 - y0) - gap) * flow;
-        }
-        const bool   solid         = p.solid || p.z_base < first_z - 1e-6;
-        const double target_volume = width * (p.y1 - p.y0) * h * (solid ? 1. : p.density);
-        // Alternate the fill direction so sparse support doesn't form isolated
-        // parallel walls. Leave one bead between the fill and its perimeter.
-        const bool   frame = y1 - y0 > 2. * lw;
-        const double xa = frame ? x0 + lw : x0, xb = frame ? x1 - lw : x1;
-        const double ya = frame ? y0 + lw : y0, yb = frame ? y1 - lw : y1;
-        const bool   vertical = ordinal % 2 != 0 && yb - ya > lw;
-        const double span     = vertical ? xb - xa : yb - ya;
-        const double length   = vertical ? yb - ya : xb - xa;
-        if (length > 1e-6 && span >= 0.) {
-            const int    capacity      = std::max(1, int(std::floor(span / lw)) + 1);
-            const double remaining     = std::max(0., target_volume - perimeter_volume);
-            const int    support_lines = std::max(1, int(std::ceil(span / std::max(lw, config.wipe_tower_bridging.value))) + 1);
-            int          lines         = solid ? capacity : std::max(support_lines, int(std::ceil(remaining / (length * flow))));
-            // The packer deliberately leaves extrusion headroom for the oval
-            // bead cross-section and the lane perimeters. Never overflow a cell.
-            if (!solid && p.demand >= 0 && lines > capacity && remaining > capacity * length * flow + 1e-5)
-                throw std::runtime_error("SkyLane purge does not fit its planned cell; increase tower width");
-            lines = std::min(capacity, lines);
-            for (int i = 0; i < lines; ++i) {
-                const double s = lines == 1 ? span / 2. : span * i / (lines - 1);
-                const double a = i % 2 ? length : 0., b = length - a;
-                travel(vertical ? xa + s : xa + a, vertical ? ya + a : ya + s);
-                bead(vertical ? xa + s : xa + b, vertical ? ya + b : ya + s, flow, h, lw, speed);
+        auto wall = [&] {
+            code << "; SKYLANE WALL\n";
+            path(geometry.outline(p.z(), p.cell_y0, p.cell_y1), h, std::min(feed, 60.), config.wipe_tower_wall_gap ? 2.5 * lw : 0.);
+            code << "; SKYLANE WALL_END\n";
+        };
+        const bool solid  = p.solid || p.z_base < first_z - 1e-6;
+        auto       raster = [&](bool along_y, int count, double flow) {
+            const double span = along_y ? x1 - x0 : yb - ya;
+            for (int line = 0; line < count; ++line) {
+                const double t       = count == 1 ? .5 : double(line) / (count - 1);
+                const double at      = (round % 2 ? 1. - t : t) * span;
+                const bool   reverse = (line + round / 2) % 2;
+                const Vec2d  a(along_y ? x0 + at : (reverse ? x1 : x0), along_y ? (reverse ? yb : ya) : ya + at);
+                const Vec2d  b(along_y ? x0 + at : (reverse ? x0 : x1), along_y ? (reverse ? ya : yb) : ya + at);
+                if (line == 0)
+                    lift();
+                travel(a.x(), a.y());
+                lower(p.z());
+                bead(b.x(), b.y(), flow, h, lw, feed);
+                // The first couple of lines prime the nozzle before a new wall.
+                if (p.wall && line == std::min(1, count - 1) && p.demand >= 0)
+                    wall();
             }
+        };
+        if (p.demand >= 0) {
+            const double length = vertical && yb > ya ? yb - ya : x1 - x0;
+            vertical            = vertical && yb > ya;
+            const double span   = vertical ? x1 - x0 : yb - ya;
+            const double pitch  = lw / std::max(p.density, 1e-6);
+            const int    lines  = std::max(1, int(std::ceil(span / pitch)) + 1);
+            const double volume = width * (p.y1 - p.y0) * h * p.density;
+            raster(vertical, lines, volume / (lines * length));
+        } else if (solid) {
+            const int lines = std::max(1, int(std::ceil((yb - ya) / lw)) + 1);
+            raster(false, lines, h * lw);
+            if (p.wall)
+                wall();
+        } else {
+            // Open grid: long cross-ties plus sparse longitudinal ties. No
+            // perimeter is added to the unfilled tail of an existing round.
+            const double pitch = std::min(lw / p.density, std::max(lw, config.wipe_tower_bridging.value));
+            if (yb > ya)
+                raster(true, std::max(2, int(std::floor((x1 - x0) / pitch)) + 1), h * lw);
+            raster(false, std::max(2, int(std::ceil((yb - ya) / std::max(lw, config.wipe_tower_bridging.value)))), h * lw);
+            if (p.wall)
+                wall();
         }
-        if (p.demand >= 0 && deposited_volume - volume_before + 1e-5 < width * (p.y1 - p.y0) * h * p.density)
-            throw std::runtime_error("SkyLane purge does not fit its planned cell; increase tower width");
         result.height = std::max(result.height, p.z());
-    }
-    void brim(double offset, double depth, double first_z)
-    {
-        print_z                       = first_z;
-        const double lw               = config.nozzle_diameter.get_at(tool) * 1.25;
-        const double flow             = first_z * (lw - first_z * (1. - PI / 4.));
-        const double configured_speed = get_value_at(config, config.initial_layer_speed, ConfigFlowDomain::Process, tool);
-        const double speed            = std::min(config.wipe_tower_max_purge_speed.value, configured_speed > 0. ? configured_speed : 30.);
-        code << "; SKYLANE BRIM\n;" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << first_z << "\n;"
-             << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Width) << lw << "\n";
-        for (double ring = lw / 2.; ring <= offset + 1e-6; ring += lw) {
-            lift();
-            travel(offset - ring, offset - ring);
-            code << "G1 Z{" << first_z << "+z_offset} F"
-                 << (config.travel_speed_z.value > 0. ? config.travel_speed_z.value :
-                                                        get_value_at(config, config.travel_speed, ConfigFlowDomain::Process, tool)) *
-                        60.
-                 << "\n";
-            bead(offset + width + ring, offset - ring, flow, first_z, lw, speed);
-            bead(offset + width + ring, offset + depth + ring, flow, first_z, lw, speed);
-            bead(offset - ring, offset + depth + ring, flow, first_z, lw, speed);
-            bead(offset - ring, offset - ring, flow, first_z, lw, speed);
-        }
     }
     void finish()
     {
@@ -217,9 +372,12 @@ private:
     const PrintConfig&       config;
     const PrintRegionConfig& region;
     SkyLaneTowerResult&      result;
-    double                   width, safe_z, offset, ramp_volume = 0., deposited_volume = 0., print_z = 0.;
-    size_t                   tool = 0;
-    Vec2f                    pos  = Vec2f::Zero();
+    const Geometry&          geometry;
+    double                   width, safe_z, ramp_volume = 0., print_z = 0., ramming_left = 0.;
+    Vec2f                    park;
+    size_t                   incoming = 0;
+    size_t                   tool     = 0;
+    Vec2f                    pos      = Vec2f::Zero();
 };
 } // namespace
 
@@ -253,62 +411,69 @@ SkyLaneTowerResult generate_skylane_tower(const PrintConfig&                 con
     if (params.max_dip > 2. || config.skylane_max_dip.value < 0. || !std::isfinite(config.skylane_ramp_volume.value) ||
         config.skylane_ramp_volume.value < 0.)
         throw std::invalid_argument("Invalid SkyLane dip or ramp volume");
-    // Packing volume uses rectangular slabs; emitted beads have rounded sides
-    // and a perimeter. Reserve enough space to emit the requested volume without
-    // either over-extruding a bead or writing outside its lane.
-    params.purge_density = .55 / std::max(1., config.wipe_tower_extra_spacing.value / 100.);
+    params.purge_density = 1. / std::max(1., config.wipe_tower_extra_spacing.value / 100.);
     std::vector<SkyLane::Demand> demands;
-    std::vector<Phase>           phases;
-    for (size_t i = 0; i < requests.size(); ++i) {
-        const auto& r = requests[i];
+    std::vector<double>          ramming_volumes;
+    for (const auto& r : requests) {
         if (r.old_tool >= result.used_filament.size() || r.new_tool >= result.used_filament.size() || r.layer >= layer_count)
             throw std::invalid_argument("Invalid SkyLane tool or layer index");
         const double ramming = r.old_tool != r.new_tool && config.filament_multitool_ramming.get_at(r.old_tool) ?
                                    config.filament_multitool_ramming_volume.get_at(r.old_tool) :
                                    0.;
-        if (ramming > 0.) {
-            demands.push_back({r.z, r.height, ramming, r.layer});
-            phases.push_back({i, r.old_tool, true});
-        }
-        demands.push_back({r.z, r.height, r.volume, r.layer});
-        phases.push_back({i, r.new_tool, false});
+        // One continuous path: the outgoing tool consumes its ramming volume,
+        // then the incoming tool carries on in the same strip.
+        demands.push_back({r.z, r.height, r.volume + ramming, r.layer});
+        ramming_volumes.push_back(ramming);
     }
-    const auto packed = SkyLane::plan(demands, params);
+    auto packed = SkyLane::plan(demands, params);
     if (!packed.ok)
         throw std::runtime_error("SkyLane could not fit the tool changes within its nozzle-dip limit");
-    result.depth        = packed.depth;
-    const double lw     = params.line_width;
-    const double offset = std::ceil(config.prime_tower_brim_width.value / lw) * lw;
-    result.brim         = offset;
-    result.bounds       = BoundingBoxf(Vec2d(-offset, -offset), Vec2d(params.width + offset, result.depth + offset));
-    std::vector<std::vector<size_t>> passes_by_phase(demands.size());
-    for (size_t i = 0; i < packed.passes.size(); ++i)
-        passes_by_phase.at(packed.passes[i].owner).push_back(i);
-    size_t phase   = 0;
-    double highest = 0.;
+    if (config.wipe_tower_wall_type != WipeTowerWallType::wtwRib)
+        packed = SkyLane::taper(demands, params, packed);
+    result.depth    = packed.depth;
+    const double lw = params.line_width, first_z = requests.front().z;
+    double       top = first_z;
+    for (const auto& pass : packed.passes)
+        top = std::max(top, pass.z());
+    const Geometry geometry{config, params.width, packed.depth, top, lw};
+    result.brim                           = std::ceil(config.prime_tower_brim_width.value / lw) * lw;
+    const Polygons    footprint           = offset(geometry.outline(first_z, 0., packed.depth), scale_(result.brim + lw / 2.));
+    const BoundingBox bounds              = get_extents(footprint);
+    result.bounds                         = BoundingBoxf(unscale(bounds.min), unscale(bounds.max));
+    const Vec2f                      park = result.bounds.min.cast<float>() - Vec2f(1.f, 1.f);
+    std::vector<std::vector<size_t>> passes_by_request(demands.size());
+    for (size_t j = 0; j < packed.passes.size(); ++j)
+        passes_by_request.at(packed.passes[j].owner).push_back(j);
+    size_t            round     = 0;
+    double            highest   = 0.;
+    bool              brim_done = false;
+    std::vector<bool> lane_vertical(packed.lanes, false);
     for (size_t i = 0; i < requests.size(); ++i) {
-        const auto& r   = requests[i];
-        size_t      end = phase;
-        while (end < phases.size() && phases[end].request == i) {
-            for (size_t pi : passes_by_phase[end])
-                highest = std::max(highest, packed.passes[pi].z());
-            ++end;
-        }
+        const auto& r = requests[i];
+        for (size_t pi : passes_by_request[i])
+            highest = std::max(highest, packed.passes[pi].z());
         const double safe_z = std::max(r.z, highest) + .2;
-        Emitter      emitter(config, region, result, params.width, safe_z, offset);
-        emitter.set_tool(r.old_tool);
-        if (i == 0) {
+        Emitter      emitter(config, region, result, geometry, safe_z, park);
+        const bool   base = !passes_by_request[i].empty() && packed.passes[passes_by_request[i].front()].z_base < first_z - 1e-6;
+        emitter.begin(r.old_tool, r.new_tool, base ? 0. : ramming_volumes[i]);
+        if (i == 0)
             emitter.code << "; SKYLANE plan: lanes=" << packed.lanes << " depth=" << packed.depth << " width=" << params.width
                          << " max_dip=" << params.max_dip << "\n";
-            emitter.brim(offset, packed.depth, requests.front().z);
+        // Like the reference, finish the foundation when leaving the first
+        // plane. This keeps the brim attached without framing every strip.
+        if (!brim_done && (r.z > first_z + 1e-6 || i + 1 == requests.size())) {
+            emitter.brim(first_z);
+            brim_done = true;
         }
-        for (; phase < end; ++phase) {
-            if (!phases[phase].ramming && r.old_tool != r.new_tool)
-                emitter.change_tool(r.new_tool);
-            if (phases[phase].ramming)
-                emitter.code << "; SKYLANE RAMMING\n";
-            for (size_t pi : passes_by_phase[phase])
-                emitter.pass(packed.passes[pi], pi, offset, requests.front().z, phases[phase].ramming);
+        for (size_t pi : passes_by_request[i]) {
+            const auto& pass = packed.passes[pi];
+            if (pass.wall)
+                ++round;
+            emitter.pass(pass, round - (round > 0), first_z, !pass.merged && lane_vertical[pass.lane]);
+            if (!pass.merged)
+                lane_vertical[pass.lane] = !lane_vertical[pass.lane];
+            const Polygon wall                 = geometry.outline(pass.z(), pass.cell_y0, pass.cell_y1);
+            result.outer_wall[float(pass.z())] = {wall.split_at_first_point()};
         }
         emitter.finish();
         WipeTower::ToolChangeResult tcr{};
@@ -319,23 +484,17 @@ SkyLaneTowerResult generate_skylane_tower(const PrintConfig&                 con
         tcr.is_tool_change  = r.old_tool != r.new_tool;
         tcr.is_finish_first = !tcr.is_tool_change;
         tcr.skylane_safe_z  = float(safe_z);
-        // Park 1 mm beyond the brim corner so restoring a lower model plane
-        // cannot descend through the tower, including when the brim is disabled.
-        tcr.start_pos = tcr.end_pos = tcr.tool_change_start_pos = Vec2f(float(-offset - 1.), float(-offset - 1.));
+        tcr.start_pos = tcr.end_pos = tcr.tool_change_start_pos = park;
         tcr.gcode                                               = emitter.code.str();
         tcr.extrusions                                          = std::move(emitter.preview);
-        for (auto& e : tcr.extrusions)
-            e.pos -= Vec2f(float(offset), float(offset));
-        tcr.elapsed_time = float(emitter.elapsed);
-        tcr.purge_volume = float(r.volume);
+        tcr.elapsed_time                                        = float(emitter.elapsed);
+        tcr.purge_volume                                        = float(r.volume);
         (r.local_z ? result.local_z : result.nominal)[r.layer].push_back(std::move(tcr));
         result.toolchanges += r.old_tool != r.new_tool;
     }
-    const Points outline = {scaled(Vec2d(-offset, -offset)), scaled(Vec2d(params.width + offset, -offset)),
-                            scaled(Vec2d(params.width + offset, packed.depth + offset)), scaled(Vec2d(-offset, packed.depth + offset)),
-                            scaled(Vec2d(-offset, -offset))};
-    for (const auto& r : requests)
-        result.outer_wall[float(r.z)] = {Polyline(outline)};
+    // Include the brim in collision/arrangement bounds at the bed only.
+    for (const auto& polygon : footprint)
+        result.outer_wall[float(first_z)].push_back(polygon.split_at_first_point());
     return result;
 }
 } // namespace Slic3r

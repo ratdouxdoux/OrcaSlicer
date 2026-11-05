@@ -8,9 +8,142 @@
 #include "libslic3r/Preset.hpp"
 #include <cmath>
 #include <limits>
+#include <fstream>
 
 using namespace Slic3r;
 using Catch::Approx;
+
+// Coordinates and change counts from the supplied October 2026 Dragon
+// D2 (Rectangle), D4 (Cone) and D6 (Rib), relative to the tower origin.
+TEST_CASE("SkyLane matches the archive's shared cells and wall types", "[SkyLane][Geometry]")
+{
+    std::ifstream counts(std::string(TEST_DATA_DIR) + "/skylane/dragon_changes.txt");
+    REQUIRE(counts.good());
+    std::vector<SkyLaneRequest>  requests;
+    std::vector<SkyLane::Demand> demands;
+    size_t                       layer = 0, tool = 0;
+    int                          n;
+    while (counts >> n) {
+        for (int i = 0; i < n; ++i) {
+            const double z = .25 + layer * .22, h = layer == 0 ? .25 : .22;
+            requests.push_back({layer, false, tool, 1 - tool, z, h, 38.});
+            demands.push_back({z, h, 43., layer});
+            tool = 1 - tool;
+        }
+        ++layer;
+    }
+    REQUIRE(requests.size() == 395);
+    SkyLane::Parameters p;
+    p.width           = 28.;
+    p.purge_density   = 1. / 1.2;
+    const auto packed = SkyLane::plan(demands, p);
+    REQUIRE(packed.ok);
+    CHECK(packed.lanes == 2);
+    CHECK(packed.depth == Approx(28.8997).margin(.001));
+    REQUIRE(packed.passes.size() > 3);
+    CHECK(packed.passes[0].wall);
+    CHECK_FALSE(packed.passes[1].wall);
+    CHECK(packed.passes[0].y1 == Approx(43. / (28. * .25 / 1.2)));
+
+    auto dynamic = DynamicPrintConfig::full_print_config();
+    dynamic.set_num_extruders(2);
+    dynamic.set_num_filaments(2);
+    dynamic.set("single_extruder_multi_material", false);
+    dynamic.set("enable_skylane", true);
+    dynamic.set("enable_tower_interface_features", false);
+    dynamic.set("prime_tower_width", 28.);
+    dynamic.set("prime_tower_brim_width", 5.);
+    dynamic.set("skylane_max_dip", .4);
+    dynamic.option<ConfigOptionPercent>("wipe_tower_extra_spacing")->value = 120.;
+    dynamic.set("wipe_tower_extra_rib_length", 8.);
+    dynamic.set("wipe_tower_rib_width", 8.);
+    dynamic.set("wipe_tower_fillet_wall", true);
+    dynamic.set("wipe_tower_wall_gap", true);
+    dynamic.set("wipe_tower_cone_angle", 15.);
+    dynamic.option<ConfigOptionBools>("filament_multitool_ramming")->values         = {true, true};
+    dynamic.option<ConfigOptionFloats>("filament_multitool_ramming_volume")->values = {5., 5.};
+    dynamic.option<ConfigOptionFloats>("filament_diameter")->values                 = {1.75, 1.75};
+    PrintConfig       config;
+    PrintRegionConfig region;
+    config.apply(dynamic, true);
+    region.apply(dynamic, true);
+    std::vector<SkyLaneTowerResult> towers;
+    for (auto type : {WipeTowerWallType::wtwRectangle, WipeTowerWallType::wtwCone, WipeTowerWallType::wtwRib}) {
+        config.wipe_tower_wall_type.value = type;
+        towers.push_back(generate_skylane_tower(config, region, requests, layer));
+        const auto& tower = towers.back();
+        CHECK(tower.depth == Approx(28.8997).margin(.001));
+        CHECK(tower.toolchanges == 395);
+        const auto& first  = tower.nominal[0][0];
+        const auto& second = tower.nominal[0][1];
+        CHECK(first.gcode.find("SKYLANE WALL") != std::string::npos);
+        CHECK(second.gcode.find("SKYLANE WALL") == std::string::npos);
+        double min_y = 1e6, max_y = -1e6;
+        for (size_t j = 1; j < second.extrusions.size(); ++j) {
+            const auto& e = second.extrusions[j];
+            if (e.width <= 0.)
+                continue;
+            const auto& a = second.extrusions[j - 1];
+            CHECK(e.pos.y() == Approx(a.pos.y()).margin(1e-5));
+            min_y = std::min(min_y, double(e.pos.y()));
+            max_y = std::max(max_y, double(e.pos.y()));
+        }
+        CHECK(min_y == Approx(205.170 - 197.549).margin(.002));
+        CHECK(max_y == Approx(212.042 - 197.549).margin(.002));
+        CHECK(tower.outer_wall.begin()->second.front().is_closed());
+
+        auto path_measure = [&](const std::string& raw, bool volume) {
+            PlaceholderParser parser;
+            parser.set("z_offset", 0.);
+            GCodeReader reader;
+            reader.apply_config(config);
+            double total = 0.;
+            reader.parse_buffer(parser.process(raw), [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
+                if (line.extruding(state))
+                    total += volume ? line.dist_E(state) * M_PI * 1.75 * 1.75 / 4. : line.dist_XY(state);
+            });
+            return total;
+        };
+        const size_t wall_start = first.gcode.find("; SKYLANE WALL\n");
+        const size_t wall_end   = first.gcode.find("; SKYLANE WALL_END", wall_start);
+        REQUIRE(wall_end != std::string::npos);
+        const double perimeter = unscaled(tower.outer_wall.begin()->second.front().length());
+        CHECK(path_measure(first.gcode.substr(wall_start, wall_end - wall_start), false) == Approx(perimeter - 1.25).margin(.003));
+        const auto&  ram    = tower.nominal[1][1].gcode;
+        const size_t change = ram.find("[change_filament_gcode]");
+        REQUIRE(change != std::string::npos);
+        CHECK(path_measure(ram.substr(0, change), true) == Approx(5.).margin(.002));
+    }
+    CHECK(towers[0].nominal[0][0].gcode == towers[1].nominal[0][0].gcode);
+    const auto rect = get_extents(towers[0].outer_wall.begin()->second.front());
+    CHECK(unscaled(rect.min.x()) == Approx(.5));
+    CHECK(unscaled(rect.max.x()) == Approx(28.5));
+    CHECK(unscaled(rect.min.y()) == Approx(.25));
+    CHECK(unscaled(rect.max.y()) == Approx(28.6497).margin(.001));
+    const auto rib = get_extents(towers[2].outer_wall.begin()->second.front());
+    CHECK(unscaled(rib.min.x()) == Approx(11.248 - 18.380).margin(.01));
+    CHECK(unscaled(rib.max.x()) == Approx(54.512 - 18.380).margin(.01));
+    const auto rect_top = get_extents(towers[0].outer_wall.rbegin()->second.front());
+    const auto rib_top  = get_extents(towers[2].outer_wall.rbegin()->second.front());
+    CHECK(unscaled(rect_top.size().y()) == Approx(11.5599 - .5).margin(.002));
+    CHECK(unscaled(rib_top.size().y()) == Approx(28.8997 - .5).margin(.002));
+
+    config.wipe_tower_wall_type.value   = WipeTowerWallType::wtwRib;
+    config.wipe_tower_fillet_wall.value = false;
+    config.wipe_tower_wall_gap.value    = false;
+    const auto  sharp                   = generate_skylane_tower(config, region, requests, layer);
+    const auto& sharp_wall              = sharp.outer_wall.begin()->second.front();
+    CHECK(sharp_wall.points.size() < towers[2].outer_wall.begin()->second.front().points.size());
+    CHECK(get_extents(sharp_wall).min.x() < rib.min.x());
+
+    // The archive's shallow Dragon has no cone. Also exercise a protruding one.
+    config.wipe_tower_wall_type.value  = WipeTowerWallType::wtwCone;
+    config.wipe_tower_cone_angle.value = 60.;
+    const auto cone                    = generate_skylane_tower(config, region, requests, layer);
+    CHECK(cone.bounds.size().y() > towers[0].bounds.size().y() + 10.);
+    CHECK(get_extents(cone.outer_wall.begin()->second.front()).size().y() >
+          get_extents(cone.outer_wall.rbegin()->second.front()).size().y());
+}
 
 TEST_CASE("SkyLane is opt-in and saved in process presets", "[SkyLane][Config]")
 {
@@ -108,6 +241,7 @@ TEST_CASE("SkyLane emits enough material with bounded flow and clearance", "[Sky
     dynamic.set("single_extruder_multi_material", false);
     dynamic.set("enable_skylane", true);
     dynamic.set("prime_tower_width", 20.);
+    dynamic.option<ConfigOptionEnum<WipeTowerWallType>>("wipe_tower_wall_type")->value = WipeTowerWallType::wtwRectangle;
     dynamic.set("prime_tower_brim_width", 0.);
     dynamic.set("enable_tower_interface_features", false);
     dynamic.option<ConfigOptionFloats>("filament_diameter")->values             = {1.75, 1.75};
@@ -152,7 +286,7 @@ TEST_CASE("SkyLane emits enough material with bounded flow and clearance", "[Sky
                         CHECK(flow <= ramp_limit + .02);
                         e += line.dist_E(state);
                         CHECK(line.x() >= -.001);
-                        CHECK(line.x() <= 20.001);
+                        CHECK(line.x() <= 20.501);
                         CHECK(line.y() >= -.001);
                         CHECK(line.y() <= tower.depth + .001);
                     }

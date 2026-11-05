@@ -138,6 +138,7 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
     bool   gradient     = false;
     bool   skylane      = false;
     bool   local_z      = true;
+    WipeTowerWallType skylane_wall = WipeTowerWallType::wtwRectangle;
     SECTION("Independent mixes at standard layer height") {}
     SECTION("Independent mixes with single-pass intervals") { layer_height = .08; }
     SECTION("Gradients with single-pass intervals")
@@ -146,6 +147,16 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
         gradient     = true;
     }
     SECTION("SkyLane with independent mixes") { skylane = true; }
+    SECTION("SkyLane with rib walls")
+    {
+        skylane      = true;
+        skylane_wall = WipeTowerWallType::wtwRib;
+    }
+    SECTION("SkyLane with cone walls")
+    {
+        skylane      = true;
+        skylane_wall = WipeTowerWallType::wtwCone;
+    }
     SECTION("SkyLane with nominal tool changes")
     {
         skylane = true;
@@ -183,6 +194,8 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
     config.set("enable_prime_tower", true);
     config.set("wipe_tower_no_sparse_layers", false);
     config.set("enable_skylane", skylane);
+    if (skylane)
+        config.option<ConfigOptionEnum<WipeTowerWallType>>("wipe_tower_wall_type")->value = skylane_wall;
     config.set("enable_tower_interface_features", false);
     config.set("single_extruder_multi_material", false);
     config.set("prime_volume", 15.);

@@ -1482,7 +1482,6 @@ WipeTower2::WipeTower2(const PrintConfig&                     config,
     if (config.enable_skylane) {
         m_skylane_config = &config;
         m_skylane_region = &default_region_config;
-        m_use_rib_wall   = false;
     }
 
     // Read absolute value of first layer speed, if given as percentage,
@@ -3555,8 +3554,15 @@ void WipeTower2::generate_skylane(std::vector<std::vector<WipeTower::ToolChangeR
     m_outer_wall                 = std::move(tower.outer_wall);
     m_rib_offset                 = Vec2f::Zero();
     m_current_layer_finished     = true;
-    for (auto& layer : m_plan)
-        layer.depth = m_wipe_tower_depth;
+    for (auto& layer : m_plan) {
+        auto outline = m_outer_wall.upper_bound(layer.z);
+        if (outline != m_outer_wall.begin()) {
+            --outline;
+            const auto bounds = get_extents(outline->second.front());
+            layer.depth       = std::min(m_wipe_tower_depth, float(unscaled(bounds.max.y() - bounds.min.y()) + m_perimeter_width));
+        } else
+            layer.depth = m_wipe_tower_depth;
+    }
 }
 
 void WipeTower2::generate_new(std::vector<std::vector<WipeTower::ToolChangeResult>>& result, 

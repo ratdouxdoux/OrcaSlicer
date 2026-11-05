@@ -14,7 +14,7 @@ class Lanes
 {
 public:
     Lanes(const Parameters& params, double depth, Plan& result)
-        : p(params), depth(depth), lane_depth(depth / p.lanes), heights(p.lanes, 0.), result(result)
+        : p(params), depth(depth), full_depth(depth), lane_depth(depth / p.lanes), heights(p.lanes, 0.), result(result)
     {}
 
     bool place(const Demand& e, size_t index, int active)
@@ -50,7 +50,8 @@ public:
                 close_round(index);
             floor     = heights.front();
             auto cell = [&](double h) {
-                result.passes.push_back({index, -1, 0, floor, h, 0., depth, p.merged_density, false, true});
+                result.passes.push_back(
+                    {index, -1, 0, floor, h, shift, shift + depth, p.merged_density, false, true, true, shift, shift + depth});
                 floor += h;
                 std::fill(heights.begin(), heights.end(), floor);
             };
@@ -78,8 +79,8 @@ public:
                     continue;
                 }
                 const double span = std::min(std::max(need, p.line_width), room);
-                result.passes.push_back({index, int(index), 0, floor, round_height, round_y, round_y + span,
-                                         p.purge_density * std::min(1., need / span), false, true});
+                result.passes.push_back({index, int(index), 0, floor, round_height, shift + round_y, shift + round_y + span,
+                                         p.purge_density * std::min(1., need / span), false, true, opened, shift, shift + depth});
                 remaining -= p.width * span * round_height * p.purge_density;
                 round_y += span;
                 if (depth - round_y < p.line_width) {
@@ -132,12 +133,23 @@ public:
         return true;
     }
 
-    void finish(size_t owner) { close_round(owner); }
+    bool resize(double next_depth, size_t owner)
+    {
+        if (std::abs(next_depth - depth) < EPS)
+            return true;
+        close_round(owner);
+        if (*std::max_element(heights.begin(), heights.end()) - *std::min_element(heights.begin(), heights.end()) > EPS)
+            return false;
+        depth      = next_depth;
+        lane_depth = depth / p.lanes;
+        shift      = (full_depth - depth) / 2.;
+        return true;
+    }
 
 private:
     std::pair<double, double> band(int c, double top) const
     {
-        double       y0 = c * lane_depth, y1 = (c + 1) * lane_depth;
+        double       y0 = shift + c * lane_depth, y1 = shift + (c + 1) * lane_depth;
         const double slope = std::tan(p.nozzle_cone_angle * 3.14159265358979323846 / 180.);
         if (c > 0 && heights[c - 1] > top)
             y0 += p.tip_radius - p.line_width / 2. + (heights[c - 1] - top) * slope;
@@ -156,7 +168,7 @@ private:
     void push(size_t owner, int demand, int lane, double h, double y0, double y1, double density, bool solid = false)
     {
         solid = solid || (p.solid_base && heights[lane] < base_z - EPS);
-        result.passes.push_back({owner, demand, lane, heights[lane], h, y0, y1, density, solid, false});
+        result.passes.push_back({owner, demand, lane, heights[lane], h, y0, y1, density, solid, false, false, shift, shift + depth});
         heights[lane] += h;
     }
     void close_round(size_t owner)
@@ -164,14 +176,14 @@ private:
         if (round_height <= 0.)
             return;
         if (depth - round_y >= p.line_width)
-            result.passes.push_back({owner, -1, 0, heights.front(), round_height, round_y, depth, p.merged_density,
-                                     p.solid_base && heights.front() < base_z - EPS, true});
+            result.passes.push_back({owner, -1, 0, heights.front(), round_height, shift + round_y, shift + depth, p.merged_density,
+                                     p.solid_base && heights.front() < base_z - EPS, true, false, shift, shift + depth});
         const double top = heights.front() + round_height;
         std::fill(heights.begin(), heights.end(), top);
         round_height = round_y = 0.;
     }
     const Parameters&   p;
-    double              depth, lane_depth;
+    double              depth, full_depth, lane_depth, shift = 0.;
     std::vector<double> heights;
     Plan&               result;
     bool                have_base = false, base_done = false, merged = false;
@@ -203,7 +215,10 @@ void validate(const std::vector<Demand>& demands, const Parameters& p)
 }
 } // namespace
 
-Plan pack_scheduled(const std::vector<Demand>& demands, double depth, const Parameters& p)
+static Plan pack_steps(const std::vector<Demand>&                    demands,
+                       double                                        depth,
+                       const Parameters&                             p,
+                       const std::vector<std::pair<size_t, double>>& steps)
 {
     validate(demands, p);
     if (!std::isfinite(depth) || depth <= 0.)
@@ -223,15 +238,23 @@ Plan pack_scheduled(const std::vector<Demand>& demands, double depth, const Para
         for (; index < demands.size(); ++index) {
             while (li + 1 < layers.size() && layers[li] != demands[index].layer)
                 ++li;
-            if (!lanes.place(demands[index], index, active[li]))
+            double cell_depth = depth;
+            for (const auto& step : steps)
+                if (demands[index].layer >= step.first)
+                    cell_depth = step.second;
+            if ((!steps.empty() && cell_depth < depth && active[li] != 1) || !lanes.resize(cell_depth, index) ||
+                !lanes.place(demands[index], index, active[li]))
                 break;
         }
         if (index == demands.size()) {
-            lanes.finish(demands.size() - 1);
             result.ok = true;
             return result;
         }
         result.failed_demand = index;
+        // A tapered suffix must stay merged. Promoting it to split lanes can
+        // never make this trial valid, so avoid replaying every earlier layer.
+        if (!steps.empty() && demands[index].layer >= steps.front().first)
+            return result;
         if (active[li] == 1) {
             active[li] = p.lanes;
             continue;
@@ -245,6 +268,8 @@ Plan pack_scheduled(const std::vector<Demand>& demands, double depth, const Para
     return {};
 }
 
+Plan pack_scheduled(const std::vector<Demand>& demands, double depth, const Parameters& p) { return pack_steps(demands, depth, p, {}); }
+
 Plan plan(const std::vector<Demand>& demands, const Parameters& params)
 {
     validate(demands, params);
@@ -254,20 +279,62 @@ Plan plan(const std::vector<Demand>& demands, const Parameters& params)
     for (int count = 2; count <= 6; ++count) {
         Parameters p = params;
         p.lanes      = count;
-        double lo = count * 2. * p.line_width, hi = 400.;
+        double lo = 1., hi = 400.;
         if (!pack_scheduled(demands, hi, p).ok)
             continue;
-        for (int iteration = 0; iteration < 30; ++iteration) {
+        for (int iteration = 0; iteration < 35; ++iteration) {
             const double mid = (lo + hi) * .5;
             if (pack_scheduled(demands, mid, p).ok)
                 hi = mid;
             else
                 lo = mid;
         }
+        if (count > 2 && hi * 1.15 / count < 4.)
+            continue;
         auto candidate = pack_scheduled(demands, hi * 1.15, p);
-        if (candidate.ok && (!best.ok || candidate.depth < best.depth))
+        if (candidate.ok && (!best.ok || candidate.depth < best.depth - .05))
             best = std::move(candidate);
     }
     return best;
+}
+Plan taper(const std::vector<Demand>& demands, const Parameters& params, const Plan& full)
+{
+    if (!full.ok || demands.size() < 2)
+        return full;
+    Parameters p = params;
+    p.lanes      = full.lanes;
+    std::vector<size_t> layers;
+    for (const auto& d : demands)
+        if ((layers.empty() || layers.back() != d.layer) && d.z > demands.front().z + .0001)
+            layers.push_back(d.layer);
+    std::vector<std::pair<size_t, double>> steps;
+    Plan                                   result   = full;
+    size_t                                 earliest = 0;
+    for (double fraction : {.85, .70, .55, .40}) {
+        const double depth = full.depth * fraction;
+        if (depth < 4. * p.line_width)
+            break;
+        size_t lo = earliest, hi = layers.size();
+        // A smaller footprint must support the entire suffix, not just its
+        // first layer. Replaying also closes the previous round before stepping in.
+        while (lo < hi) {
+            size_t mid   = (lo + hi) / 2;
+            auto   trial = steps;
+            trial.emplace_back(layers[mid], depth);
+            if (pack_steps(demands, full.depth, p, trial).ok)
+                hi = mid;
+            else
+                lo = mid + 1;
+        }
+        if (lo == layers.size())
+            break;
+        steps.emplace_back(layers[lo], depth);
+        auto candidate = pack_steps(demands, full.depth, p, steps);
+        if (!candidate.ok)
+            break;
+        result   = std::move(candidate);
+        earliest = lo;
+    }
+    return result;
 }
 } // namespace Slic3r::SkyLane

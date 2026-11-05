@@ -2216,8 +2216,8 @@ Vec3d PartPlate::estimate_wipe_tower_size(const DynamicPrintConfig & config, con
     }
     const ConfigOptionEnum<WipeTowerWallType>* use_rib_wall_opt = config.option<ConfigOptionEnum<WipeTowerWallType>>("wipe_tower_wall_type");
     bool use_rib_wall = use_rib_wall_opt ? use_rib_wall_opt->value == WipeTowerWallType::wtwRib : false;
-    if (const auto* skylane = config.option<ConfigOptionBool>("enable_skylane"); skylane && skylane->value)
-        use_rib_wall = false;
+    const auto*                                skylane_option   = config.option<ConfigOptionBool>("enable_skylane");
+    const bool                                 skylane          = skylane_option && skylane_option->value;
     double rib_width = config.option("wipe_tower_rib_width")->getFloat();
 
     double depth = 0.;
@@ -2234,7 +2234,16 @@ Vec3d PartPlate::estimate_wipe_tower_size(const DynamicPrintConfig & config, con
     }
     double volume = wipe_volume * plate_extruder_size + filament_change_volume * (plate_extruder_size - 1);
 
-    if (use_rib_wall) {
+    if (skylane) {
+        // Before slicing, retain the configured rectangular cell width. The
+        // generated contours replace this estimate after planning.
+        depth            = volume / (layer_height * width) * extra_spacing * 1.15;
+        double extension = 0.;
+        if (use_rib_wall)
+            extension = (config.option("wipe_tower_extra_rib_length")->getFloat() + rib_width / 2.) / std::sqrt(2.);
+        wipe_tower_size(0) = width + 2. * extension;
+        wipe_tower_size(1) = depth + 2. * extension;
+    } else if (use_rib_wall) {
         depth = std::sqrt(volume / layer_height * extra_spacing);
         if (need_wipe_tower || plate_extruder_size > 1) {
             rib_width = std::min(rib_width, depth / 2);
@@ -2244,8 +2253,7 @@ Vec3d PartPlate::estimate_wipe_tower_size(const DynamicPrintConfig & config, con
             depth = rib_width + std::max(depth + extra_rib_length, depth);
             wipe_tower_size(0) = wipe_tower_size(1) = depth;
         }
-    }
-    else {
+    } else {
         depth = volume / (layer_height * wipe_volume) * extra_spacing;
         wipe_tower_size(0) = width;
         wipe_tower_size(1) = depth;
@@ -2264,8 +2272,11 @@ arrangement::ArrangePolygon PartPlate::estimate_wipe_tower_polygon(const Dynamic
     Vec3d wipe_tower_size = estimate_wipe_tower_size(config, w, v, plate_extruder_size, use_global_objects);
 	int plate_width=m_width, plate_depth=m_depth;
 	float depth = wipe_tower_size(1);
-	float margin = WIPE_TOWER_MARGIN + tower_brim_width, wp_brim_width = 0.f;
-	const ConfigOption* wipe_tower_brim_width_opt = config.option("prime_tower_brim_width");
+    const auto*         skylane_option = config.option<ConfigOptionBool>("enable_skylane");
+    const bool          skylane        = skylane_option && skylane_option->value;
+    const float         extension      = skylane ? std::max(0.f, float(wipe_tower_size(0) - w) / 2.f) : 0.f;
+    float               margin = WIPE_TOWER_MARGIN + tower_brim_width + extension, wp_brim_width = 0.f;
+    const ConfigOption* wipe_tower_brim_width_opt = config.option("prime_tower_brim_width");
 	if (wipe_tower_brim_width_opt) {
 		wp_brim_width = wipe_tower_brim_width_opt->getFloat();
 		BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format("arrange wipe_tower: wp_brim_width %1%") % wp_brim_width;
@@ -2275,13 +2286,11 @@ arrangement::ArrangePolygon PartPlate::estimate_wipe_tower_polygon(const Dynamic
 	y = std::clamp(y, margin, (float)plate_depth - depth - margin - wp_brim_width);
 
 	arrangement::ArrangePolygon wipe_tower_ap;
-	Polygon ap({
-		{scaled(x - wp_brim_width), scaled(y - wp_brim_width)},
-		{scaled(x + w + wp_brim_width), scaled(y - wp_brim_width)},
-		{scaled(x + w + wp_brim_width), scaled(y + depth + wp_brim_width)},
-		{scaled(x - wp_brim_width), scaled(y + depth + wp_brim_width)}
-		});
-	wipe_tower_ap.bed_idx = plate_index;
+    Polygon                     ap({{scaled(x - wp_brim_width - extension), scaled(y - wp_brim_width - extension)},
+                                    {scaled(x + w + wp_brim_width + extension), scaled(y - wp_brim_width - extension)},
+                                    {scaled(x + w + wp_brim_width + extension), scaled(y + depth + wp_brim_width - extension)},
+                                    {scaled(x - wp_brim_width - extension), scaled(y + depth + wp_brim_width - extension)}});
+    wipe_tower_ap.bed_idx = plate_index;
 	wipe_tower_ap.setter = NULL; // do not move wipe tower
 
 	wipe_tower_ap.poly.contour = std::move(ap);

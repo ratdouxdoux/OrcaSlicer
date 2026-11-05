@@ -18,7 +18,7 @@ struct Parameters
     double tip_radius        = .5;
     double nozzle_cone_angle = 40.;
     double line_width        = .5;
-    double fill_density      = .5;
+    double fill_density      = .2;
     double merged_density    = .1;
     double merged_reserve    = .2;
     double purge_density     = .8;
@@ -45,6 +45,8 @@ struct Pass
     double density = 1.;
     bool   solid   = false;
     bool   merged  = false;
+    bool   wall    = false; // One shared perimeter when a merged round opens.
+    double cell_y0 = 0., cell_y1 = 0.;
 
     double z() const { return z_base + height; }
 };
@@ -62,5 +64,8 @@ struct Plan
 Plan pack_scheduled(const std::vector<Demand>& demands, double depth, const Parameters& params);
 // Try 2..6 lanes, binary-search depth, then replan with 15% reserve.
 Plan plan(const std::vector<Demand>& demands, const Parameters& params);
+// Reduce only merged cells, centred on the original footprint. Each step is
+// accepted only if the remaining demand sequence can still be packed.
+Plan taper(const std::vector<Demand>& demands, const Parameters& params, const Plan& full);
 
 } // namespace Slic3r::SkyLane

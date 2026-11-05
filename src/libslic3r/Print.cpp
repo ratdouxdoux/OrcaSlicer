@@ -1,6 +1,7 @@
 #include "Config.hpp"
 #include "Exception.hpp"
 #include "Print.hpp"
+#include "Tesselate.hpp"
 #include "BoundingBox.hpp"
 #include "Brim.hpp"
 #include "ClipperUtils.hpp"
@@ -3217,6 +3218,52 @@ void Print::_make_wipe_tower()
         m_wipe_tower_data.construct_mesh(wipe_tower.width(), wipe_tower.get_depth(), wipe_tower.get_wipe_tower_height(),
                                          wipe_tower.get_brim_width(), wipe_tower.get_is_rib_wall(), wipe_tower.get_rib_width(),
                                          wipe_tower.get_rib_length(), !m_config.enable_skylane && config().wipe_tower_fillet_wall.value);
+        if (m_config.enable_skylane && !wipe_tower.get_outer_wall().empty()) {
+            // Use the emitted contours for Prepare view too: the stock rib
+            // helper assumes diagonal arms and cannot represent SkyLane's
+            // 45-degree arms, cones or centred depth steps.
+            auto slab = [](const Polyline& outline, float bottom, float top) {
+                Points points = outline.points;
+                if (points.size() > 1 && points.front() == points.back())
+                    points.pop_back();
+                Polygon polygon(std::move(points));
+                polygon.make_counter_clockwise();
+                indexed_triangle_set mesh;
+                auto                 triangle = [&](Vec3f a, Vec3f b, Vec3f c) {
+                    const int index = int(mesh.vertices.size());
+                    mesh.vertices.insert(mesh.vertices.end(), {a, b, c});
+                    mesh.indices.emplace_back(index, index + 1, index + 2);
+                };
+                const auto triangles = triangulate_expolygon_2f(ExPolygon(polygon));
+                for (size_t i = 0; i + 2 < triangles.size(); i += 3) {
+                    const Vec2f a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
+                    triangle({a.x(), a.y(), top}, {b.x(), b.y(), top}, {c.x(), c.y(), top});
+                    triangle({c.x(), c.y(), bottom}, {b.x(), b.y(), bottom}, {a.x(), a.y(), bottom});
+                }
+                for (size_t i = 0; i < polygon.points.size(); ++i) {
+                    const Vec2f a = unscale(polygon.points[i]).cast<float>();
+                    const Vec2f b = unscale(polygon.points[(i + 1) % polygon.points.size()]).cast<float>();
+                    triangle({a.x(), a.y(), bottom}, {b.x(), b.y(), bottom}, {b.x(), b.y(), top});
+                    triangle({a.x(), a.y(), bottom}, {b.x(), b.y(), top}, {a.x(), a.y(), top});
+                }
+                return TriangleMesh(std::move(mesh));
+            };
+            auto& mesh                = *m_wipe_tower_data.wipe_tower_mesh_data;
+            mesh.real_wipe_tower_mesh = TriangleMesh();
+            mesh.real_brim_mesh       = TriangleMesh();
+            float bottom              = 0.f;
+            for (const auto& [top, outlines] : wipe_tower.get_outer_wall()) {
+                if (top > bottom && !outlines.empty())
+                    mesh.real_wipe_tower_mesh.merge(slab(outlines.front(), bottom, top));
+                bottom = top;
+            }
+            const auto& base = *wipe_tower.get_outer_wall().begin();
+            for (size_t i = 1; i < base.second.size(); ++i)
+                mesh.real_brim_mesh.merge(slab(base.second[i], 0.f, base.first));
+            mesh.bottom = Polygon(base.second.back().points);
+            if (mesh.bottom.points.front() == mesh.bottom.points.back())
+                mesh.bottom.points.pop_back();
+        }
         const Vec3d origin = this->get_plate_origin();
         m_fake_wipe_tower.rib_offset = wipe_tower.get_rib_offset();
         m_fake_wipe_tower.set_fake_extrusion_data(wipe_tower.position() + m_fake_wipe_tower.rib_offset, wipe_tower.width(),
