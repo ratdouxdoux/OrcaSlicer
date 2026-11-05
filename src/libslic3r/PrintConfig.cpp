@@ -5487,6 +5487,33 @@ void PrintConfigDef::init_fff_params()
     def->mode    = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.0));
 
+    def          = this->add("enable_skylane", coBool);
+    def->label   = L("SkyLane tower (experimental)");
+    def->tooltip = L(
+        "Build the prime tower in independently growing lanes. Purge passes use the available height below the current layer, "
+        "with support added when a lane falls behind. For tool changers only. Uses a rectangular tower and manages its own sparse fill.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def           = this->add("skylane_max_dip", coFloat);
+    def->label    = L("SkyLane maximum dip");
+    def->tooltip  = L("Maximum distance the SkyLane surface may lag below the current print layer. Zero uses the largest configured Z hop, "
+                       "with a minimum of 75% of the smallest nozzle diameter. Check nozzle clearance before increasing this value.");
+    def->sidetext = "mm";
+    def->min      = 0;
+    def->max      = 2;
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.));
+
+    def           = this->add("skylane_ramp_volume", coFloat);
+    def->label    = L("SkyLane flow ramp volume");
+    def->tooltip  = L("Extruded volume over which a newly selected tool ramps from 25% to 100% of its maximum volumetric speed. "
+                       "The tower speed limit still applies. Zero disables the ramp.");
+    def->sidetext = "mm³";
+    def->min      = 0;
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(4.));
+
     def = this->add("wipe_tower_no_sparse_layers", coBool);
     def->label = L("No sparse layers (beta)");
     def->tooltip = L("If enabled, the wipe tower will not be printed on layers with no tool changes. "

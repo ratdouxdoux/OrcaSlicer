@@ -1,5 +1,6 @@
 // Orca: WipeTower2 for all non bbl printers, support all MMU device and toolchanger.
 #include "WipeTower2.hpp"
+#include "SkyLaneTower.hpp"
 
 #include <cassert>
 #include <iostream>
@@ -1478,6 +1479,11 @@ WipeTower2::WipeTower2(const PrintConfig&                     config,
     , m_enable_tower_interface_cooldown_during_tower(config.enable_tower_interface_cooldown_during_tower)
 {
     m_contact_speed = 20 * 60.f;
+    if (config.enable_skylane) {
+        m_skylane_config = &config;
+        m_skylane_region = &default_region_config;
+        m_use_rib_wall   = false;
+    }
 
     // Read absolute value of first layer speed, if given as percentage,
     // it is taken over following default. Speeds from config are not
@@ -3513,11 +3519,56 @@ int WipeTower2::get_wall_filament_for_layer(const WipeTowerInfo& layer)
     return -1;
 }
 
+void WipeTower2::generate_skylane(std::vector<std::vector<WipeTower::ToolChangeResult>>& result,
+                                  std::vector<std::vector<WipeTower::ToolChangeResult>>& local_z_result)
+{
+    for (const auto& layer : m_plan) {
+        const auto& changes = layer.local_z_tool_changes.empty() ? layer.tool_changes : layer.local_z_tool_changes;
+        if (!changes.empty()) {
+            m_current_tool = changes.front().old_tool;
+            break;
+        }
+    }
+    std::vector<SkyLaneRequest> requests;
+    for (size_t i = 0; i < m_plan.size(); ++i) {
+        const auto& layer = m_plan[i];
+        for (bool local : {true, false}) {
+            const auto& changes = local ? layer.local_z_tool_changes : layer.tool_changes;
+            for (const auto& change : changes) {
+                if (change.old_tool != m_current_tool)
+                    throw std::runtime_error("SkyLane tool-change plan is not continuous");
+                requests.push_back({i, local, change.old_tool, change.new_tool, layer.z, layer.height, change.wipe_volume});
+                m_current_tool = change.new_tool;
+            }
+        }
+        if (layer.tool_changes.empty())
+            requests.push_back({i, false, m_current_tool, m_current_tool, layer.z, layer.height, 0.});
+    }
+    auto tower                   = generate_skylane_tower(*m_skylane_config, *m_skylane_region, requests, m_plan.size());
+    result                       = std::move(tower.nominal);
+    local_z_result               = std::move(tower.local_z);
+    m_wipe_tower_depth           = float(tower.depth);
+    m_wipe_tower_height          = float(tower.height);
+    m_wipe_tower_brim_width_real = float(tower.brim);
+    m_used_filament_length       = std::move(tower.used_filament);
+    m_num_tool_changes           = tower.toolchanges;
+    m_outer_wall                 = std::move(tower.outer_wall);
+    m_rib_offset                 = Vec2f::Zero();
+    m_current_layer_finished     = true;
+    for (auto& layer : m_plan)
+        layer.depth = m_wipe_tower_depth;
+}
+
 void WipeTower2::generate_new(std::vector<std::vector<WipeTower::ToolChangeResult>>& result, 
     std::vector<std::vector<WipeTower::ToolChangeResult>>& local_z_result)
 {
     if (m_plan.empty())
         return;
+
+    if (m_skylane_config != nullptr) {
+        generate_skylane(result, local_z_result);
+        return;
+    }
 
     m_wipe_tower_height = m_plan.back().z;
     plan_tower_new();
@@ -3770,6 +3821,8 @@ static Vec2f rotate_local_z_reserve_point(const Vec2f& pt, float tower_width, fl
 
 std::vector<std::vector<WipeTower::box_coordinates>> WipeTower2::get_local_z_reserve_boxes() const
 {
+    if (m_skylane_config != nullptr)
+        return {};
     std::vector<std::vector<WipeTower::box_coordinates>> out;
     out.reserve(m_plan.size());
 

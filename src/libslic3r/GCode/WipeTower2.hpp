@@ -226,6 +226,10 @@ public:
     void set_filament_categories(const std::vector<int>& filament_categories) { m_filament_categories = filament_categories; }
 
 private:
+    const PrintConfig*                       m_skylane_config = nullptr;
+    const PrintRegionConfig*                 m_skylane_region = nullptr;
+    void                                     generate_skylane(std::vector<std::vector<WipeTower::ToolChangeResult>>& result,
+                                                              std::vector<std::vector<WipeTower::ToolChangeResult>>& local_z_result);
     std::vector<std::vector<BlockDepthInfo>> m_all_layers_depth;
     std::vector<WipeTowerBlock> m_wipe_tower_blocks;
     int m_last_block_id;

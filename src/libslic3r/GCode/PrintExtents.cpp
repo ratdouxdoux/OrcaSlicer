@@ -146,22 +146,28 @@ BoundingBoxf get_wipe_tower_extrusions_extents(const Print &print, const coordf_
         Eigen::Rotation2Dd(Geometry::deg2rad(print.config().wipe_tower_rotation_angle.value));
 
     BoundingBoxf bbox;
-    for (const std::vector<WipeTower::ToolChangeResult> &tool_changes : print.wipe_tower_data().tool_changes) {
-        if (! tool_changes.empty() && tool_changes.front().print_z > max_print_z)
-            break;
-        for (const WipeTower::ToolChangeResult &tcr : tool_changes) {
-            for (size_t i = 1; i < tcr.extrusions.size(); ++ i) {
-                const WipeTower::Extrusion &e = tcr.extrusions[i];
-                if (e.width > 0) {
-                    Vec2d delta = 0.5 * Vec2d(e.width, e.width);
-                    Vec2d p1 = trafo * (&e - 1)->pos.cast<double>();
-                    Vec2d p2 = trafo * e.pos.cast<double>();
-                    bbox.merge(p1.cwiseMin(p2) - delta);
-                    bbox.merge(p1.cwiseMax(p2) + delta);
+    const bool   skylane      = print.config().enable_skylane;
+    const auto   merge_layers = [&](const std::vector<std::vector<WipeTower::ToolChangeResult>>& layers) {
+        for (const auto& tool_changes : layers) {
+            if (!skylane && !tool_changes.empty() && tool_changes.front().print_z > max_print_z)
+                break;
+            for (const auto& tcr : tool_changes) {
+                for (size_t i = 1; i < tcr.extrusions.size(); ++i) {
+                    const auto& e = tcr.extrusions[i];
+                    if (e.width > 0.f && (e.z < 0.f || e.z <= max_print_z)) {
+                        const Vec2d delta = 0.5 * Vec2d(e.width, e.width);
+                        const Vec2d p1    = trafo * tcr.extrusions[i - 1].pos.cast<double>();
+                        const Vec2d p2    = trafo * e.pos.cast<double>();
+                        bbox.merge(p1.cwiseMin(p2) - delta);
+                        bbox.merge(p1.cwiseMax(p2) + delta);
+                    }
                 }
             }
         }
-    }
+    };
+    merge_layers(print.wipe_tower_data().tool_changes);
+    if (skylane)
+        merge_layers(print.wipe_tower_data().local_z_tool_changes);
     return bbox;
 }
 

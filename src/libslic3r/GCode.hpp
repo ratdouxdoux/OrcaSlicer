@@ -134,6 +134,7 @@ private:
     WipeTowerIntegration& operator=(const WipeTowerIntegration&);
     std::string append_tcr(GCode &gcodegen, const WipeTower::ToolChangeResult &tcr, int new_extruder_id, double z = -1.) const;
     std::string append_tcr2(GCode &gcodegen, const WipeTower::ToolChangeResult &tcr, int new_extruder_id, double z = -1.) const;
+    std::string           append_skylane_tcr(GCode& gcodegen, const WipeTower::ToolChangeResult& tcr) const;
     Polyline detour_around_wipe_tower(const Point &start_pos, 
         const Point &target_pos, const BoundingBox &avoid_bbx) const;
     Polyline generate_path_to_wipe_tower(const Point& start_pos, const Point& end_pos, 

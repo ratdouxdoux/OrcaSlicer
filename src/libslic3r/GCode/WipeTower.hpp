@@ -28,15 +28,20 @@ public:
 
     struct Extrusion
     {
-		Extrusion(const Vec2f &pos, float width, unsigned int tool) : pos(pos), width(width), tool(tool) {}
-		// End position of this extrusion.
+        Extrusion(const Vec2f& pos, float width, unsigned int tool, float z = -1.f, float height = -1.f)
+            : pos(pos), width(width), tool(tool), z(z), height(height)
+        {}
+        // End position of this extrusion.
 		Vec2f				pos;
 		// Width of a squished extrusion, corrected for the roundings of the squished extrusions.
 		// This is left zero if it is a travel move.
 		float 			width;
 		// Current extruder index.
 		unsigned int    tool;
-	};
+        // Independent SkyLane pass plane; negative uses the enclosing TCR plane.
+        float z;
+        float height;
+    };
 
     struct NozzleChangeResult
     {
@@ -70,6 +75,9 @@ public:
         // Is this a priming extrusion? (If so, the wipe tower rotation & translation will not be applied later)
         bool                    priming;
         bool is_tool_change{ false };
+        // SkyLane owns its pass heights and ends at this clearance plane.
+        // Negative means the conventional, single-plane tower integration.
+        float skylane_safe_z = -1.f;
         Vec2f tool_change_start_pos;
 
         // Pass a polyline so that normal G-code generator can do a wipe for us.

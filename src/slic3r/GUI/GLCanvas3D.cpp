@@ -10900,7 +10900,15 @@ void GLCanvas3D::_load_wipe_tower_toolpaths(const BuildVolume& build_volume, con
                     vol.offsets.emplace_back(geometries[i].indices_count());
                 }
             }
-            for (const WipeTower::ToolChangeResult &extrusions : layer) {
+            std::vector<const WipeTower::ToolChangeResult*> changes;
+            const size_t                                    nominal_idx = idx_layer - (ctxt.priming.empty() ? 0 : 1);
+            if (ctxt.print->config().enable_skylane && nominal_idx < ctxt.print->wipe_tower_data().local_z_tool_changes.size())
+                for (const auto& change : ctxt.print->wipe_tower_data().local_z_tool_changes[nominal_idx])
+                    changes.push_back(&change);
+            for (const auto& change : layer)
+                changes.push_back(&change);
+            for (const auto* change : changes) {
+                const WipeTower::ToolChangeResult& extrusions = *change;
                 for (size_t i = 1; i < extrusions.extrusions.size();) {
                     const WipeTower::Extrusion &e = extrusions.extrusions[i];
                     if (e.width == 0.) {
@@ -10918,7 +10926,7 @@ void GLCanvas3D::_load_wipe_tower_toolpaths(const BuildVolume& build_volume, con
                     std::vector<double> heights;
                     lines.reserve(n_lines);
                     widths.reserve(n_lines);
-                    heights.assign(n_lines, extrusions.layer_height);
+                    heights.assign(n_lines, e.height >= 0.f ? e.height : extrusions.layer_height);
                     WipeTower::Extrusion e_prev = extrusions.extrusions[i-1];
 
                     if (!extrusions.priming) { // wipe tower extrusions describe the wipe tower at the origin with no rotation
@@ -10939,8 +10947,8 @@ void GLCanvas3D::_load_wipe_tower_toolpaths(const BuildVolume& build_volume, con
 
                         e_prev = e;
                     }
-                    _3DScene::thick_lines_to_verts(lines, widths, heights, lines.front().a == lines.back().b, extrusions.print_z,
-                        geometries[ctxt.volume_idx(e.tool, 0)]);
+                    _3DScene::thick_lines_to_verts(lines, widths, heights, lines.front().a == lines.back().b,
+                                                   e.z >= 0.f ? e.z : extrusions.print_z, geometries[ctxt.volume_idx(e.tool, 0)]);
                 }
             }
         }

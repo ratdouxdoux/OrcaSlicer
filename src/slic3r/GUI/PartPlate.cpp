@@ -2216,6 +2216,8 @@ Vec3d PartPlate::estimate_wipe_tower_size(const DynamicPrintConfig & config, con
     }
     const ConfigOptionEnum<WipeTowerWallType>* use_rib_wall_opt = config.option<ConfigOptionEnum<WipeTowerWallType>>("wipe_tower_wall_type");
     bool use_rib_wall = use_rib_wall_opt ? use_rib_wall_opt->value == WipeTowerWallType::wtwRib : false;
+    if (const auto* skylane = config.option<ConfigOptionBool>("enable_skylane"); skylane && skylane->value)
+        use_rib_wall = false;
     double rib_width = config.option("wipe_tower_rib_width")->getFloat();
 
     double depth = 0.;

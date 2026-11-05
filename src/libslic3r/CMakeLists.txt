@@ -247,6 +247,10 @@ set(lisbslic3r_sources
     GCode/ToolOrdering.hpp
     GCode/WipeTower2.cpp
     GCode/WipeTower2.hpp
+    GCode/SkyLanePacker.cpp
+    GCode/SkyLanePacker.hpp
+    GCode/SkyLaneTower.cpp
+    GCode/SkyLaneTower.hpp
     GCode/WipeTower.cpp
     GCode/WipeTower.hpp
     GCode/WipeTowerHelper.cpp

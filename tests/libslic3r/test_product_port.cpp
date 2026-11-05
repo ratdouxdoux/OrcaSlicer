@@ -136,12 +136,26 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
 {
     double layer_height = .20;
     bool   gradient     = false;
+    bool   skylane      = false;
+    bool   local_z      = true;
     SECTION("Independent mixes at standard layer height") {}
     SECTION("Independent mixes with single-pass intervals") { layer_height = .08; }
     SECTION("Gradients with single-pass intervals")
     {
         layer_height = .08;
         gradient     = true;
+    }
+    SECTION("SkyLane with independent mixes") { skylane = true; }
+    SECTION("SkyLane with nominal tool changes")
+    {
+        skylane = true;
+        local_z = false;
+    }
+    SECTION("SkyLane with gradients and single-pass intervals")
+    {
+        skylane      = true;
+        gradient     = true;
+        layer_height = .08;
     }
 
     const std::vector<std::string> colors{"#00C3FF", "#F54399", "#FAE727", "#9199A4"};
@@ -164,10 +178,12 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
     config.set("layer_height", layer_height);
     config.set("initial_layer_print_height", .20);
     config.set("mixed_filament_height_lower_bound", .06);
-    config.set("dithering_local_z_mode", true);
-    config.set("dithering_local_z_infill", true);
+    config.set("dithering_local_z_mode", local_z);
+    config.set("dithering_local_z_infill", local_z);
     config.set("enable_prime_tower", true);
     config.set("wipe_tower_no_sparse_layers", false);
+    config.set("enable_skylane", skylane);
+    config.set("enable_tower_interface_features", false);
     config.set("single_extruder_multi_material", false);
     config.set("prime_volume", 15.);
     config.set("machine_start_gcode", "G90\nM83\n");
@@ -175,6 +191,13 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
     config.option<ConfigOptionFloats>("filament_diameter")->values = {1.75, 1.75, 1.75, 1.75};
     config.option<ConfigOptionFloats>("max_layer_height")->values  = {.30, .30, .30, .30};
     config.option<ConfigOptionFloats>("flush_volumes_matrix")->values.assign(16, 100.);
+    if (skylane) {
+        config.set("wipe_tower_rotation_angle", 27.);
+        config.set("z_offset", .13);
+        config.option<ConfigOptionBools>("enable_pressure_advance")->values = {true, true, true, true};
+        config.option<ConfigOptionFloats>("pressure_advance")->values       = {.04, .04, .04, .04};
+        config.option<ConfigOptionPoints>("extruder_offset")->values        = {Vec2d(0., 0.), Vec2d(1., 0.), Vec2d(0., 1.), Vec2d(1., 1.)};
+    }
     // Production G-code export requires the enum dictionaries used by preset loading.
     for (const auto& key : config.keys()) {
         if (config.option(key)->type() != coEnums)
@@ -197,11 +220,13 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
         selector.set_facet(int(facet), static_cast<EnforcerBlockerType>(center_x < 4.f ? 5 : 6));
     }
     volume->mmu_segmentation_facets.set(selector);
-    object->add_instance()->set_offset(Vec3d(100., 100., 0.));
+    const Vec3d plate_origin = skylane ? Vec3d(300., 0., 0.) : Vec3d::Zero();
+    object->add_instance()->set_offset(Vec3d(100., 100., 0.) + plate_origin);
     object->ensure_on_bed();
 
     Print print;
     print.is_BBL_printer() = false;
+    print.set_plate_origin(plate_origin);
     print.set_status_silent();
     print.apply(model, config);
     print.process();
@@ -234,6 +259,50 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
         const auto& move = result.moves[idx];
         if (move.type == EMoveType::Extrude && move.extrusion_role == erWipeTower)
             actual_lengths[z_key(move.position.z())] += (move.position - result.moves[idx - 1].position).head<2>().norm();
+    }
+    if (skylane) {
+        std::map<int, double>    expected_lengths;
+        BoundingBoxf             expected_bounds, actual_bounds;
+        const Eigen::Rotation2Dd rotation(config.opt_float("wipe_tower_rotation_angle") * M_PI / 180.);
+        const Vec2d              translation(config.option<ConfigOptionFloats>("wipe_tower_x")->get_at(0) + plate_origin.x(),
+                                             config.option<ConfigOptionFloats>("wipe_tower_y")->get_at(0) + plate_origin.y());
+        for (const auto& move : result.moves)
+            if (move.type == EMoveType::Extrude && move.extrusion_role == erWipeTower)
+                actual_bounds.merge(move.position.head<2>().cast<double>());
+        for (const auto* layers : {&tower.tool_changes, &tower.local_z_tool_changes}) {
+            for (const auto& layer : *layers) {
+                for (const auto& change : layer) {
+                    for (const auto& extrusion : change.extrusions)
+                        if (extrusion.width > 0.f)
+                            expected_bounds.merge(rotation * extrusion.pos.cast<double>() + translation);
+                    PlaceholderParser parser;
+                    parser.set("z_offset", config.opt_float("z_offset"));
+                    parser.set("change_filament_gcode", std::string("; tool change\n"));
+                    GCodeReader reader;
+                    reader.apply_config(config);
+                    reader.x() = change.start_pos.x();
+                    reader.y() = change.start_pos.y();
+                    reader.parse_buffer(parser.process(change.gcode), [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
+                        if (line.extruding(state))
+                            // The processor stores model coordinates, with the machine Z offset removed.
+                            expected_lengths[z_key(state.z() - config.opt_float("z_offset"))] += line.dist_XY(state);
+                    });
+                }
+            }
+        }
+        REQUIRE_FALSE(expected_lengths.empty());
+        CHECK(actual_bounds.min.x() == Approx(expected_bounds.min.x()).margin(.002));
+        CHECK(actual_bounds.min.y() == Approx(expected_bounds.min.y()).margin(.002));
+        CHECK(actual_bounds.max.x() == Approx(expected_bounds.max.x()).margin(.002));
+        CHECK(actual_bounds.max.y() == Approx(expected_bounds.max.y()).margin(.002));
+        REQUIRE(actual_lengths.size() == expected_lengths.size());
+        for (const auto& [height, length] : expected_lengths) {
+            CAPTURE(height);
+            const auto actual = actual_lengths.find(height);
+            REQUIRE(actual != actual_lengths.end());
+            CHECK(actual->second == Approx(length).margin(.5));
+        }
+        return;
     }
     for (size_t layer_idx = 0; layer_idx < tower.tool_changes.size(); ++layer_idx) {
         const auto& nominal = tower.tool_changes[layer_idx];

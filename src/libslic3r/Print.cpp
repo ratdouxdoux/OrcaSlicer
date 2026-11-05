@@ -485,6 +485,7 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
                    opt_key == "prime_tower_brim_width" || opt_key == "first_layer_print_sequence" ||
                    opt_key == "other_layers_print_sequence" || opt_key == "other_layers_print_sequence_nums" ||
                    opt_key == "wipe_tower_bridging" || opt_key == "wipe_tower_extra_flow" || opt_key == "wipe_tower_no_sparse_layers" ||
+                   opt_key == "enable_skylane" || opt_key == "skylane_max_dip" || opt_key == "skylane_ramp_volume" ||
                    opt_key == "flush_volumes_matrix" || opt_key == "prime_volume" || opt_key == "prime_tower_brim_chamfer" ||
                    opt_key == "prime_tower_brim_chamfer_max_width" || opt_key == "flush_into_infill" || opt_key == "flush_into_support" ||
                    opt_key == "initial_layer_infill_speed" || opt_key == "travel_speed" || opt_key == "travel_speed_z" ||
@@ -1369,6 +1370,15 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
         }
 
     if (this->has_wipe_tower() && ! m_objects.empty()) {
+        if (m_config.enable_skylane) {
+            if (is_BBL_printer() || m_config.single_extruder_multi_material)
+                return {L("SkyLane currently supports tool changers only."), nullptr, "enable_skylane"};
+            if (m_config.wipe_tower_no_sparse_layers)
+                return {L("Disable No sparse layers when using SkyLane; SkyLane plans its own sparse support."), nullptr,
+                        "wipe_tower_no_sparse_layers"};
+            if (m_config.enable_tower_interface_features)
+                return {L("Disable tower interface features when using SkyLane."), nullptr, "enable_tower_interface_features"};
+        }
         // Make sure all extruders use same diameter filament and have the same nozzle diameter
         // EPSILON comparison is used for nozzles and 10 % tolerance is used for filaments
         double first_nozzle_diam = m_config.nozzle_diameter.get_at(extruders.front());
@@ -2708,7 +2718,11 @@ Points Print::first_layer_wipe_tower_corners(bool check_wipe_tower_existance) co
 
         // Now the stabilization cone.
         Vec2d center = (pts[0] + pts[2])/2.;
-        const auto [cone_R, cone_x_scale] = WipeTower2::get_wipe_tower_cone_base(m_config.prime_tower_width, m_wipe_tower_data.height, m_wipe_tower_data.depth, m_config.wipe_tower_cone_angle);
+        const auto [cone_R, cone_x_scale] = WipeTower2::get_wipe_tower_cone_base(m_config.prime_tower_width, m_wipe_tower_data.height,
+                                                                                 m_wipe_tower_data.depth,
+                                                                                 m_config.enable_skylane ?
+                                                                                     0. :
+                                                                                     m_config.wipe_tower_cone_angle.value);
         double r = cone_R + m_wipe_tower_data.brim_width;
         for (double alpha = 0.; alpha<2*M_PI; alpha += M_PI/20.)
             pts.emplace_back(center + r*Vec2d(std::cos(alpha)/cone_x_scale, std::sin(alpha)));
@@ -3175,37 +3189,42 @@ void Print::_make_wipe_tower()
         m_wipe_tower_data.bbx               = wipe_tower.get_bbx();
         m_wipe_tower_data.rib_offset = wipe_tower.get_rib_offset();
 
-        // Unload the current filament over the purge tower.
-        coordf_t layer_height = m_objects.front()->config().layer_height.value;
-        if (m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions > 0) {
-            // The wipe tower goes up to the last layer of the print.
-            if (wipe_tower.layer_finished()) {
-                // The wipe tower is printed to the top of the print and it has no space left for the final extruder purge.
-                // Lift Z to the next layer.
-                wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z + layer_height), float(layer_height), 0, false,
-                                     true);
-            } else {
-                // There is yet enough space at this layer of the wipe tower for the final purge.
-            }
+        if (m_config.enable_skylane) {
+            m_wipe_tower_data.final_purge = std::make_unique<WipeTower::ToolChangeResult>();
         } else {
-            // The wipe tower does not reach the last print layer, perform the pruge at the last print layer.
-            assert(m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions == 0);
-            wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z), float(layer_height), 0, false, true);
+            // Unload the current filament over the purge tower.
+            coordf_t layer_height = m_objects.front()->config().layer_height.value;
+            if (m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions > 0) {
+                // The wipe tower goes up to the last layer of the print.
+                if (wipe_tower.layer_finished()) {
+                    // The wipe tower is printed to the top of the print and it has no space left for the final extruder purge.
+                    // Lift Z to the next layer.
+                    wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z + layer_height), float(layer_height), 0,
+                                         false, true);
+                } else {
+                    // There is yet enough space at this layer of the wipe tower for the final purge.
+                }
+            } else {
+                // The wipe tower does not reach the last print layer, perform the pruge at the last print layer.
+                assert(m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions == 0);
+                wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z), float(layer_height), 0, false, true);
+            }
+            m_wipe_tower_data.final_purge = Slic3r::make_unique<WipeTower::ToolChangeResult>(wipe_tower.tool_change((unsigned int) (-1)));
         }
-        m_wipe_tower_data.final_purge = Slic3r::make_unique<WipeTower::ToolChangeResult>(wipe_tower.tool_change((unsigned int) (-1)));
 
         m_wipe_tower_data.used_filament         = wipe_tower.get_used_filament();
         m_wipe_tower_data.number_of_toolchanges = wipe_tower.get_number_of_toolchanges();
-        m_wipe_tower_data.construct_mesh(wipe_tower.width(), wipe_tower.get_depth(), wipe_tower.get_wipe_tower_height(), 
-            wipe_tower.get_brim_width(), wipe_tower.get_is_rib_wall(),
-            wipe_tower.get_rib_width(), wipe_tower.get_rib_length(), config().wipe_tower_fillet_wall.value);
+        m_wipe_tower_data.construct_mesh(wipe_tower.width(), wipe_tower.get_depth(), wipe_tower.get_wipe_tower_height(),
+                                         wipe_tower.get_brim_width(), wipe_tower.get_is_rib_wall(), wipe_tower.get_rib_width(),
+                                         wipe_tower.get_rib_length(), !m_config.enable_skylane && config().wipe_tower_fillet_wall.value);
         const Vec3d origin = this->get_plate_origin();
         m_fake_wipe_tower.rib_offset = wipe_tower.get_rib_offset();
-        m_fake_wipe_tower.set_fake_extrusion_data(wipe_tower.position() + m_fake_wipe_tower.rib_offset, wipe_tower.width(), wipe_tower.get_wipe_tower_height(),
-            config().initial_layer_print_height, m_wipe_tower_data.depth,
-            m_wipe_tower_data.z_and_depth_pairs, m_wipe_tower_data.brim_width,
-            config().wipe_tower_rotation_angle, config().wipe_tower_cone_angle,
-            { scale_(origin.x()), scale_(origin.y()) });
+        m_fake_wipe_tower.set_fake_extrusion_data(wipe_tower.position() + m_fake_wipe_tower.rib_offset, wipe_tower.width(),
+                                                  wipe_tower.get_wipe_tower_height(), config().initial_layer_print_height,
+                                                  m_wipe_tower_data.depth, m_wipe_tower_data.z_and_depth_pairs,
+                                                  m_wipe_tower_data.brim_width, config().wipe_tower_rotation_angle,
+                                                  m_config.enable_skylane ? 0. : config().wipe_tower_cone_angle.value,
+                                                  {scale_(origin.x()), scale_(origin.y())});
         m_fake_wipe_tower.outer_wall = wipe_tower.get_outer_wall();
     }
 }

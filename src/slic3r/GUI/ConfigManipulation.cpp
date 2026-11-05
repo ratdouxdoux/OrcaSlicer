@@ -825,6 +825,10 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     toggle_line("preheat_steps", have_ooze_prevention && (preheat_steps > 0));
 
     bool have_prime_tower = config->opt_bool("enable_prime_tower");
+    const bool have_skylane     = have_prime_tower && config->opt_bool("enable_skylane");
+    toggle_line("enable_skylane", have_prime_tower && (!is_BBL_Printer && !bSEMM || have_skylane));
+    toggle_line("skylane_max_dip", have_skylane);
+    toggle_line("skylane_ramp_volume", have_skylane);
     for (auto el : { "prime_tower_width", "prime_tower_brim_width"})
         toggle_line(el, have_prime_tower);
 
@@ -860,13 +864,23 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     toggle_line("wipe_tower_extra_rib_length", have_prime_tower && !is_BBL_Printer && wipe_tower_wall_type == WipeTowerWallType::wtwRib);
     toggle_line("wipe_tower_rib_width", have_prime_tower && !is_BBL_Printer && wipe_tower_wall_type == WipeTowerWallType::wtwRib);
     toggle_line("wipe_tower_fillet_wall", have_prime_tower && !is_BBL_Printer && wipe_tower_wall_type == WipeTowerWallType::wtwRib);
-    
-    toggle_field("prime_tower_width", have_prime_tower && wipe_tower_wall_type != WipeTowerWallType::wtwRib);
+
+    toggle_field("prime_tower_width", have_prime_tower && (have_skylane || wipe_tower_wall_type != WipeTowerWallType::wtwRib));
 
     toggle_line("wipe_tower_wall_gap", have_prime_tower);
     toggle_line("prime_tower_enable_framework", have_prime_tower);
     toggle_line("prime_tower_brim_chamfer_max_width", have_prime_tower);
     toggle_line("prime_tower_brim_chamfer", have_prime_tower);
+
+    if (have_skylane) {
+        for (auto el : {"wipe_tower_wall_type", "wipe_tower_cone_angle", "wipe_tower_extra_rib_length", "wipe_tower_rib_width",
+                        "wipe_tower_fillet_wall", "wipe_tower_extra_flow", "prime_tower_enable_framework", "prime_tower_brim_chamfer",
+                        "prime_tower_brim_chamfer_max_width", "wipe_tower_filament"})
+            toggle_line(el, false);
+        // Keep incompatible settings visible when enabled so they can be turned off.
+        toggle_line("wipe_tower_no_sparse_layers", config->opt_bool("wipe_tower_no_sparse_layers"));
+        toggle_line("enable_tower_interface_features", config->opt_bool("enable_tower_interface_features"));
+    }
 
     toggle_line("single_extruder_multi_material_priming", !bSEMM && have_prime_tower && !is_BBL_Printer);
 

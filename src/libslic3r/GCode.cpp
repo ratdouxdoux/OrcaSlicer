@@ -766,12 +766,80 @@ std::string WipeTowerIntegration::append_tcr(GCode& gcodegen, const WipeTower::T
     return gcode;
 }
 
+std::string WipeTowerIntegration::append_skylane_tcr(GCode& gcodegen, const WipeTower::ToolChangeResult& tcr) const
+{
+    auto& writer = gcodegen.writer();
+    if (writer.extruder() == nullptr || int(writer.extruder()->id()) != tcr.initial_tool)
+        throw Slic3r::InvalidArgument("SkyLane tool-change sequence differs from the planned sequence");
+
+    const float  angle        = m_wipe_tower_rotation / 180.f * float(M_PI);
+    const Vec2f  translation  = m_wipe_tower_pos + m_rib_offset + m_plate_origin.head<2>().cast<float>();
+    const Vec2f  entry        = Eigen::Rotation2Df(angle) * tcr.start_pos + translation;
+    const Point  entry_object = wipe_tower_point_to_object_point(gcodegen, entry);
+    const double object_z     = writer.get_position().z() - writer.get_zhop();
+    const double safe_z       = std::max(writer.get_position().z(), double(tcr.skylane_safe_z) + gcodegen.config().z_offset.value);
+
+    // Clear the object's wipe path before any explicit height change. SkyLane
+    // passes lift before crossing lanes, and park outside the tower for macros.
+    std::string gcode = gcodegen.retract(false, false);
+    gcodegen.m_wipe.reset_path();
+    gcode += writer.travel_to_z(safe_z, "SkyLane clearance", true);
+    gcode += writer.travel_to_xy(gcodegen.point_to_gcode(entry_object), "Travel to SkyLane");
+    gcodegen.set_last_pos(entry_object);
+    gcode += gcodegen.unretract();
+
+    std::string change;
+    if (tcr.is_tool_change) {
+        // The raw paths return here before the placeholder. Synchronize the
+        // writer so profile macros see the physical position at that instant.
+        writer.travel_to_z(double(tcr.skylane_safe_z) + gcodegen.config().z_offset.value, {}, true);
+        change = gcodegen.set_extruder(unsigned(tcr.new_tool), tcr.print_z, false);
+        change += writer.travel_to_z(safe_z, "SkyLane clearance after tool change", true);
+        change += writer.travel_to_xy(gcodegen.point_to_gcode(entry_object), "Return to SkyLane");
+        gcodegen.set_last_pos(entry_object);
+        change += gcodegen.unretract();
+    }
+    DynamicConfig overrides;
+    overrides.set_key_value("change_filament_gcode", new ConfigOptionString(change));
+    overrides.set_key_value("layer_num", new ConfigOptionInt(gcodegen.m_layer_index));
+    overrides.set_key_value("layer_z", new ConfigOptionFloat(tcr.print_z));
+    overrides.set_key_value("toolchange_z", new ConfigOptionFloat(safe_z));
+    overrides.set_key_value("z_offset", new ConfigOptionFloat(gcodegen.config().z_offset.value));
+    // Writer moves use world coordinates and subtract the plate offset. Raw
+    // tower G-code must make the same conversion explicitly.
+    const std::string transformed = post_process_wipe_tower_moves(tcr, translation - writer.get_xy_offset(), angle);
+    std::string       expanded;
+    unescape_string_cstyle(gcodegen.placeholder_parser_process("skylane_gcode", transformed, tcr.new_tool, &overrides), expanded);
+    gcode += expanded;
+    gcodegen.m_last_processor_extrusion_role = erWipeTower;
+    if (get_value_at(gcodegen.config(), gcodegen.config().enable_pressure_advance, ConfigFlowDomain::Filament, tcr.new_tool)) {
+        const double pressure = get_value_at(gcodegen.config(), gcodegen.config().pressure_advance, ConfigFlowDomain::Filament,
+                                             tcr.new_tool);
+        gcode += writer.set_pressure_advance(pressure);
+        gcodegen.m_pa_processor->resetPreviousPA(pressure);
+    }
+
+    // Raw output ends outside the brim at its clearance plane. Drop back to the
+    // saved object plane there, never inside one of the independently tall lanes.
+    writer.travel_to_z(double(tcr.skylane_safe_z) + gcodegen.config().z_offset.value, {}, true);
+    writer.travel_to_xy(gcodegen.point_to_gcode(entry_object));
+    gcodegen.set_last_pos(entry_object);
+    gcodegen.m_wipe.reset_path();
+    gcode += writer.retract();
+    gcode += writer.travel_to_z(object_z, "Return from SkyLane", true);
+    gcodegen.m_avoid_crossing_perimeters.use_external_mp_once();
+    return gcode;
+}
+
 std::string WipeTowerIntegration::append_tcr2(GCode& gcodegen, const WipeTower::ToolChangeResult& tcr, int new_extruder_id, double z) const
 {
     if (new_extruder_id != -1 && new_extruder_id != tcr.new_tool)
         throw Slic3r::InvalidArgument(Slic3r::format(
             "Error: WipeTowerIntegration::append_tcr2 unexpected toolchange: layer_idx=%1% tool_change_idx=%2% requested=%3% expected=%4% initial=%5%",
             m_layer_idx, m_tool_change_idx, new_extruder_id, tcr.new_tool, tcr.initial_tool));
+
+    if (tcr.skylane_safe_z >= 0.f)
+        return append_skylane_tcr(gcodegen, tcr);
 
     std::string gcode;
 
@@ -1357,6 +1425,8 @@ std::string WipeTowerIntegration::tool_change(GCode& gcodegen, int extruder_id, 
         }
 
         const int matched_idx = int(std::distance(toolchanges.begin(), it_match));
+        if (gcodegen.config().enable_skylane && matched_idx != m_tool_change_idx)
+            throw Slic3r::InvalidArgument("SkyLane cannot skip a planned tower visit");
         if (matched_idx != m_tool_change_idx) {
             BOOST_LOG_TRIVIAL(warning) << "Wipe tower nominal toolchange state mismatch, advancing"
                                        << " layer_idx=" << m_layer_idx << " tool_change_idx=" << m_tool_change_idx
@@ -1402,6 +1472,9 @@ std::string WipeTowerIntegration::tool_change(GCode& gcodegen, int extruder_id, 
                                            << " local_z_tool_change_idx=" << local_z_tool_change_idx;
             }
         }
+
+        if (gcodegen.config().enable_skylane)
+            throw Slic3r::InvalidArgument("SkyLane encountered an unplanned Local-Z tool change");
 
         if (m_layer_idx < 0 || size_t(m_layer_idx) >= m_local_z_reserve_boxes.size() ||
             size_t(m_layer_idx) >= m_local_z_reserve_slot_idx.size()) {
@@ -1622,6 +1695,8 @@ std::string WipeTowerIntegration::tool_change(GCode& gcodegen, int extruder_id, 
                         gcode += append_tcr2(gcodegen, m_tool_changes[m_layer_idx][m_tool_change_idx++], extruder_id, wipe_tower_z);
                         m_last_wipe_tower_print_z = wipe_tower_z;
                     } else if (extruder_id >= 0 && gcodegen.writer().need_toolchange(extruder_id)) {
+                        if (gcodegen.config().enable_skylane)
+                            throw Slic3r::InvalidArgument("SkyLane encountered an unplanned nominal tool change");
                         const double print_z = gcodegen.writer().get_position().z() - gcodegen.config().z_offset.value;
                         BOOST_LOG_TRIVIAL(error)
                             << "Wipe tower nominal transition unavailable, using direct extruder switch"
@@ -1688,6 +1763,8 @@ std::string WipeTowerIntegration::finish_local_z_toolchanges(GCode& gcodegen, do
         const WipeTower::ToolChangeResult& local_z_tcr = layer_local_z_tool_changes[local_z_tool_change_idx];
         const int current_tool = gcodegen.writer().extruder() != nullptr ? int(gcodegen.writer().extruder()->id()) : -1;
         if (current_tool >= 0 && local_z_tcr.initial_tool != current_tool) {
+            if (gcodegen.config().enable_skylane)
+                throw Slic3r::InvalidArgument("SkyLane cannot reconcile a trailing Local-Z tower visit");
             BOOST_LOG_TRIVIAL(error) << "Local-Z trailing wipe tower transition cannot be reconciled"
                                      << " layer_idx=" << m_layer_idx << " local_z_tool_change_idx=" << local_z_tool_change_idx
                                      << " current_tool=" << current_tool << " planned_initial=" << local_z_tcr.initial_tool
