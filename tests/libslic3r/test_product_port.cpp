@@ -274,6 +274,27 @@ TEST_CASE("Local-Z prime towers emit every planned layer and extrusion", "[Produ
             actual_lengths[z_key(move.position.z())] += (move.position - result.moves[idx - 1].position).head<2>().norm();
     }
     if (skylane) {
+        // Confirm real exported tool selections, not just the preview colours.
+        // Every planned SkyLane visit that changes tools must emit exactly one
+        // T command between its tower-start and tower-end markers.
+        std::ifstream exported(temporary.path.string());
+        REQUIRE(exported.good());
+        bool        inside_tower = false;
+        size_t      selections = 0, planned_selections = 0;
+        std::string line;
+        while (std::getline(exported, line)) {
+            if (line.find("; WIPE_TOWER_START") != std::string::npos)
+                inside_tower = true;
+            else if (line.find("; WIPE_TOWER_END") != std::string::npos)
+                inside_tower = false;
+            else if (inside_tower && line.size() > 1 && line[0] == 'T' && line[1] >= '0' && line[1] <= '9')
+                ++selections;
+        }
+        for (const auto* layers : {&tower.tool_changes, &tower.local_z_tool_changes})
+            for (const auto& layer : *layers)
+                for (const auto& change : layer)
+                    planned_selections += change.is_tool_change;
+        CHECK(selections == planned_selections);
         std::map<int, double>    expected_lengths;
         BoundingBoxf             expected_bounds, actual_bounds;
         const Eigen::Rotation2Dd rotation(config.opt_float("wipe_tower_rotation_angle") * M_PI / 180.);

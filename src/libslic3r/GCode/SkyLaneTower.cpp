@@ -30,12 +30,14 @@ struct Geometry
     const PrintConfig& config;
     double             width, depth, height, lw;
 
+    Polygon cell(double y0, double y1) const { return rectangle(lw / 2., y0 + lw / 2., width - lw / 2., y1 - lw / 2.); }
+
     Polygon outline(double z, double y0, double y1) const
     {
-        const double x0 = lw, x1 = width + lw;
+        Polygon      core = cell(y0, y1);
+        const double x0 = lw / 2., x1 = width - lw / 2.;
         y0 += lw / 2.;
         y1 -= lw / 2.;
-        Polygon core = rectangle(x0, y0, x1, y1);
         if (config.wipe_tower_wall_type == WipeTowerWallType::wtwRib) {
             const double length = std::max(0., config.wipe_tower_extra_rib_length.value) * std::max(0., 1. - z / height);
             const double half   = std::min(config.wipe_tower_rib_width.value, std::min(width, depth) / 2.) / 2.;
@@ -265,7 +267,7 @@ public:
         // Fill the rib/cone feet as part of the solid foundation, outside the
         // rectangular purge cell. The brim follows this same contour.
         const double   lw   = geometry.lw;
-        const Polygons area = diff(offset(wall, scale_(-lw / 2.)), {rectangle(lw, lw / 2., width + lw, geometry.depth - lw / 2.)});
+        const Polygons area = diff(offset(wall, scale_(-lw / 2.)), {geometry.cell(0., geometry.depth)});
         if (area.empty())
             return;
         const BoundingBox box = get_extents(area);
@@ -300,9 +302,12 @@ public:
     {
         print_z        = p.z();
         const double h = p.height, lw = geometry.lw, feed = speed(p.z_base, first_z);
-        const double x0 = 2. * lw, x1 = width;
-        const double y0 = std::max(p.y0 + lw / 2., p.cell_y0 + 1.5 * lw);
-        const double y1 = std::min(p.y1 - lw / 2., p.cell_y1 - 1.5 * lw);
+        // Overlap the shared wall by 15% of a bead instead of merely touching
+        // its tangent. Keep the nozzle-clearance inset between separate lanes.
+        const double inset = 1.35 * lw;
+        const double x0 = inset, x1 = width - inset;
+        const double y0 = std::max(p.y0 + lw / 2., p.cell_y0 + inset);
+        const double y1 = std::min(p.y1 - lw / 2., p.cell_y1 - inset);
         // Tiny residual strips are narrower than a bead; place their centreline
         // within the strip instead of adding a frame or overflowing the cell.
         const double ya = y1 >= y0 ? y0 : (p.y0 + p.y1) / 2.;
@@ -311,9 +316,30 @@ public:
              << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << h << "\n"
              << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Width) << lw << "\n";
         auto wall = [&] {
+            const Polygon contour = geometry.outline(p.z(), p.cell_y0, p.cell_y1);
             code << "; SKYLANE WALL\n";
-            path(geometry.outline(p.z(), p.cell_y0, p.cell_y1), h, std::min(feed, 60.), config.wipe_tower_wall_gap ? 2.5 * lw : 0.);
+            path(contour, h, std::min(feed, 60.), config.wipe_tower_wall_gap ? 2.5 * lw : 0.);
             code << "; SKYLANE WALL_END\n";
+            // A rib or cone moves the outer contour away from the rectangular
+            // raster. Complete only those missing parts of the cell boundary;
+            // coincident edges are already printed by the outer wall. The ends
+            // lie 0.1 bead inside it, so these connections overlap that wall.
+            const Polylines ties = intersection_pl(geometry.cell(p.cell_y0, p.cell_y1).split_at_first_point(),
+                                                   offset(contour, scale_(-.1 * lw)));
+            if (!ties.empty()) {
+                code << "; SKYLANE CORNER_TIES\n";
+                for (const auto& tie : ties) {
+                    lift();
+                    const Vec2d start = unscale(tie.points.front());
+                    travel(start.x(), start.y());
+                    lower(p.z());
+                    for (size_t j = 1; j < tie.points.size(); ++j) {
+                        const Vec2d end = unscale(tie.points[j]);
+                        bead(end.x(), end.y(), h * lw, h, lw, std::min(feed, 60.));
+                    }
+                }
+                code << "; SKYLANE CORNER_TIES_END\n";
+            }
         };
         const bool solid  = p.solid || p.z_base < first_z - 1e-6;
         auto       raster = [&](bool along_y, int count, double flow) {
@@ -425,11 +451,11 @@ SkyLaneTowerResult generate_skylane_tower(const PrintConfig&                 con
         demands.push_back({r.z, r.height, r.volume + ramming, r.layer});
         ramming_volumes.push_back(ramming);
     }
-    auto packed = SkyLane::plan(demands, params);
+    auto packed = SkyLane::plan_square(demands, params);
     if (!packed.ok)
         throw std::runtime_error("SkyLane could not fit the tool changes within its nozzle-dip limit");
-    if (config.wipe_tower_wall_type != WipeTowerWallType::wtwRib)
-        packed = SkyLane::taper(demands, params, packed);
+    params.width    = packed.width;
+    result.width    = packed.width;
     result.depth    = packed.depth;
     const double lw = params.line_width, first_z = requests.front().z;
     double       top = first_z;

@@ -2235,14 +2235,13 @@ Vec3d PartPlate::estimate_wipe_tower_size(const DynamicPrintConfig & config, con
     double volume = wipe_volume * plate_extruder_size + filament_change_volume * (plate_extruder_size - 1);
 
     if (skylane) {
-        // Before slicing, retain the configured rectangular cell width. The
-        // generated contours replace this estimate after planning.
-        depth            = volume / (layer_height * width) * extra_spacing * 1.15;
+        // The configured width is the minimum side. The square planner
+        // replaces this demand estimate with the exact side after slicing.
+        depth            = std::max(width, std::sqrt(volume / layer_height * extra_spacing * 1.15));
         double extension = 0.;
         if (use_rib_wall)
             extension = (config.option("wipe_tower_extra_rib_length")->getFloat() + rib_width / 2.) / std::sqrt(2.);
-        wipe_tower_size(0) = width + 2. * extension;
-        wipe_tower_size(1) = depth + 2. * extension;
+        wipe_tower_size(0) = wipe_tower_size(1) = depth + 2. * extension;
     } else if (use_rib_wall) {
         depth = std::sqrt(volume / layer_height * extra_spacing);
         if (need_wipe_tower || plate_extruder_size > 1) {
@@ -2274,7 +2273,14 @@ arrangement::ArrangePolygon PartPlate::estimate_wipe_tower_polygon(const Dynamic
 	float depth = wipe_tower_size(1);
     const auto*         skylane_option = config.option<ConfigOptionBool>("enable_skylane");
     const bool          skylane        = skylane_option && skylane_option->value;
-    const float         extension      = skylane ? std::max(0.f, float(wipe_tower_size(0) - w) / 2.f) : 0.f;
+    float               extension      = 0.f;
+    if (skylane) {
+        if (config.opt_enum<WipeTowerWallType>("wipe_tower_wall_type") == WipeTowerWallType::wtwRib)
+            extension = float(
+                (config.option("wipe_tower_extra_rib_length")->getFloat() + config.option("wipe_tower_rib_width")->getFloat() / 2.) /
+                std::sqrt(2.));
+        w = float(wipe_tower_size(0)) - 2.f * extension;
+    }
     float               margin = WIPE_TOWER_MARGIN + tower_brim_width + extension, wp_brim_width = 0.f;
     const ConfigOption* wipe_tower_brim_width_opt = config.option("prime_tower_brim_width");
 	if (wipe_tower_brim_width_opt) {

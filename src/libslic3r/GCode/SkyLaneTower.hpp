@@ -22,7 +22,7 @@ struct SkyLaneTowerResult
 {
     std::vector<std::vector<WipeTower::ToolChangeResult>> nominal, local_z;
     std::vector<float>                                    used_filament;
-    double                                                depth = 0., height = 0., brim = 0.;
+    double                                                width = 0., depth = 0., height = 0., brim = 0.;
     int                                                   toolchanges = 0;
     BoundingBoxf                                          bounds;
     std::map<float, Polylines>                            outer_wall;

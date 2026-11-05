@@ -10,5 +10,8 @@ Reference settings: width 28 mm, prime volume 38 mm³, ramming 5 mm³,
 purge spacing 120%, maximum dip 0.4 mm, nozzle diameter 0.4 mm, line width
 0.5 mm, brim 5 mm, cone angle 15°, rib length 8 mm, rib width 8 mm, fillet on.
 
-The expected dimensions in `test_skylane.cpp` come from the supplied G-code,
-not from this implementation. The original G-code is not needed to run tests.
+The rectangular packer's expected depth in `test_skylane.cpp` comes from the
+supplied G-code. The emitter intentionally uses a square body following the
+subsequent user request, with corner connections instead of disconnected fill
+beside the ribs. Its tests assert those properties independently of the original
+non-square dimensions. The original G-code is not needed to run tests.

@@ -9,8 +9,9 @@ This implementation adapts the lane scheduler in the supplied October 2026
 Neotko's SkyLane packer. It is a new integration and G-code emitter for this fork,
 not a copy of the unavailable private upstream C++ implementation.
 
-The planner tries two through six lanes, searches for the smallest depth that
-holds the chronological purge requests, then adds 15% depth reserve. Lanes grow
+The planner tries two through six lanes and sizes a **square main body** for the
+chronological purge requests, with 15% area reserve. **Width** sets the minimum
+side; both dimensions grow together when more space is needed. Lanes grow
 independently below the current model layer. Support brings lagging lanes within
 the maximum dip; quiet stretches can share a merged cell. Neighbouring taller
 lanes reduce the printable band to leave nozzle clearance. The bottom is solid.
@@ -18,6 +19,16 @@ Purge spacing determines the packing density. Ramming and the incoming purge
 share one allocation; the incoming tool continues the outgoing tool's path.
 Each merged round has one outer wall, rather than a frame around every strip.
 Unused areas receive open grid, and the brim follows the solid foundation.
+Where a rib or cone extends away from the cell, short inner wall sections join
+the fill to that outer contour. Fill overlaps its shared walls by 15% of a bead.
+The square body keeps its dimensions through the print instead of tapering only
+in depth; the external ribs and cone still shrink with height.
+
+Touching colour transitions can occur partway along a line. The outgoing tool
+finishes its ramming volume, lifts and parks for the profile's tool-change macro;
+the incoming tool returns to the endpoint and continues. No empty segment is
+required between the deposited colours. Enable Travel in Preview to see the
+movement between them.
 
 - **Maximum dip:** zero derives the value from the largest configured Z hop, with
   a floor of 75% of the smallest nozzle diameter. The current nozzle envelope uses
@@ -29,15 +40,13 @@ Unused areas receive open grid, and the brim follows the solid foundation.
   tower rotation are supported. Wall gap opens a 2.5-line-width break in the
   shared perimeter near the entry point, including across filleted segments.
   Local-Z tool changes use the same preplanned lane schedule.
-- **Rectangle:** merged cells step inward, centred, when the remaining requests
-  fit in a smaller footprint. Each reduction is checked against the entire
-  remaining schedule.
+- **Rectangle:** a square body with one shared outer wall per merged round.
 - **Cone:** adds the stock stabilization arcs to the long sides, shrinking with
   height. Low towers with a small apex angle can have the same outline as
-  Rectangle. The merged cell can also taper.
+  Rectangle. These stabilization arcs can extend outside the square main body.
 - **Rib:** retains the full cell depth and adds four 45-degree arms. Extra rib
   length shrinks with height; rib width and Fillet wall control the contour.
-  Width remains the configured cell width, rather than being made square.
+  The cell remains square; the shrinking arms attach through inner corner walls.
 
 The implementation supports **tool changers** and all three wall types above.
 Framework, brim chamfer, wall-filament selection and extra-flow controls remain
@@ -58,9 +67,10 @@ Targeted tests: `libslic3r_tests "[SkyLane]"` and
 `libslic3r_tests "[ProductPort][LocalZ][GCode][WipeTower]"`.
 
 The archive regression uses the 395-change sequence from Dragon D2/D4/D6 in
-`SKYLANE_SPEED_TEST_2026-10-06`. It checks the 28.8997 mm planned depth, shared
-wall coordinates, purge-strip endpoints, rounded rib extent, and 11.5599 mm
-upper rectangular cell. A separate larger-angle case exercises visible cone
-arcs. Export tests cover every wall type with Local-Z, rotated towers, plate
-offsets and tool offsets. This verifies geometry and integration, not identical
+`SKYLANE_SPEED_TEST_2026-10-06`. The original rectangular packer still checks its
+28.8997 mm reference depth. The emitter tests check square dimensions, shared
+walls, corner attachment with and without fillets, and the lift/park/resume
+sequence at a colour join. A larger-angle case exercises visible cone arcs.
+Export tests cover every wall type with Local-Z, rotated towers, plate offsets,
+tool offsets and actual tool selections. This verifies geometry and integration, not identical
 G-code ordering, slicing times or physical print quality.
