@@ -13,9 +13,9 @@
 using namespace Slic3r;
 using Catch::Approx;
 
-// The supplied Dragon's chronology still checks the original packing math.
-// Emission now deliberately uses a square cell with attached rib corners.
-TEST_CASE("SkyLane uses square shared cells with every wall type", "[SkyLane][Geometry]")
+// Coordinates and change counts from the supplied October 2026 Dragon
+// D2 (Rectangle), D4 (Cone) and D6 (Rib), relative to the tower origin.
+TEST_CASE("SkyLane matches the archive's shared cells and wall types", "[SkyLane][Geometry]")
 {
     std::ifstream counts(std::string(TEST_DATA_DIR) + "/skylane/dragon_changes.txt");
     REQUIRE(counts.good());
@@ -72,13 +72,14 @@ TEST_CASE("SkyLane uses square shared cells with every wall type", "[SkyLane][Ge
         config.wipe_tower_wall_type.value = type;
         towers.push_back(generate_skylane_tower(config, region, requests, layer));
         const auto& tower = towers.back();
-        CHECK(tower.depth == tower.width);
-        CHECK(tower.width >= config.prime_tower_width.value);
+        CHECK(tower.depth == Approx(28.8997).margin(.001));
         CHECK(tower.toolchanges == 395);
         const auto& first  = tower.nominal[0][0];
         const auto& second = tower.nominal[0][1];
         CHECK(first.gcode.find("SKYLANE WALL") != std::string::npos);
         CHECK(second.gcode.find("SKYLANE WALL") == std::string::npos);
+        // This strip has horizontal purge rows only. The source's row turns
+        // travel without extrusion, so no deposited segment may step in Y.
         double min_y = 1e6, max_y = -1e6;
         for (size_t j = 1; j < second.extrusions.size(); ++j) {
             const auto& e = second.extrusions[j];
@@ -89,9 +90,8 @@ TEST_CASE("SkyLane uses square shared cells with every wall type", "[SkyLane][Ge
             min_y = std::min(min_y, double(e.pos.y()));
             max_y = std::max(max_y, double(e.pos.y()));
         }
-        const double strip = 43. / (tower.width * .25 / 1.2);
-        CHECK(min_y == Approx(strip + .25).margin(.002));
-        CHECK(max_y == Approx(2. * strip - .25).margin(.002));
+        CHECK(min_y == Approx(205.170 - 197.549).margin(.002));
+        CHECK(max_y == Approx(212.042 - 197.549).margin(.002));
         CHECK(tower.outer_wall.begin()->second.front().is_closed());
 
         auto path_measure = [&](const std::string& raw, bool volume) {
@@ -115,46 +115,20 @@ TEST_CASE("SkyLane uses square shared cells with every wall type", "[SkyLane][Ge
         const size_t change = ram.find("[change_filament_gcode]");
         REQUIRE(change != std::string::npos);
         CHECK(path_measure(ram.substr(0, change), true) == Approx(5.).margin(.002));
-        // A touching colour join represents two separate nozzle visits. Verify
-        // a lift and park before the macro, followed by a return to the exact
-        // ramming endpoint before the new tool starts extruding.
-        PlaceholderParser parser;
-        parser.set("z_offset", 0.);
-        GCodeReader reader;
-        reader.apply_config(config);
-        Vec3d last_deposit = Vec3d::Zero();
-        reader.parse_buffer(parser.process(ram.substr(0, change)), [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
-            if (line.extruding(state))
-                last_deposit = Vec3d(line.new_X(state), line.new_Y(state), line.new_Z(state));
-        });
-        const auto& ram_change = tower.nominal[1][1];
-        CHECK(reader.x() == Approx(ram_change.start_pos.x()).margin(.001));
-        CHECK(reader.y() == Approx(ram_change.start_pos.y()).margin(.001));
-        CHECK(reader.z() == Approx(ram_change.skylane_safe_z).margin(.001));
-        CHECK(reader.z() > last_deposit.z());
-        bool resumed = false;
-        reader.parse_buffer(parser.process(ram.substr(change + std::string("[change_filament_gcode]").size())),
-                            [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
-                                if (!resumed && line.extruding(state)) {
-                                    CHECK((Vec3d(state.x(), state.y(), state.z()) - last_deposit).norm() < .001);
-                                    resumed = true;
-                                }
-                            });
-        CHECK(resumed);
     }
     CHECK(towers[0].nominal[0][0].gcode == towers[1].nominal[0][0].gcode);
     const auto rect = get_extents(towers[0].outer_wall.begin()->second.front());
-    CHECK(unscaled(rect.min.x()) == Approx(.25));
-    CHECK(unscaled(rect.max.x()) == Approx(towers[0].width - .25));
+    CHECK(unscaled(rect.min.x()) == Approx(.5));
+    CHECK(unscaled(rect.max.x()) == Approx(28.5));
     CHECK(unscaled(rect.min.y()) == Approx(.25));
-    CHECK(unscaled(rect.size().x()) == Approx(unscaled(rect.size().y())).margin(.001));
+    CHECK(unscaled(rect.max.y()) == Approx(28.6497).margin(.001));
     const auto rib = get_extents(towers[2].outer_wall.begin()->second.front());
-    CHECK(unscaled(rib.size().x()) == Approx(unscaled(rib.size().y())).margin(.001));
-    CHECK(rib.min.x() < rect.min.x());
+    CHECK(unscaled(rib.min.x()) == Approx(11.248 - 18.380).margin(.01));
+    CHECK(unscaled(rib.max.x()) == Approx(54.512 - 18.380).margin(.01));
     const auto rect_top = get_extents(towers[0].outer_wall.rbegin()->second.front());
     const auto rib_top  = get_extents(towers[2].outer_wall.rbegin()->second.front());
-    CHECK(unscaled(rect_top.size().y()) == Approx(towers[0].depth - .5).margin(.002));
-    CHECK(unscaled(rib_top.size().y()) == Approx(towers[2].depth - .5).margin(.002));
+    CHECK(unscaled(rect_top.size().y()) == Approx(11.5599 - .5).margin(.002));
+    CHECK(unscaled(rib_top.size().y()) == Approx(28.8997 - .5).margin(.002));
 
     config.wipe_tower_wall_type.value   = WipeTowerWallType::wtwRib;
     config.wipe_tower_fillet_wall.value = false;
@@ -163,44 +137,6 @@ TEST_CASE("SkyLane uses square shared cells with every wall type", "[SkyLane][Ge
     const auto& sharp_wall              = sharp.outer_wall.begin()->second.front();
     CHECK(sharp_wall.points.size() < towers[2].outer_wall.begin()->second.front().points.size());
     CHECK(get_extents(sharp_wall).min.x() < rib.min.x());
-
-    for (const auto* rib_tower : std::initializer_list<const SkyLaneTowerResult*>{&sharp, &towers[2]}) {
-        // These points used to have no wall at all: the outer rib contour
-        // turns away while the raster still stops at the square cell edge.
-        std::vector<std::pair<Vec2d, Vec2d>> ties;
-        PlaceholderParser                    parser;
-        parser.set("z_offset", 0.);
-        parser.set("change_filament_gcode", std::string("; tool change\n"));
-        GCodeReader reader;
-        reader.apply_config(config);
-        bool in_ties = false;
-        reader.parse_buffer(parser.process(rib_tower->nominal[0][0].gcode), [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
-            if (line.raw() == "; SKYLANE CORNER_TIES")
-                in_ties = true;
-            else if (line.raw() == "; SKYLANE CORNER_TIES_END")
-                in_ties = false;
-            else if (in_ties && line.extruding(state))
-                ties.emplace_back(Vec2d(state.x(), state.y()), Vec2d(line.new_X(state), line.new_Y(state)));
-        });
-        REQUIRE_FALSE(ties.empty());
-        auto distance = [&](Vec2d point) {
-            double closest = 1e6;
-            for (const auto& [a, b] : ties) {
-                const Vec2d  edge = b - a;
-                const double t    = std::clamp((point - a).dot(edge) / edge.squaredNorm(), 0., 1.);
-                closest           = std::min(closest, (point - (a + edge * t)).norm());
-            }
-            return closest;
-        };
-        for (double x : {.25, rib_tower->width - .25})
-            for (double y : {.25, rib_tower->depth - .25})
-                CHECK(distance(Vec2d(x, y)) < .001);
-        // The raster-to-wall distance must be less than a whole bead, giving
-        // actual overlap instead of a tangential or disconnected joint.
-        for (double x : {.675, rib_tower->width - .675})
-            for (double y : {.675, rib_tower->depth - .675})
-                CHECK(distance(Vec2d(x, y)) < .45);
-    }
 
     // The archive's shallow Dragon has no cone. Also exercise a protruding one.
     config.wipe_tower_wall_type.value  = WipeTowerWallType::wtwCone;
@@ -226,9 +162,6 @@ TEST_CASE("SkyLane is opt-in and saved in process presets", "[SkyLane][Config]")
 
 TEST_CASE("SkyLane preserves purge volumes and deposition bounds", "[SkyLane]")
 {
-    bool square = false;
-    SECTION("Original rectangular packer") {}
-    SECTION("Square body") { square = true; }
     SkyLane::Parameters          p;
     std::vector<SkyLane::Demand> demands;
     for (size_t layer = 0; layer < 40; ++layer) {
@@ -236,15 +169,11 @@ TEST_CASE("SkyLane preserves purge volumes and deposition bounds", "[SkyLane]")
         for (size_t change = 0; change < changes; ++change)
             demands.push_back({.2 + .08 * layer, .08, double(4 + (layer * 17 + change * 13) % 21), layer});
     }
-    auto plan = square ? SkyLane::plan_square(demands, p) : SkyLane::plan(demands, p);
+    auto plan = SkyLane::plan(demands, p);
     REQUIRE(plan.ok);
     CHECK(plan.lanes >= 2);
     CHECK(plan.lanes <= 6);
     CHECK(plan.depth > 0.);
-    if (square) {
-        CHECK(plan.width == plan.depth);
-        CHECK(plan.width >= p.width);
-    }
     std::vector<double> volumes(demands.size(), 0.);
     size_t              owner  = 0;
     bool                dipped = false;
@@ -261,7 +190,7 @@ TEST_CASE("SkyLane preserves purge volumes and deposition bounds", "[SkyLane]")
         CHECK(pass.y1 > pass.y0);
         if (pass.demand >= 0) {
             CHECK(demands[owner].z - pass.z_base <= p.max_dip + 1e-7);
-            volumes.at(size_t(pass.demand)) += plan.width * (pass.y1 - pass.y0) * pass.height * pass.density;
+            volumes.at(size_t(pass.demand)) += p.width * (pass.y1 - pass.y0) * pass.height * pass.density;
             dipped |= pass.z() < demands[owner].z - .01;
         }
     }
@@ -270,7 +199,7 @@ TEST_CASE("SkyLane preserves purge volumes and deposition bounds", "[SkyLane]")
         CAPTURE(i);
         CHECK(volumes[i] == Approx(demands[i].volume).margin(1e-6));
     }
-    const auto repeat = square ? SkyLane::plan_square(demands, p) : SkyLane::plan(demands, p);
+    const auto repeat = SkyLane::plan(demands, p);
     CHECK(repeat.depth == plan.depth);
     CHECK(repeat.lanes == plan.lanes);
     CHECK(repeat.passes.size() == plan.passes.size());
@@ -359,7 +288,7 @@ TEST_CASE("SkyLane emits enough material with bounded flow and clearance", "[Sky
                         CHECK(flow <= ramp_limit + .02);
                         e += line.dist_E(state);
                         CHECK(line.x() >= -.001);
-                        CHECK(line.x() <= tower.width + .001);
+                        CHECK(line.x() <= 20.501);
                         CHECK(line.y() >= -.001);
                         CHECK(line.y() <= tower.depth + .001);
                     }

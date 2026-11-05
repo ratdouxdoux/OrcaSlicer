@@ -224,7 +224,7 @@ static Plan pack_steps(const std::vector<Demand>&                    demands,
     if (!std::isfinite(depth) || depth <= 0.)
         throw std::invalid_argument("Invalid SkyLane depth");
     if (demands.empty())
-        return {true, p.lanes, depth, 0, {}, p.width};
+        return {true, p.lanes, depth, 0, {}};
     std::vector<size_t> layers;
     for (const auto& e : demands)
         if (layers.empty() || layers.back() != e.layer)
@@ -232,7 +232,7 @@ static Plan pack_steps(const std::vector<Demand>&                    demands,
     std::vector<int> active(layers.size(), 1);
     // Each failure promotes at least one layer; thus at most N+1 attempts.
     for (size_t attempt = 0; attempt <= layers.size(); ++attempt) {
-        Plan   result{false, p.lanes, depth, 0, {}, p.width};
+        Plan   result{false, p.lanes, depth, 0, {}};
         Lanes  lanes(p, depth, result);
         size_t li = 0, index = 0;
         for (; index < demands.size(); ++index) {
@@ -274,7 +274,7 @@ Plan plan(const std::vector<Demand>& demands, const Parameters& params)
 {
     validate(demands, params);
     if (demands.empty())
-        return {true, 2, 0., 0, {}, params.width};
+        return {true, 2, 0., 0, {}};
     Plan best;
     for (int count = 2; count <= 6; ++count) {
         Parameters p = params;
@@ -297,39 +297,6 @@ Plan plan(const std::vector<Demand>& demands, const Parameters& params)
     }
     return best;
 }
-Plan plan_square(const std::vector<Demand>& demands, const Parameters& params)
-{
-    validate(demands, params);
-    if (demands.empty())
-        return {true, 2, params.width, 0, {}, params.width};
-    Plan best;
-    for (int count = 2; count <= 6; ++count) {
-        Parameters p = params;
-        p.lanes      = count;
-        double lo = 4. * p.line_width, hi = std::max(400., params.width);
-        p.width = hi;
-        if (!pack_scheduled(demands, hi, p).ok)
-            continue;
-        for (int iteration = 0; iteration < 35; ++iteration) {
-            const double side = (lo + hi) * .5;
-            p.width           = side;
-            if (pack_scheduled(demands, side, p).ok)
-                hi = side;
-            else
-                lo = side;
-        }
-        // Applying 15% to both axes would reserve 32% extra area.
-        const double side = std::ceil(std::max(params.width, hi * std::sqrt(1.15)) / p.line_width) * p.line_width;
-        if (count > 2 && side / count < 4.)
-            continue;
-        p.width        = side;
-        auto candidate = pack_scheduled(demands, side, p);
-        if (candidate.ok && (!best.ok || side < best.depth - .05))
-            best = std::move(candidate);
-    }
-    return best;
-}
-
 Plan taper(const std::vector<Demand>& demands, const Parameters& params, const Plan& full)
 {
     if (!full.ok || demands.size() < 2)

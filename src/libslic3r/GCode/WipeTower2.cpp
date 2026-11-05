@@ -3546,7 +3546,6 @@ void WipeTower2::generate_skylane(std::vector<std::vector<WipeTower::ToolChangeR
     auto tower                   = generate_skylane_tower(*m_skylane_config, *m_skylane_region, requests, m_plan.size());
     result                       = std::move(tower.nominal);
     local_z_result               = std::move(tower.local_z);
-    m_wipe_tower_width           = float(tower.width);
     m_wipe_tower_depth           = float(tower.depth);
     m_wipe_tower_height          = float(tower.height);
     m_wipe_tower_brim_width_real = float(tower.brim);

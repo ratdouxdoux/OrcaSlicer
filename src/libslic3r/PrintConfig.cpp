@@ -6434,8 +6434,7 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("prime_tower_width", coFloat);
     def->label = L("Width");
-    def->tooltip  = L("Width of the prime tower. For SkyLane, this is the minimum side of the square body; "
-                       "both sides may grow to fit the required purge volume.");
+    def->tooltip  = L("Width of the prime tower.");
     def->sidetext = "mm";	// milimeters, don't need translation
     def->min = 2.0;
     def->mode = comSimple;

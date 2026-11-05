@@ -6,12 +6,14 @@ process preset and the project; existing presets default to the conventional tow
 
 This implementation adapts the lane scheduler in the supplied October 2026
 `TourHTML.zip/skylane.html`, which describes itself as a JavaScript port of
-Neotko's SkyLane packer. It is a new integration and G-code emitter for this fork,
-not a copy of the unavailable private upstream C++ implementation.
+Neotko's SkyLane packer. The subsequently supplied `SKYLANE_PACK_RADU.zip` includes
+the original C++ source, user guide and integration notes. Those were reviewed
+against this implementation. This remains a separate WipeTower2 integration and
+G-code emitter, not a full port of that source pack: the original depends on
+NeoTower, and its proposed standalone integration is not implemented in the pack.
 
-The planner tries two through six lanes and sizes a **square main body** for the
-chronological purge requests, with 15% area reserve. **Width** sets the minimum
-side; both dimensions grow together when more space is needed. Lanes grow
+The planner tries two through six lanes, searches for the smallest depth that
+holds the chronological purge requests, then adds 15% depth reserve. Lanes grow
 independently below the current model layer. Support brings lagging lanes within
 the maximum dip; quiet stretches can share a merged cell. Neighbouring taller
 lanes reduce the printable band to leave nozzle clearance. The bottom is solid.
@@ -19,16 +21,11 @@ Purge spacing determines the packing density. Ramming and the incoming purge
 share one allocation; the incoming tool continues the outgoing tool's path.
 Each merged round has one outer wall, rather than a frame around every strip.
 Unused areas receive open grid, and the brim follows the solid foundation.
-Where a rib or cone extends away from the cell, short inner wall sections join
-the fill to that outer contour. Fill overlaps its shared walls by 15% of a bead.
-The square body keeps its dimensions through the print instead of tapering only
-in depth; the external ribs and cone still shrink with height.
-
-Touching colour transitions can occur partway along a line. The outgoing tool
-finishes its ramming volume, lifts and parks for the profile's tool-change macro;
-the incoming tool returns to the endpoint and continues. No empty segment is
-required between the deposited colours. Enable Travel in Preview to see the
-movement between them.
+Adjacent purge rows are joined by travel moves without extrusion. The source
+pack's `skylane/SkyLaneTower.cpp` likewise emits `G1 X...` or `G1 Y...` without
+an E value between rows; the walls and crossed grid support the separate lines.
+Open row ends in the preview are therefore intentional. Extruded U-turns would
+add volume and require a corresponding change to the purge calculation.
 
 - **Maximum dip:** zero derives the value from the largest configured Z hop, with
   a floor of 75% of the smallest nozzle diameter. The current nozzle envelope uses
@@ -40,13 +37,18 @@ movement between them.
   tower rotation are supported. Wall gap opens a 2.5-line-width break in the
   shared perimeter near the entry point, including across filleted segments.
   Local-Z tool changes use the same preplanned lane schedule.
-- **Rectangle:** a square body with one shared outer wall per merged round.
+- **Rectangle:** merged cells step inward, centred, when the remaining requests
+  fit in a smaller footprint. Each reduction is checked against the entire
+  remaining schedule.
 - **Cone:** adds the stock stabilization arcs to the long sides, shrinking with
   height. Low towers with a small apex angle can have the same outline as
-  Rectangle. These stabilization arcs can extend outside the square main body.
+  Rectangle. The merged cell can also taper.
 - **Rib:** retains the full cell depth and adds four 45-degree arms. Extra rib
   length shrinks with height; rib width and Fillet wall control the contour.
-  The cell remains square; the shrinking arms attach through inner corner walls.
+
+All wall types retain the configured cell width and plan the required depth.
+The temporary square-sizing change and added inner corner frames have been
+removed. The source uses the outer rib contour without those inner frames.
 
 The implementation supports **tool changers** and all three wall types above.
 Framework, brim chamfer, wall-filament selection and extra-flow controls remain
@@ -67,10 +69,9 @@ Targeted tests: `libslic3r_tests "[SkyLane]"` and
 `libslic3r_tests "[ProductPort][LocalZ][GCode][WipeTower]"`.
 
 The archive regression uses the 395-change sequence from Dragon D2/D4/D6 in
-`SKYLANE_SPEED_TEST_2026-10-06`. The original rectangular packer still checks its
-28.8997 mm reference depth. The emitter tests check square dimensions, shared
-walls, corner attachment with and without fillets, and the lift/park/resume
-sequence at a colour join. A larger-angle case exercises visible cone arcs.
-Export tests cover every wall type with Local-Z, rotated towers, plate offsets,
-tool offsets and actual tool selections. This verifies geometry and integration, not identical
+`SKYLANE_SPEED_TEST_2026-10-06`. It checks the 28.8997 mm planned depth, shared
+wall coordinates, purge-strip endpoints, rounded rib extent, and 11.5599 mm
+upper rectangular cell. A separate larger-angle case exercises visible cone
+arcs. Export tests cover every wall type with Local-Z, rotated towers, plate
+offsets and tool offsets. This verifies geometry and integration, not identical
 G-code ordering, slicing times or physical print quality.

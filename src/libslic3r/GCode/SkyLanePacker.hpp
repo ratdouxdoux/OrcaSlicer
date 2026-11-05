@@ -58,16 +58,12 @@ struct Plan
     double            depth         = 0.;
     size_t            failed_demand = 0;
     std::vector<Pass> passes;
-    double            width = 0.;
 };
 
 // Deterministic chronological packing. No input or configuration is mutated.
 Plan pack_scheduled(const std::vector<Demand>& demands, double depth, const Parameters& params);
 // Try 2..6 lanes, binary-search depth, then replan with 15% reserve.
 Plan plan(const std::vector<Demand>& demands, const Parameters& params);
-// Size both dimensions together, with 15% area reserve. params.width is the
-// minimum side length; the returned square is replanned, never stretched.
-Plan plan_square(const std::vector<Demand>& demands, const Parameters& params);
 // Reduce only merged cells, centred on the original footprint. Each step is
 // accepted only if the remaining demand sequence can still be packed.
 Plan taper(const std::vector<Demand>& demands, const Parameters& params, const Plan& full);
