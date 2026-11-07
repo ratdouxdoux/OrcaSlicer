@@ -1,6 +1,7 @@
 #include "Plater.hpp"
 #include "MixedFilamentDialog.hpp"
 #include "MixedFilamentBatchDialog.hpp"
+#include "MixedFilamentManageDialog.hpp"
 #include "MixedGradientSelector.hpp"
 #include "MixedColorMatchPanel.hpp"
 #include "MixedFilamentBadge.hpp"
@@ -1307,6 +1308,7 @@ struct Sidebar::priv
     ScalableButton* m_color_mix_icon          = nullptr;
     ScalableButton* m_btn_add_color_mix       = nullptr;
     ScalableButton* m_btn_del_color_mix       = nullptr;
+    Button*           m_btn_manage_color_mix           = nullptr;
 
     wxStaticLine* m_staticline2;
     wxPanel* m_panel_project_title;
@@ -3890,6 +3892,8 @@ void Sidebar::msw_rescale()
     p->m_printer_setting->msw_rescale();
     p->m_filament_icon->msw_rescale();
     p->m_color_mix_icon->msw_rescale();
+    if (p->m_btn_manage_color_mix)
+        p->m_btn_manage_color_mix->Rescale();
     p->m_bpButton_add_filament->msw_rescale();
     p->m_bpButton_del_filament->msw_rescale();
     p->m_bpButton_ams_filament->msw_rescale();
@@ -3968,6 +3972,8 @@ void Sidebar::sys_color_changed()
     p->m_printer_setting->msw_rescale();
     p->m_filament_icon->msw_rescale();
     p->m_color_mix_icon->msw_rescale();
+    if (p->m_btn_manage_color_mix)
+        p->m_btn_manage_color_mix->Rescale();
     p->m_bpButton_add_filament->msw_rescale();
     p->m_bpButton_del_filament->msw_rescale();
     p->m_bpButton_ams_filament->msw_rescale();
@@ -4041,14 +4047,14 @@ void Sidebar::jump_to_option(size_t selected)
 }
 
 // BBS. Move logic from Plater::on_extruders_change() to Sidebar::on_filaments_change().
-void Sidebar::on_filaments_change(size_t num_filaments)
+void Sidebar::on_filaments_change(size_t num_filaments, bool sync_mixed)
 {
     auto& choices = combos_filament();
 
     if (num_filaments == choices.size()) {
         // Project load may keep the same physical filament count while mixed
         // definitions changed. Refresh mixed panel even without count changes.
-        const bool sync_manager = !p->m_skip_mixed_filament_sync_once;
+        const bool sync_manager            = sync_mixed && !p->m_skip_mixed_filament_sync_once;
         p->m_skip_mixed_filament_sync_once = false;
         update_ui_from_settings();
         update_dynamic_filament_list();
@@ -4143,7 +4149,7 @@ void Sidebar::on_filaments_change(size_t num_filaments)
         if (p->m_bpButton_add_filament)
             p->m_bpButton_add_filament->Enable(can_add);
         if (p->m_btn_add_color_mix)
-            p->m_btn_add_color_mix->Enable(can_add);
+            p->m_btn_add_color_mix->Enable(pb->mixed_filaments.registered_count() < MAXIMUM_MIXED_FILAMENT_NUMBER);
     }
 }
 
@@ -6212,6 +6218,11 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
     p->m_color_mix_icon = new ScalableButton(p->m_panel_color_mix_title, wxID_ANY, "color_palette");
     auto* label = new Label(p->m_panel_color_mix_title, _L("Color Mixing"), LB_PROPAGATE_MOUSE_EVENT);
 
+    p->m_btn_manage_color_mix = new Button(p->m_panel_color_mix_title, _L("Manage"), "color_palette", 0, 14);
+    p->m_btn_manage_color_mix->SetStyle(ButtonStyle::Confirm, ButtonType::Compact);
+    p->m_btn_manage_color_mix->SetToolTip(_L("Browse mixed colors made from the current filaments and choose combinations to add."));
+    p->m_btn_manage_color_mix->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { show_mixed_filament_manager(this); });
+
     p->m_btn_del_color_mix = new ScalableButton(p->m_panel_color_mix_title, wxID_ANY, "delete_filament");
     p->m_btn_add_color_mix = new ScalableButton(p->m_panel_color_mix_title, wxID_ANY, "add_filament");
 
@@ -6223,6 +6234,7 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
     h_title->AddSpacer(FromDIP(SidebarProps::ElementSpacing()));
     h_title->Add(label, 0, wxALIGN_CENTER_VERTICAL);
     h_title->AddStretchSpacer();
+    h_title->Add(p->m_btn_manage_color_mix, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
     h_title->Add(p->m_btn_del_color_mix, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
     h_title->Add(p->m_btn_add_color_mix, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
     auto* white_right_c = new wxPanel(p->m_panel_color_mix_title, wxID_ANY, wxDefaultPosition, wxSize(FromDIP(SidebarProps::ContentMargin()), -1));
@@ -6261,7 +6273,8 @@ void Sidebar::init_color_mix_panel(wxWindow* parent, wxSizer* sizer)
         if (dlg.ShowModal() != wxID_OK) return;
 
         auto& mgr = pb->mixed_filaments;
-        if (mgr.total_filaments(colors.size()) >= MAXIMUM_FILAMENT_NUMBER) return;
+        if (mgr.registered_count() >= MAXIMUM_MIXED_FILAMENT_NUMBER)
+            return;
         const MixedFilament& r = dlg.GetResult();
         mgr.add_custom_filament(r.component_a, r.component_b, r.mix_b_percent, colors);
         auto mfs = mgr.mixed_filament_legacy_rows();
@@ -6773,7 +6786,7 @@ void Sidebar::update_color_mix_panel()
         if (p->m_bpButton_add_filament)
             p->m_bpButton_add_filament->Enable(can_add);
         if (p->m_btn_add_color_mix)
-            p->m_btn_add_color_mix->Enable(can_add);
+            p->m_btn_add_color_mix->Enable(preset_bundle->mixed_filaments.registered_count() < MAXIMUM_MIXED_FILAMENT_NUMBER);
     }
 }
 
@@ -7383,7 +7396,7 @@ void Sidebar::on_filaments_delete(size_t filament_id)
         if (p->m_bpButton_add_filament)
             p->m_bpButton_add_filament->Enable(can_add);
         if (p->m_btn_add_color_mix)
-            p->m_btn_add_color_mix->Enable(can_add);
+            p->m_btn_add_color_mix->Enable(pb->mixed_filaments.registered_count() < MAXIMUM_MIXED_FILAMENT_NUMBER);
     }
 }
 
@@ -11410,9 +11423,11 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                 Semver                file_version;
                 
                 //ObjImportColorFn obj_color_fun=nullptr;
-                auto obj_color_fun = [this, &path](std::vector<RGBA> &input_colors, bool is_single_color, std::vector<unsigned char> &filament_ids,
-                                                   unsigned char &first_extruder_id) {
-                    if (!boost::iends_with(path.string(), ".obj")) { return; }
+                auto obj_color_fun = [this, &path](std::vector<RGBA>& input_colors, bool is_single_color,
+                                                   std::vector<unsigned int>& filament_ids, unsigned int& first_extruder_id) {
+                    if (!boost::iends_with(path.string(), ".obj")) {
+                        return;
+                    }
                     const std::vector<std::string> extruder_colours = wxGetApp().plater()->get_extruder_colors_from_plater_config();
                     ObjColorDialog                 color_dlg(nullptr, input_colors, is_single_color, extruder_colours, filament_ids, first_extruder_id);
                     if (color_dlg.ShowModal() != wxID_OK) { 
@@ -13447,11 +13462,16 @@ void Plater::priv::reload_from_disk()
     // load one file at a time
     for (size_t i = 0; i < input_paths.size(); ++i) {
         const auto& path = input_paths[i].string();
-        auto obj_color_fun = [this, &path](std::vector<RGBA> &input_colors, bool is_single_color, std::vector<unsigned char> &filament_ids, unsigned char &first_extruder_id) {
-            if (!boost::iends_with(path, ".obj")) { return; }
+        auto obj_color_fun = [this, &path](std::vector<RGBA>& input_colors, bool is_single_color, std::vector<unsigned int>& filament_ids,
+                                           unsigned int& first_extruder_id) {
+            if (!boost::iends_with(path, ".obj")) {
+                return;
+            }
             const std::vector<std::string> extruder_colours = wxGetApp().plater()->get_extruder_colors_from_plater_config();
             ObjColorDialog                 color_dlg(nullptr, input_colors, is_single_color, extruder_colours, filament_ids, first_extruder_id);
-            if (color_dlg.ShowModal() != wxID_OK) { filament_ids.clear(); }
+            if (color_dlg.ShowModal() != wxID_OK) {
+                filament_ids.clear();
+            }
         };
         wxBusyCursor wait;
         GLCanvas3D* canvas = q->get_current_canvas3D();
@@ -21404,14 +21424,14 @@ void Plater::on_filaments_delete(size_t num_filaments, size_t filament_id, int r
 
 
 // BBS.
-void Plater::on_filaments_change(size_t num_filaments)
+void Plater::on_filaments_change(size_t num_filaments, bool mixed_edit)
 {
     // only update elements in plater
     update_filament_colors_in_full_config();
 
     const size_t old_num_filaments = sidebar().combos_filament().size();
     const bool auto_generate_before = MixedFilamentManager::auto_generate_enabled();
-    const bool allow_auto_gradients = p->confirm_auto_generated_gradients(this, num_filaments);
+    const bool   allow_auto_gradients  = (mixed_edit ? auto_generate_before : p->confirm_auto_generated_gradients(this, num_filaments));
     auto summarize_uint_vector = [](const std::vector<unsigned int> &values, size_t max_items = 24) {
         std::string out = "[";
         const size_t n = std::min(values.size(), max_items);
@@ -21476,6 +21496,23 @@ void Plater::on_filaments_change(size_t num_filaments)
         }
     }
 
+    // Manage publishes a complete recipe edit. Remap all config references as
+    // well as painted facets, and keep the saved recipe order during UI refresh.
+    if (mixed_edit && have_explicit_remap) {
+        remap_dynamic_config_feature_filament_ids(*p->config, id_remap, total_filaments);
+        remap_dynamic_config_feature_filament_ids(preset_bundle->project_config, id_remap, total_filaments);
+        remap_dynamic_config_feature_filament_ids(preset_bundle->prints.get_edited_preset().config, id_remap, total_filaments);
+        for (ModelObject* object : wxGetApp().model().objects) {
+            remap_model_config_filament_ids(object->config, id_remap, total_filaments);
+            for (ModelVolume* volume : object->volumes)
+                remap_model_config_filament_ids(volume->config, id_remap, total_filaments);
+            for (auto& range : object->layer_config_ranges)
+                remap_model_config_filament_ids(range.second, id_remap, total_filaments);
+        }
+        for (int i = 0; i < get_partplate_list().get_plate_count(); ++i)
+            remap_dynamic_config_feature_filament_ids(*get_partplate_list().get_plate(i)->config(), id_remap, total_filaments);
+    }
+
     size_t changed_entries = 0;
     std::string changed_map_preview = "[";
     for (size_t i = 1; i < state_map.size(); ++i) {
@@ -21534,7 +21571,7 @@ void Plater::on_filaments_change(size_t num_filaments)
 
     // Keep UI refresh after model remap. Some UI update paths may trigger
     // scene/model sync that assumes already-remapped MMU state.
-    sidebar().on_filaments_change(num_filaments);
+    sidebar().on_filaments_change(num_filaments, !mixed_edit);
     sidebar().obj_list()->update_objects_list_filament_column(num_filaments);
 
     Slic3r::GUI::PartPlateList &plate_list = get_partplate_list();
