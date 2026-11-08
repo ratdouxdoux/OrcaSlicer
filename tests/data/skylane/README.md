@@ -18,9 +18,13 @@ not from this implementation. The original G-code is not needed to run tests.
 `random-Cube_PLA_2h16m.gcode`: nozzle Z in mm, outgoing tool, incoming tool.
 The first tower visit is structural at 0.20 mm; subsequent model layers are
 0.08 mm. Tool colours are cyan (0), magenta (1), black (2), and yellow (3).
-Reference settings: width 30 mm, prime volume 18 mm³, outgoing ramming 5 mm³,
+Reference settings: width 30 mm, prime volume 18 mm³, outgoing ramming 5 mm³
+(0.5 mm³ for black),
 120% purge spacing, 0.4 mm dip and nozzle, 0.5 mm line width, rib wall.
 The stock tool-change paths span 32 mm in X, giving 31 mm merged purge rows;
 the replay preserves these path bounds separately from the 30 mm packing width.
 This fixture reproduces small outgoing-colour islands and a colour returning
-to the same physical plane. Tests also replay it with rectangle and cone walls.
+to the same physical plane. Tests also replay it with rectangle and cone walls,
+with equal 5 mm³ ramming on every tool as a separate variant. They check the
+complete internal XY travel distance as well as extrusion, material grouping
+and level travel into adjacent unprinted bands.

@@ -93,8 +93,10 @@ a simplified nozzle-clearance envelope, including a 40° cone and at least a
 The ramp controls a flow ceiling, not a promise that every move will reach a
 particular speed. Maximum tower speed, initial-layer speed, filament volumetric
 limits and applicable ramming limits still constrain the emitted moves. These
-profile-derived limits apply with Profile speeds enabled. Each band's wall is printed
-after its purge rows, without a detour back into the unfinished strip. Preceding grid extrusion
+profile-derived limits apply with Profile speeds enabled. Where the wall has separate
+side sections, the final purge row can carry the nozzle between them, avoiding an
+extra trip across the tower. This rearrangement waits until the incoming flow ramp
+is complete; short purge bands keep their wall after the rows. Preceding grid extrusion
 counts towards priming, but the grid itself is not slowed by the purge ramp.
 
 Several features of the preview are intentional:
@@ -134,6 +136,19 @@ the outgoing material and a new deposition level begins. No permanent tower is a
 Independent lanes retain their separate support heights and nozzle-clearance
 requirements. The closure can add support material, so removing wall detours
 does not guarantee a shorter total print time.
+
+Within a visit, the next band is entered from a nearby corner. A move directly
+from the shared boundary into an unprinted band at the same height can stay
+level when no taller tower structure is present. Other band entries retain
+the clearance lift, as does departure from the tower.
+
+For the supplied four-colour cube, the revised routing reduces the slicer's
+estimate from **2h21m14s to 2h17m38s**. The original ungrouped version was
+**2h16m22s**, so colour grouping still adds about 1m16s on this example.
+The revision preserves the 510 tool changes, 18 mm³ incoming purge per change,
+colour-band allocation and 23.32 g total material estimate. Tower XY travel
+falls from 103.7 m to 61.5 m. These are slicer estimates from the same project
+and profiles, not measured printer timings.
 
 **Wall gap is a separate feature.** It opens 2.5 line widths in the shared
 perimeter near the entry position. At a line width of 0.5 mm, the opening is
@@ -197,10 +212,13 @@ still not a complete toolhead collision model.
 Regression coverage includes the supplied Dragon sequence, all three wall
 types, lane/merged transitions, purge volume and flow limits, wall timing during
 the ramp, repeat exports, real tool selections and FullSpectrum Local-Z output
-with rotated towers, plate offsets and tool offsets. On 5 November 2026, the
-Windows Release build's targeted suite passed **7 test cases and 15,124
-assertions**, including low-flow brim moves and actual exports with outgoing-tool
-ramming. Physical printing has not yet been validated for this adapted build.
+with rotated towers, plate offsets and tool offsets. The 8 November 2026
+Windows Release build passes **10 targeted test cases**, including the
+510-change four-colour schedule with both equal and asymmetric ramming volumes,
+an internal travel-distance limit, and checks on level entries into adjacent bands.
+The supplied cube was also re-sliced before and after the routing change:
+model extrusion paths and speeds, tool order, band schedule and required purge
+amounts are preserved. Physical printing has not yet been validated for this adapted build.
 
 The relevant implementation files are `src/libslic3r/GCode/SkyLanePacker.cpp`
 for planning, `src/libslic3r/GCode/SkyLaneTower.cpp` for geometry and emission,

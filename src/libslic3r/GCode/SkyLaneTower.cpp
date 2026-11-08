@@ -1053,8 +1053,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         return true;
     };
 
-    // Rows advance in Y within each material band. Only the X starting side
-    // alternates; material ownership is settled by the packer before emission.
+    // Alternate the first arrival's X side. Later merged bands may enter from
+    // either Y end; material ownership is settled by the packer before emission.
     auto pass_start = [&](const SkyLane::Pass& ps, int pc) {
         if (ps.merged) {
             double y0 = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2;
@@ -1066,9 +1066,13 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             y0 = y1 = (ps.y0 + ps.y1) / 2;
         return Vec2f(float((pc / 2) % 2 ? xmax : xmin), float(y0));
     };
+    const SkyLane::Pass* previous_pass = nullptr;
+
     auto emit_pass = [&](std::ostringstream& o, const SkyLane::Pass& ps, double& cur_z, Vec2f& cur_xy, bool& first) {
-        const double top     = ps.z_base + ps.h;
-        const bool   is_fill = ps.demand < 0;
+        const double         top        = ps.z_base + ps.h;
+        const bool           is_fill    = ps.demand < 0;
+        const size_t         next_index = size_t(&ps - passes.data()) + 1;
+        const SkyLane::Pass* next_pass  = next_index < passes.size() ? &passes[next_index] : nullptr;
         if (ps.tool != tool)
             throw std::runtime_error("SkyLane material order differs from the tool-change sequence");
         o << "; SKYLANE BAND tool=" << ps.tool << " kind=" << (ps.ramming ? "ram" : (is_fill ? "fill" : "purge"))
@@ -1084,13 +1088,30 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         double y0 = ps.y0 + lw / 2, y1 = ps.y1 - lw / 2;
         if (y1 < y0)
             y0 = y1 = (ps.y0 + ps.y1) / 2;
-        double      xa = xmin, xb = xmax;
-        const int   pc = rt.lane_pass[size_t(ps.lane)]++;
-        const Vec2f st = pass_start(ps, pc);
-        // safe travel: rise above every lane before moving sideways, then drop into this one
-        const double hi = *std::max_element(rt.H.begin(), rt.H.end());
+        double    xa = xmin, xb = xmax;
+        const int pc = rt.lane_pass[size_t(ps.lane)]++;
+        Vec2f     st = pass_start(ps, pc);
+        if (!first && ps.merged) {
+            // The first arrival still alternates corners. Subsequent bands can
+            // enter at their closest corner instead of crossing the whole cell.
+            const double low  = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2;
+            const double high = std::min(ps.y1, ps.cell_y1 - lw) - lw / 2;
+            st.x()            = float(cur_xy.x() > (xmin + xmax) / 2 ? xmax - lw : xmin + lw);
+            st.y() = float(high < low ? (low + high) / 2 : (std::abs(cur_xy.y() - high) < std::abs(cur_xy.y() - low) ? high : low));
+        }
+        // Only an adjacent, unprinted band on the same merged plane permits a
+        // level entry. All other repositioning retains the clearance lift.
+        const double hi       = *std::max_element(rt.H.begin(), rt.H.end());
+        const bool   adjacent = !first && ps.merged && previous_pass && previous_pass->merged &&
+                              std::abs(previous_pass->z_base + previous_pass->h - top) < 1e-6 && std::abs(cur_z - (top + z_off)) < 1e-4 &&
+                              std::max({hi, rt.rib_top, rt.wall_top}) <= top + 1e-6 && cur_xy.x() >= xmin - 1e-4 &&
+                              cur_xy.x() <= xmax + 1e-4 &&
+                              ((std::abs(previous_pass->y1 - ps.y0) < 1e-6 && std::abs(cur_xy.y() - ps.y0) < 1e-4) ||
+                               (std::abs(previous_pass->y0 - ps.y1) < 1e-6 && std::abs(cur_xy.y() - ps.y1) < 1e-4));
         if (!first) {
-            if (cur_z < hi + 0.2 + z_off)
+            if (adjacent)
+                o << "; SKYLANE adjacent band travel\n";
+            else if (cur_z < hi + 0.2 + z_off)
                 o << std::setprecision(3) << "G1 Z" << hi + 0.2 + z_off << " F600\n";
             o << std::setprecision(3) << "G1 X" << st.x() << " Y" << st.y() << " F12000\n";
         }
@@ -1149,21 +1170,60 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         const double cy0 = (ps.merged ? ps.cell_y0 : 0.) + lw / 2, cy1 = (ps.merged ? ps.cell_y1 : rt.depth) - lw / 2;
         record_outline(top, rt.cone ? wall_loop(xa, cy0, xb, cy1, top, 0.) :
                                       shape(rib_loop(xa, cy0, xb, cy1, rt.rib ? rt.rib_hw : 0., rt.rib_ext(top)), true));
+        if (ps.merged && ps.wall) {
+            rt.band_wall_gap        = rt.wall_gap && info.is_tc;
+            rt.band_wall_entry      = st.cast<double>();
+            rt.band_wall_transition = butt && far_ok(top) && std::abs(rt.rib_top - ps.z_base) >= 1e-3;
+            rt.band_wall_roots      = false;
+        }
+        const double low  = ps.y0 <= ps.cell_y0 + 1e-6 ? -std::numeric_limits<double>::infinity() : ps.y0;
+        const double high = ps.y1 >= ps.cell_y1 - 1e-6 ? std::numeric_limits<double>::infinity() : ps.y1;
+
+        std::vector<std::vector<Vec2d>> wall_pieces;
+        if (ps.merged && !rt.band_wall_transition) {
+            const auto loop = rt.cone ? wall_loop(xmin, cy0, xmax, cy1, top, 0.) :
+                                        shape(rib_loop(xmin, cy0, xmax, cy1, rt.rib ? rt.rib_hw : 0., rt.rib_ext(top)), true);
+            const auto open = rt.band_wall_gap ?
+                                  open_loop_at(loop, rt.band_wall_entry, rt.band_wall_entry.x() > (xmin + xmax) / 2, 2.5 * lw, lw / 2) :
+                                  std::vector<Vec2d>{};
+            wall_pieces     = clip_wall_band(open.empty() ? loop : open, open.empty(), low, high);
+        }
+        auto emit_wall_piece = [&](std::vector<Vec2d> piece) {
+            if ((piece.back() - cur_xy.cast<double>()).squaredNorm() < (piece.front() - cur_xy.cast<double>()).squaredNorm())
+                std::reverse(piece.begin(), piece.end());
+            o << "; SKYLANE WALL\n";
+            o << std::setprecision(3) << "G1 X" << piece.front().x() << " Y" << piece.front().y() << " F12000\n";
+            emit_path(o, piece, false, e_per_mm, wfeed, cur_xy);
+            o << "; SKYLANE WALL_END\n";
+        };
+        // Use a purge row to cross between the two side walls. Printing both
+        // sides after all rows would require an extra full-width travel.
+        auto emit_near_wall = [&](Vec2f row_start) {
+            if (wall_pieces.size() < 2 || (!is_fill && !ps.ramming && ramp_vol < rt.ramp))
+                return;
+            const bool right   = row_start.x() > (xmin + xmax) / 2;
+            bool       emitted = false;
+            for (size_t i = 0; i < wall_pieces.size();) {
+                const auto& piece = wall_pieces[i];
+                if (std::all_of(piece.begin(), piece.end(),
+                                [&](const Vec2d& v) { return right ? v.x() >= xmax - 1e-6 : v.x() <= xmin + 1e-6; })) {
+                    emit_wall_piece(std::move(wall_pieces[i]));
+                    wall_pieces.erase(wall_pieces.begin() + i);
+                    emitted = true;
+                } else
+                    ++i;
+            }
+            if (emitted) {
+                o << std::setprecision(3) << "G1 X" << row_start.x() << " Y" << row_start.y() << " F12000\n";
+                cur_xy = row_start;
+            }
+        };
         // Each band owns the adjacent pieces of the existing perimeter. The
         // first/last bands also own the buttresses beyond the cell's ends.
         auto emit_wall = [&] {
             if (!ps.merged)
                 return;
-            if (ps.wall) {
-                rt.band_wall_gap        = rt.wall_gap && info.is_tc;
-                rt.band_wall_entry      = st.cast<double>();
-                rt.band_wall_transition = butt && far_ok(top) && std::abs(rt.rib_top - ps.z_base) >= 1e-3;
-                rt.band_wall_roots      = false;
-            }
-            const double low       = ps.y0 <= ps.cell_y0 + 1e-6 ? -std::numeric_limits<double>::infinity() : ps.y0;
-            const double high      = ps.y1 >= ps.cell_y1 - 1e-6 ? std::numeric_limits<double>::infinity() : ps.y1;
-            auto         wall_path = [&](const std::vector<Vec2d>& path, bool closed) {
-                auto pieces = clip_wall_band(path, closed, low, high);
+            auto emit_pieces = [&](std::vector<std::vector<Vec2d>> pieces) {
                 while (!pieces.empty()) {
                     size_t best     = 0;
                     bool   reverse  = false;
@@ -1181,19 +1241,23 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                     pieces.erase(pieces.begin() + best);
                     if (reverse)
                         std::reverse(piece.begin(), piece.end());
+                    if (pieces.empty() && next_pass && next_pass->merged && std::abs(next_pass->z_base + next_pass->h - top) < 1e-6) {
+                        // Leave the last side at the shared boundary, so the
+                        // next band can be entered without crossing this one.
+                        const double boundary = std::abs(ps.y1 - next_pass->y0) < 1e-6 ? ps.y1 :
+                                                std::abs(ps.y0 - next_pass->y1) < 1e-6 ? ps.y0 :
+                                                                                         std::numeric_limits<double>::infinity();
+                        if (std::abs(piece.front().y() - boundary) < 1e-6 && std::abs(piece.back().y() - boundary) >= 1e-6)
+                            std::reverse(piece.begin(), piece.end());
+                    }
                     o << std::setprecision(3) << "G1 X" << piece.front().x() << " Y" << piece.front().y() << " F12000\n";
                     emit_path(o, piece, false, e_per_mm, wfeed, cur_xy);
                 }
             };
+            auto wall_path = [&](const std::vector<Vec2d>& path, bool closed) { emit_pieces(clip_wall_band(path, closed, low, high)); };
             o << "; SKYLANE WALL\n";
             if (!rt.band_wall_transition) {
-                const std::vector<Vec2d> loop = rt.cone ?
-                                                    wall_loop(xmin, cy0, xmax, cy1, top, 0.) :
-                                                    shape(rib_loop(xmin, cy0, xmax, cy1, rt.rib ? rt.rib_hw : 0., rt.rib_ext(top)), true);
-                const auto               open = rt.band_wall_gap ?
-                                                    open_loop_at(loop, rt.band_wall_entry, rt.band_wall_entry.x() > (xmin + xmax) / 2, 2.5 * lw, lw / 2) :
-                                                    std::vector<Vec2d>{};
-                wall_path(open.empty() ? loop : open, open.empty());
+                emit_pieces(std::move(wall_pieces));
                 if (butt && ps.ends_round)
                     rt.rib_top = top;
             } else {
@@ -1239,8 +1303,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             if (y1 < y0)
                 y0 = y1 = (y0 + y1) / 2;
             fx = st.x() > (xa + xb) / 2;
-            fy = false;
-            o << std::setprecision(3) << "G1 X" << (fx ? xb : xa) << " Y" << y0 << " F12000\n";
+            fy = st.y() > (y0 + y1) / 2;
+            o << std::setprecision(3) << "G1 X" << (fx ? xb : xa) << " Y" << (fy ? y1 : y0) << " F12000\n";
         }
         int n = 0;
         // A purge strip of the merged cell runs along its long side (few, long lines); everything
@@ -1287,7 +1351,10 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                 for (int j = 0; j <= ny; ++j, ++n) {
                     const double y = fy ? y1 - j * sy : y0 + j * sy;
                     if (n > 0)
-                        o << std::setprecision(3) << "G1 Y" << y << "\n";
+                        o << std::setprecision(3) << "G1 Y" << y << " F12000\n";
+                    cur_xy = Vec2f(float(at_b ? xb : xa), float(y));
+                    if (j == ny)
+                        emit_near_wall(cur_xy);
                     const double xe = at_b ? xa : xb;
                     purge_line(o, 'X', at_b ? xb : xa, xe, e_per_mm * ks);
                     at_b   = !at_b;
@@ -1303,7 +1370,10 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                 for (int j = 0; j <= nx; ++j, ++n) {
                     const double x = fx ? xb - j * sx : xa + j * sx;
                     if (n > 0)
-                        o << std::setprecision(3) << "G1 X" << x << "\n";
+                        o << std::setprecision(3) << "G1 X" << x << " F12000\n";
+                    cur_xy = Vec2f(float(x), float(at_1 ? y1 : y0));
+                    if (j == 0)
+                        emit_near_wall(cur_xy);
                     const double ye = at_1 ? y0 : y1;
                     purge_line(o, 'Y', at_1 ? y1 : y0, ye, e_per_mm * ks);
                     at_1   = !at_1;
@@ -1342,8 +1412,7 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             crossed_fill = true;
         } else
             lines(along_x, spacing);
-        // Finish the purge band before its wall; leave at the wall endpoint.
-        // There is no detour back to the middle of an unfinished purge strip.
+        // Finish any remaining wall pieces on this side of the completed band.
         emit_wall();
         cur_z = top + z_off;
         if (ps.merged)
@@ -1363,7 +1432,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                     rt.on_grid[c] = 1;
         }
         o << "; SKYLANE BAND_END\n";
-        first = false;
+        first         = false;
+        previous_pass = &ps;
     };
 
     // Brim around the SkyLane footprint, printed by the emission that closes the first-layer base,

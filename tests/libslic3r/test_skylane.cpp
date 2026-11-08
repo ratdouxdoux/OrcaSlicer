@@ -318,6 +318,13 @@ TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar 
     config.filament_multitool_ramming_volume.values.assign(4, 5.);
     config.filament_multitool_ramming_flow.values.assign(4, 25.);
     config.filament_max_volumetric_speed.values.assign(4, 15.);
+    SECTION("Equal ramming volumes") {}
+    SECTION("Reported asymmetric black filament")
+    {
+        config.filament_multitool_ramming_volume.values[2] = .5;
+        config.filament_multitool_ramming_flow.values[2]   = 20.;
+        config.filament_max_volumetric_speed.values[2]     = 12.;
+    }
     config.initial_layer_speed.values        = {50.};
     config.wipe_tower_max_purge_speed.value  = 90.;
     config.wipe_tower_extra_rib_length.value = 8.;
@@ -338,11 +345,14 @@ TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar 
             int    tool;
         };
         std::map<long, std::vector<Band>> planes;
-        size_t                            walls = 0, purges = 0;
+        size_t                            walls = 0, purges = 0, adjacent_moves = 0;
+        double                            travel_length      = 0.;
+        double                            highest_deposition = 0.;
         for (const auto& layer : nominal)
             for (const auto& original : layer) {
                 const auto        t       = tower.place(original);
                 bool              is_wall = false, in_band = false, merged = false, incoming = false, recorded = false;
+                bool              adjacent_entry = false;
                 std::string       kind;
                 int               band_tool = -1;
                 double            low = 0., high = 0., cell0 = 0., cell1 = 0., ram_volume = 0., purge_volume = 0.;
@@ -357,6 +367,8 @@ TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar 
                     const std::string raw = line.raw();
                     if (raw == change)
                         incoming = true;
+                    if (raw == "; SKYLANE adjacent band travel")
+                        adjacent_entry = true;
                     if (raw == "; SKYLANE BAND_END")
                         in_band = false;
                     if (raw == "; SKYLANE WALL") {
@@ -389,8 +401,22 @@ TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar 
                         in_band  = true;
                         recorded = false;
                     }
+                    if (line.travel() && line.dist_XY(state) > 1e-6) {
+                        travel_length += line.dist_XY(state);
+                        if (adjacent_entry) {
+                            CHECK(merged);
+                            CHECK(line.dist_Z(state) == Approx(0.).margin(.001));
+                            CHECK(state.y() >= low - .001);
+                            CHECK(state.y() <= high + .001);
+                            CHECK(state.y() + line.dist_Y(state) >= low - .001);
+                            CHECK(state.y() + line.dist_Y(state) <= high + .001);
+                            ++adjacent_moves;
+                            adjacent_entry = false;
+                        }
+                    }
                     if (!line.extruding(state) || line.dist_XY(state) <= 1e-6)
                         return;
+                    highest_deposition = std::max(highest_deposition, double(state.z()));
                     CHECK(state.z() <= original.print_z + .001);
                     if (!in_band)
                         return; // brim / base supports
@@ -427,14 +453,20 @@ TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar 
                         CHECK(state.y() <= high + .001);
                     }
                 });
+                CHECK(t.skylane_safe_z >= highest_deposition + .199);
                 if (original.is_tool_change) {
-                    CHECK(ram_volume == Approx(5.).margin(.01));
+                    CHECK(ram_volume == Approx(config.filament_multitool_ramming_volume.values[original.initial_tool]).margin(.01));
                     CHECK(purge_volume == Approx(18.).margin(.01));
                 }
             }
         CHECK(walls > 510);
         CHECK(purges > 510);
         CHECK(planes.size() > 20);
+        CAPTURE(travel_length);
+        // Budget the complete internal traversal, not just purge extrusion:
+        // emitting both side walls after every band formerly exceeded 60 m.
+        CHECK(travel_length < 45000.);
+        CHECK(adjacent_moves > 100);
         for (auto& [height, bands] : planes) {
             CAPTURE(height);
             std::sort(bands.begin(), bands.end(), [](const Band& a, const Band& b) { return a.low < b.low; });
