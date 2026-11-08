@@ -450,16 +450,16 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "wipe_tower_y"
             || opt_key == "wipe_tower_rotation_angle") {
             steps.emplace_back(psSkirtBrim);
-        } else if (opt_key == "initial_layer_print_height" || opt_key == "nozzle_diameter" || opt_key == "filament_shrink" ||
-                   opt_key == "filament_shrinkage_compensation_z" || opt_key == "resolution" || opt_key == "precise_z_height" ||
-                   opt_key == "dithering_z_step_size" || opt_key == "dithering_local_z_mode" ||
-                   opt_key == "dithering_local_z_whole_objects" || opt_key == "dithering_local_z_preserve_first_layer" ||
-                   opt_key == "dithering_local_z_direct_multicolor" || opt_key == "dithering_local_z_independent_layer_height" ||
-                   opt_key == "dithering_local_z_gradient_layer_height" || opt_key == "dithering_local_z_gradient_middle_filament_window" ||
-                   opt_key == "dithering_step_painted_zones_only" || opt_key == "mixed_filament_gradient_mode" ||
-                   opt_key == "mixed_filament_height_lower_bound" || opt_key == "mixed_filament_advanced_dithering" ||
-                   opt_key == "mixed_filament_component_bias_enabled" || opt_key == "mixed_filament_surface_indentation" ||
-                   opt_key == "mixed_filament_region_collapse" ||
+        } else if (opt_key == "initial_layer_print_height" || opt_key == "nozzle_diameter" || opt_key == "min_layer_height" ||
+                   opt_key == "max_layer_height" || opt_key == "filament_shrink" || opt_key == "filament_shrinkage_compensation_z" ||
+                   opt_key == "resolution" || opt_key == "precise_z_height" || opt_key == "dithering_z_step_size" ||
+                   opt_key == "dithering_local_z_mode" || opt_key == "dithering_local_z_whole_objects" ||
+                   opt_key == "dithering_local_z_preserve_first_layer" || opt_key == "dithering_local_z_direct_multicolor" ||
+                   opt_key == "dithering_local_z_independent_layer_height" || opt_key == "dithering_local_z_gradient_layer_height" ||
+                   opt_key == "dithering_local_z_gradient_middle_filament_window" || opt_key == "dithering_step_painted_zones_only" ||
+                   opt_key == "mixed_filament_gradient_mode" || opt_key == "mixed_filament_height_lower_bound" ||
+                   opt_key == "mixed_filament_advanced_dithering" || opt_key == "mixed_filament_component_bias_enabled" ||
+                   opt_key == "mixed_filament_surface_indentation" || opt_key == "mixed_filament_region_collapse" ||
                    opt_key == "mixed_filament_definitions"
                    // Spiral Vase forces different kind of slicing than the normal model:
                    // In Spiral Vase mode, holes are closed and only the largest area contour is kept at each layer.
@@ -507,8 +507,7 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             //FIXME Killing supports on any change of "filament_soluble" is rough. We should check for each object whether that is necessary.
             osteps.emplace_back(posSupportMaterial);
             osteps.emplace_back(posSimplifySupportPath);
-        } else if (opt_key == "initial_layer_line_width" || opt_key == "min_layer_height" ||
-                   opt_key == "max_layer_height"
+        } else if (opt_key == "initial_layer_line_width"
                    //|| opt_key == "resolution"
                    // BBS: when enable arc fitting, we must re-generate perimeter
                    || opt_key == "enable_arc_fitting" || opt_key == "print_order" || opt_key == "wall_sequence") {
