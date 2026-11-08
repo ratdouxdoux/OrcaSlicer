@@ -61,7 +61,7 @@ The three wall types use the same lane-planning approach:
 |---|---|
 | **Rectangle** | A rectangular shared cell. Its depth can step inward, centred on the original footprint, when the remaining schedule fits in a smaller area. |
 | **Cone** | Adds the conventional tower's stabilization arcs on the long sides. The arcs shrink with height and follow reductions in cell depth. A low tower with a small cone angle can have the same outline as Rectangle. |
-| **Rib** | Adds four arms at approximately 45° from the corners. Extra arm length decreases with height, and Fillet wall rounds the contour. The central cell retains its full planned depth. |
+| **Rib** | Adds four arms at approximately 45° from the corners. Extra arm length decreases with height, and Fillet wall rounds the contour. The central cell retains its full planned depth. The whole outline of each shared tower level uses one active filament. |
 
 Rectangle and Cone only shrink after the planner checks the remaining
 requests with the same reserve used for sizing. The tapered cell stays at
@@ -104,7 +104,7 @@ Several features of the preview are intentional:
 | What you see | Explanation |
 |---|---|
 | Parallel purge rows with open ends | The nozzle moves between rows without extruding. Extruded U-turn connections are not part of the SkyLane path. |
-| Adjacent colour bands | Outgoing ramming and incoming purge have separate bands of complete rows. The adjacent wall sections use the band's material. No empty separator is required. |
+| Adjacent colour bands | Outgoing ramming and incoming purge have separate bands of complete rows. Rectangle and Cone wall sections use the adjacent band's material. Rib uses one colour for the whole outline at each shared level. No empty separator is required. |
 | A short break in an otherwise continuous outer wall | This is the optional Wall gap. |
 | Open regions inside a larger tower outline | Lanes can be at different heights, unused regions can contain sparse grid, and the footprint must accommodate busier parts of the schedule. Inspect surrounding heights and moves to distinguish these cases. |
 | A tower level that differs from the selected model layer | SkyLane uses its own deposition heights below the current model height. |
@@ -123,7 +123,7 @@ Ramming is material deposited by the outgoing tool before it is parked. At
 eligible visits, SkyLane reserves a separate band for that material before the incoming
 purge. For example, 5 mm³ of ramming followed by a 38 mm³ purge still requires
 43 mm³ of purge-path material, apart from additional structure. The outgoing
-tool completes its rows and adjacent wall sections, the printer performs its
+tool completes its rows and assigned wall paths, the printer performs its
 tool-change sequence, and the incoming tool starts its own band. A tool change
 does not split a row between colours. The actual docking motion is determined
 by the printer profile's tool-change macros.
@@ -133,6 +133,14 @@ material grows from one end of the level and the other bands from the opposite
 end, so the first colour can return beside its earlier deposit. If a later
 return cannot fit beside its own colour, the remaining space is closed using
 the outgoing material and a new deposition level begins. No permanent tower is assigned to a colour.
+
+With **Rib**, the four arms and their connecting outer wall form one outline.
+That outline is printed once per shared tower level, using the filament already
+active when the level starts. Its colour can change at the next height, but
+does not change around the same outline. This adds no tool changes and keeps
+the interior purge bands separate. Independent-lane support sections retain
+their staged construction for nozzle clearance.
+
 Independent lanes retain their separate support heights and nozzle-clearance
 requirements. The closure can add support material, so removing wall detours
 does not guarantee a shorter total print time.
@@ -142,13 +150,15 @@ from the shared boundary into an unprinted band at the same height can stay
 level when no taller tower structure is present. Other band entries retain
 the clearance lift, as does departure from the tower.
 
-For the supplied four-colour cube, the revised routing reduces the slicer's
-estimate from **2h21m14s to 2h17m38s**. The original ungrouped version was
-**2h16m22s**, so colour grouping still adds about 1m16s on this example.
-The revision preserves the 510 tool changes, 18 mm³ incoming purge per change,
-colour-band allocation and 23.32 g total material estimate. Tower XY travel
-falls from 103.7 m to 61.5 m. These are slicer estimates from the same project
-and profiles, not measured printer timings.
+For the supplied four-colour cube, the single-colour Rib outline reduces the
+slicer's estimate from **2h17m38s to 2h16m06s**, a further 1m32s saving after
+the travel optimization. The original ungrouped version was **2h16m22s**.
+The revision preserves the 510 tool changes, 18 mm³ incoming purge per change
+and interior colour-band allocation. Tower XY travel falls from 61.5 m to
+59.1 m. Total estimated material is 23.26 g; assigning the outline to different
+filaments also changes the mass calculation because their profile densities
+differ. These are slicer estimates from the same project and profiles, not
+measured printer timings.
 
 **Wall gap is a separate feature.** It opens 2.5 line widths in the shared
 perimeter near the entry position. At a line width of 0.5 mm, the opening is
@@ -215,7 +225,9 @@ the ramp, repeat exports, real tool selections and FullSpectrum Local-Z output
 with rotated towers, plate offsets and tool offsets. The 8 November 2026
 Windows Release build passes **10 targeted test cases**, including the
 510-change four-colour schedule with both equal and asymmetric ramming volumes,
-an internal travel-distance limit, and checks on level entries into adjacent bands.
+an internal travel-distance limit, checks on level entries into adjacent bands,
+and a complete single-colour Rib outline at every shared level. The supplied
+cube's exported G-code has 130 rib-outline levels, each using exactly one filament.
 The supplied cube was also re-sliced before and after the routing change:
 model extrusion paths and speeds, tool order, band schedule and required purge
 amounts are preserved. Physical printing has not yet been validated for this adapted build.

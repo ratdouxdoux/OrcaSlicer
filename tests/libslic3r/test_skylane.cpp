@@ -338,6 +338,11 @@ TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar 
         config.wipe_tower_wall_type.value = wall_type;
         SkyLaneTower tower;
         REQUIRE(tower.plan(config, nominal, {}, 5.f));
+        if (wall_type == WipeTowerWallType::wtwRib) {
+            auto   preview = nominal;
+            Layers local;
+            tower.preview(preview, local);
+        }
         tower.begin_emission();
         struct Band
         {
@@ -345,6 +350,8 @@ TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar 
             int    tool;
         };
         std::map<long, std::vector<Band>> planes;
+        std::map<long, std::set<int>>     wall_tools;
+        std::map<long, double>            wall_lengths;
         size_t                            walls = 0, purges = 0, adjacent_moves = 0;
         double                            travel_length      = 0.;
         double                            highest_deposition = 0.;
@@ -422,6 +429,11 @@ TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar 
                         return; // brim / base supports
                     CHECK(band_tool == (incoming ? original.new_tool : original.initial_tool));
                     if (is_wall) {
+                        const long height = std::lround(state.z() * 10000.);
+                        wall_tools[height].insert(band_tool);
+                        wall_lengths[height] += line.dist_XY(state);
+                        if (wall_type == WipeTowerWallType::wtwRib)
+                            return; // one whole outline, independent of the interior bands
                         if (low > cell0 + .001) {
                             CHECK(state.y() >= low - .001);
                             CHECK(state.y() + line.dist_Y(state) >= low - .001);
@@ -459,14 +471,32 @@ TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar 
                     CHECK(purge_volume == Approx(18.).margin(.01));
                 }
             }
-        CHECK(walls > 510);
+        if (wall_type == WipeTowerWallType::wtwRib) {
+            REQUIRE(wall_tools.size() > 20);
+            CHECK(walls == wall_tools.size());
+            for (const auto& [height, tools] : wall_tools) {
+                CAPTURE(height);
+                CHECK(tools.size() == 1);
+                const auto outline = std::find_if(tower.outlines().begin(), tower.outlines().end(),
+                                                  [&](const auto& entry) { return std::lround(entry.first * 10000.) == height; });
+                REQUIRE(outline != tower.outlines().end());
+                REQUIRE_FALSE(outline->second.empty());
+                const double perimeter = unscale<double>(outline->second.front().length());
+                // Every arm is present exactly once; the intentional wall gap
+                // removes at most 2.5 line widths from the recorded outline.
+                CHECK(wall_lengths[height] >= perimeter - 1.3);
+                CHECK(wall_lengths[height] <= perimeter + .05);
+            }
+        } else {
+            CHECK(walls > 510);
+            CHECK(adjacent_moves > 100);
+        }
         CHECK(purges > 510);
         CHECK(planes.size() > 20);
         CAPTURE(travel_length);
         // Budget the complete internal traversal, not just purge extrusion:
         // emitting both side walls after every band formerly exceeded 60 m.
         CHECK(travel_length < 45000.);
-        CHECK(adjacent_moves > 100);
         for (auto& [height, bands] : planes) {
             CAPTURE(height);
             std::sort(bands.begin(), bands.end(), [](const Band& a, const Band& b) { return a.low < b.low; });

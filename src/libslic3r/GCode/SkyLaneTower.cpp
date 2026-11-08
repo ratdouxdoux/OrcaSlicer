@@ -1163,8 +1163,11 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         bool fx = st.x() > (xa + xb) / 2, fy = st.y() > (y0 + y1) / 2;
         // Merged cell = a classic tower layer: its own perimeter (the tower wall up here, at
         // the very height of the grid it encloses) and the lines, one bead inside.
-        // Each band carries the adjacent parts of the shared perimeter.
-        const double wfeed = std::min(speed, 60.) * 60.;
+        // Rib outlines belong to the first band of a shared level, so all four
+        // arms use one already-active filament without another tool change.
+        // Other wall types keep their adjacent band ownership.
+        const bool   owns_wall = ps.merged && (!rt.rib || ps.wall);
+        const double wfeed     = std::min(speed, 60.) * 60.;
         // the wall's centreline: the cell of the pass (tapered = narrower, centred; the cone
         // then leaves from the cell's own sides, like the classic tower's layer box)
         const double cy0 = (ps.merged ? ps.cell_y0 : 0.) + lw / 2, cy1 = (ps.merged ? ps.cell_y1 : rt.depth) - lw / 2;
@@ -1176,11 +1179,11 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             rt.band_wall_transition = butt && far_ok(top) && std::abs(rt.rib_top - ps.z_base) >= 1e-3;
             rt.band_wall_roots      = false;
         }
-        const double low  = ps.y0 <= ps.cell_y0 + 1e-6 ? -std::numeric_limits<double>::infinity() : ps.y0;
-        const double high = ps.y1 >= ps.cell_y1 - 1e-6 ? std::numeric_limits<double>::infinity() : ps.y1;
+        const double low  = rt.rib || ps.y0 <= ps.cell_y0 + 1e-6 ? -std::numeric_limits<double>::infinity() : ps.y0;
+        const double high = rt.rib || ps.y1 >= ps.cell_y1 - 1e-6 ? std::numeric_limits<double>::infinity() : ps.y1;
 
         std::vector<std::vector<Vec2d>> wall_pieces;
-        if (ps.merged && !rt.band_wall_transition) {
+        if (owns_wall && !rt.band_wall_transition) {
             const auto loop = rt.cone ? wall_loop(xmin, cy0, xmax, cy1, top, 0.) :
                                         shape(rib_loop(xmin, cy0, xmax, cy1, rt.rib ? rt.rib_hw : 0., rt.rib_ext(top)), true);
             const auto open = rt.band_wall_gap ?
@@ -1218,10 +1221,10 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                 cur_xy = row_start;
             }
         };
-        // Each band owns the adjacent pieces of the existing perimeter. The
-        // first/last bands also own the buttresses beyond the cell's ends.
+        // Rib emits the whole outline once. For the other shapes, the first/
+        // last bands also own the buttresses beyond the cell's ends.
         auto emit_wall = [&] {
-            if (!ps.merged)
+            if (!owns_wall)
                 return;
             auto emit_pieces = [&](std::vector<std::vector<Vec2d>> pieces) {
                 while (!pieces.empty()) {
@@ -1258,7 +1261,7 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             o << "; SKYLANE WALL\n";
             if (!rt.band_wall_transition) {
                 emit_pieces(std::move(wall_pieces));
-                if (butt && ps.ends_round)
+                if (butt && (rt.rib || ps.ends_round))
                     rt.rib_top = top;
             } else {
                 // A return from independent lanes may need the distant supports
