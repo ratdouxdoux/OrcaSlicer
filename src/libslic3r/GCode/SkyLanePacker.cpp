@@ -60,23 +60,28 @@ void Lanes::close_round(std::vector<Pass>& out, int idx)
     if (m_round_h <= 0.)
         return;
     const double Hm = m_H[0];
-    if (m_depth - m_round_y >= m_p.line_w) {
-        Pass ps{-1, idx, 0, Hm, m_round_h, m_y0 + m_round_y, m_y0 + m_depth};
-        ps.merged  = true;
-        ps.cell_y0 = m_y0;
-        ps.cell_y1 = m_y0 + m_depth;
-        ps.solid   = m_p.solid_base && m_have_z0 && Hm < m_z0 - 1e-6;
-        m_fill += m_p.width * (m_depth - m_round_y) * m_round_h * (ps.solid ? 1. : m_p.merged_density);
+    if (m_depth - m_round_y - m_round_tail >= m_p.line_w) {
+        Pass ps{-1, idx, 0, Hm, m_round_h, m_y0 + m_round_y, m_y0 + m_depth - m_round_tail};
+        ps.merged     = true;
+        ps.cell_y0    = m_y0;
+        ps.cell_y1    = m_y0 + m_depth;
+        ps.solid      = m_p.solid_base && m_have_z0 && Hm < m_z0 - 1e-6;
+        ps.tool       = m_round_tool;
+        ps.ends_round = true;
+        m_fill += m_p.width * (m_depth - m_round_y - m_round_tail) * m_round_h * (ps.solid ? 1. : m_p.merged_density);
         out.push_back(ps);
     }
     std::fill(m_H.begin(), m_H.end(), Hm + m_round_h);
-    m_round_h = 0.;
-    m_round_y = 0.;
+    m_round_h    = 0.;
+    m_round_y    = 0.;
+    m_round_tail = 0.;
+    m_round_tools.clear();
 }
 
 bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
 {
-    if (!std::isfinite(e.z) || e.z <= 0.f || !std::isfinite(e.volume) || e.volume < 0.f || !std::isfinite(e.layer_h) || e.layer_h < 0.f)
+    if (!std::isfinite(e.z) || e.z <= 0.f || !std::isfinite(e.volume) || e.volume < 0.f || !std::isfinite(e.layer_h) || e.layer_h < 0.f ||
+        !std::isfinite(e.ramming_volume) || e.ramming_volume < 0.f || e.ramming_volume > e.volume)
         throw std::invalid_argument("Invalid SkyLane tower visit");
     const int    k = m_p.lanes;
     const double z = e.z;
@@ -99,6 +104,7 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
                 const double h = m_z0 - m_H[size_t(c)];
                 m_fill += W * m_d * h;
                 push(out, -1, idx, c, h, m_y0 + c * m_d, m_y0 + (c + 1) * m_d, true);
+                out.back().tool = e.old_tool;
             }
         m_base_done = true;
         m_base_now  = true;
@@ -118,6 +124,7 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
                         return false;
                     m_fill += W * (y1 - y0) * h * m_p.fill_density;
                     push(out, -1, idx, c, h, y0, y1, false);
+                    out.back().tool = e.old_tool;
                 }
             m_merged = true;
         }
@@ -149,12 +156,14 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
             m_d     = m_depth / k;
         }
         double Hm   = m_H[0];
-        auto   cell = [&](double h) { // full-cell open grid pass, with its perimeter
+        auto   cell = [&](double h, size_t tool) { // full-cell open grid pass, with its perimeter
             Pass ps{-1, idx, 0, Hm, h, m_y0, m_y0 + m_depth};
-            ps.merged  = true;
-            ps.wall    = true;
-            ps.cell_y0 = m_y0;
-            ps.cell_y1 = m_y0 + m_depth;
+            ps.merged     = true;
+            ps.wall       = true;
+            ps.cell_y0    = m_y0;
+            ps.cell_y1    = m_y0 + m_depth;
+            ps.tool       = tool;
+            ps.ends_round = true;
             out.push_back(ps);
             Hm += h;
             std::fill(m_H.begin(), m_H.end(), Hm);
@@ -163,52 +172,83 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
             while (z - Hm > m_p.max_pit + 1e-9) { // safety net: never purge deeper than the pit
                 const double h = std::max(std::min(z - m_p.max_pit - Hm, m_p.hmax), m_p.hmin);
                 m_fill += W * m_depth * h * m_p.merged_density;
-                cell(h);
+                cell(h, e.old_tool);
             }
-        double V     = e.volume;
-        int    guard = 0;
-        while (V > 1e-9) {
-            if (++guard > 10000)
-                return false;
-            bool opens = false;
-            if (m_round_h <= 0.) { // open a round: as tall as the room under the nozzle
-                const double g = z - Hm;
-                if (g < m_p.hmin - 1e-9) {
-                    if (!m_p.allow_over_z)
-                        return false;
-                    const double over = Hm + m_p.hmin - z;
-                    if (over > m_p.hmax + 1e-9)
-                        return false;
-                    if (m_over_z++ == 0)
-                        m_first_over = idx;
-                    m_over_z_max = std::max(m_over_z_max, over);
-                    m_round_h    = m_p.hmin;
-                } else
-                    m_round_h = std::min(g, m_p.hmax);
-                m_round_y = 0.;
-                opens     = true;
-            }
-            const double room = m_depth - m_round_y;
-            const double need = V / (W * m_round_h * m_p.purge_density);
-            if (!opens && room < std::min(need, 2. * m_p.line_w)) { // round full: next one
-                close_round(out, idx);
-                Hm = m_H[0];
-                continue;
-            }
-            const double s = std::min(std::max(need, m_p.line_w), room);
-            Pass         ps{idx, idx, 0, Hm, m_round_h, m_y0 + m_round_y, m_y0 + m_round_y + s};
-            ps.merged  = true;
-            ps.wall    = opens;
-            ps.cell_y0 = m_y0;
-            ps.cell_y1 = m_y0 + m_depth;
-            ps.density = m_p.purge_density * std::min(1., need / s);
-            out.push_back(ps);
-            V -= W * s * m_round_h * m_p.purge_density;
-            m_round_y += s;
-            if (m_depth - m_round_y < m_p.line_w) { // nothing left to close: the round is done
+        for (bool ramming : {true, false}) {
+            double       V    = ramming ? e.ramming_volume : e.volume - e.ramming_volume;
+            const size_t tool = ramming ? e.old_tool : e.new_tool;
+            // The first material grows from the far end, all others from the
+            // near end. It can therefore return alongside its earlier deposit.
+            // A second material returning would split a region: close first.
+            if (V > 1e-9 && m_round_h > 0. && tool != m_round_tool && !m_round_tools.empty() && tool != m_round_tools.front() &&
+                std::find(m_round_tools.begin(), m_round_tools.end(), tool) != m_round_tools.end()) {
                 close_round(out, idx);
                 Hm = m_H[0];
             }
+            int guard = 0;
+            while (V > 1e-9) {
+                if (++guard > 10000)
+                    return false;
+                bool opens = false;
+                if (m_round_h <= 0.) { // open a round: as tall as the room under the nozzle
+                    const double g = z - Hm;
+                    if (g < m_p.hmin - 1e-9) {
+                        if (!m_p.allow_over_z)
+                            return false;
+                        const double over = Hm + m_p.hmin - z;
+                        if (over > m_p.hmax + 1e-9)
+                            return false;
+                        if (m_over_z++ == 0)
+                            m_first_over = idx;
+                        m_over_z_max = std::max(m_over_z_max, over);
+                        m_round_h    = m_p.hmin;
+                    } else
+                        m_round_h = std::min(g, m_p.hmax);
+                    m_round_y    = 0.;
+                    m_round_tail = 0.;
+                    opens        = true;
+                }
+                const double room = m_depth - m_round_y - m_round_tail;
+                const double need = V / (W * m_round_h * m_p.purge_density);
+                if (!opens && room < std::min(need, 2. * m_p.line_w)) { // round full: next one
+                    close_round(out, idx);
+                    Hm = m_H[0];
+                    continue;
+                }
+                double s = std::min(std::max(need, m_p.line_w), room);
+                if (room - s < m_p.line_w)
+                    s = room;
+                const bool   tail = m_round_tools.empty() || tool == m_round_tools.front();
+                const double y0   = m_y0 + (tail ? m_depth - m_round_tail - s : m_round_y);
+                Pass         ps{idx, idx, 0, Hm, m_round_h, y0, y0 + s};
+                ps.merged     = true;
+                ps.wall       = opens;
+                ps.cell_y0    = m_y0;
+                ps.cell_y1    = m_y0 + m_depth;
+                ps.density    = m_p.purge_density * std::min(1., need / s);
+                ps.tool       = tool;
+                ps.ramming    = ramming;
+                ps.ends_round = room - s < m_p.line_w;
+                m_round_tool  = tool;
+                if (std::find(m_round_tools.begin(), m_round_tools.end(), tool) == m_round_tools.end())
+                    m_round_tools.push_back(tool);
+                out.push_back(ps);
+                V -= W * s * m_round_h * m_p.purge_density;
+                if (tail)
+                    m_round_tail += s;
+                else
+                    m_round_y += s;
+                if (ps.ends_round) { // nothing left to close: the round is done
+                    close_round(out, idx);
+                    Hm = m_H[0];
+                }
+            }
+        }
+        // A switch with no incoming purge must not leave a round whose tail
+        // can only be completed by a tool that has already been parked.
+        if (e.old_tool != e.new_tool && e.volume == e.ramming_volume) {
+            close_round(out, idx);
+            Hm = m_H[0];
         }
         // then the open grid: once the cell lags a full pass beyond its reserve, raise it back
         // to the reserve in tall passes (few visits print anything; the pit limit still rules)
@@ -216,7 +256,7 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
             while (z - Hm > reserve + m_p.hmin - 1e-9) {
                 const double h = std::min(z - reserve - Hm, m_p.hmax);
                 m_fill += W * m_depth * h * m_p.merged_density;
-                cell(h);
+                cell(h, e.new_tool);
             }
         return true;
     }
@@ -237,9 +277,28 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
                 return false;
             m_fill += W * (y1 - y0) * h * m_p.fill_density;
             push(out, -1, idx, c, h, y0, y1, false);
+            out.back().tool = e.old_tool;
         }
 
     // 2) Purge: lowest lane with room, tall pass.
+    double ram_left       = e.ramming_volume;
+    auto   split_material = [&]() {
+        Pass&        ps     = out.back();
+        const double volume = W * (ps.y1 - ps.y0) * ps.h * ps.density;
+        const double ram    = std::min(ram_left, volume);
+        ps.tool             = ram > 1e-9 ? e.old_tool : e.new_tool;
+        ps.ramming          = ram > 1e-9;
+        if (ram > 1e-9 && ram < volume - 1e-9) {
+            Pass         incoming = ps;
+            const double cut      = ps.y0 + (ps.y1 - ps.y0) * ram / volume;
+            ps.y1                 = cut;
+            incoming.y0           = cut;
+            incoming.tool         = e.new_tool;
+            incoming.ramming      = false;
+            out.push_back(incoming);
+        }
+        ram_left -= ram;
+    };
     double V     = e.volume;
     int    tries = 0;
     while (V > 1e-9) {
@@ -263,6 +322,7 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
             V -= W * (y1 - y0) * m_p.hmin * m_p.purge_density;
             push(out, idx, idx, c, m_p.hmin, y0, y1, false);
             out.back().density = m_p.purge_density;
+            split_material();
             continue;
         }
         const double g = z - m_H[size_t(c)];
@@ -274,9 +334,9 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
         m_fill += W * (m_d - u) * h * m_p.fill_density; // lost strip
         push(out, idx, idx, c, h, y0, y1, false);
         out.back().density = std::min(m_p.purge_density, V / (W * u * h));
+        split_material();
         V -= W * u * h * m_p.purge_density;
     }
-
     // 3) Level lagging lanes so that, one layer higher (~layer_h), no lane is deeper than
     //    max_pit below the nozzle. Never above the current nozzle Z (printed now). Fills respect
     //    the cone margin of taller neighbours too.
@@ -293,6 +353,7 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
                 return false;
             m_fill += W * (y1 - y0) * h * m_p.fill_density;
             push(out, -1, idx, c, h, y0, y1, false);
+            out.back().tool = e.new_tool;
         }
     }
     return true;

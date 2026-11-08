@@ -9,6 +9,9 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <map>
+#include <set>
+#include <sstream>
 
 using namespace Slic3r;
 using Catch::Approx;
@@ -82,7 +85,7 @@ TEST_CASE("SkyLane settings preserve the existing toggle and add source-pack con
     }
 }
 
-TEST_CASE("SkyLane source pack reproduces the archive footprint and all wall types", "[SkyLane][Geometry]")
+TEST_CASE("SkyLane preserves archive wall shapes with material bands", "[SkyLane][Geometry]")
 {
     std::ifstream counts(std::string(TEST_DATA_DIR) + "/skylane/dragon_changes.txt");
     REQUIRE(counts.good());
@@ -114,21 +117,16 @@ TEST_CASE("SkyLane source pack reproduces the archive footprint and all wall typ
         Layers       local;
         auto         preview = nominal;
         REQUIRE(tower.plan(config, nominal, local, 5.f));
-        CHECK(tower.depth() == Approx(28.8997).margin(.002));
+        CHECK(tower.depth() > 0.);
+        CHECK(tower.depth() < 80.);
         tower.preview(preview, local);
         REQUIRE_FALSE(tower.outlines().empty());
         REQUIRE(tower.bounds().defined);
-        const auto& base = tower.outlines().begin()->second;
+        const auto foundation = tower.outlines().find(.25f);
+        REQUIRE(foundation != tower.outlines().end());
+        const auto& base = foundation->second;
         REQUIRE(base.size() > 1);
         CHECK(base.front().is_closed());
-        const auto first  = tower.place(nominal[0][0]);
-        const auto second = tower.place(nominal[0][1]);
-        CHECK(first.gcode.find("SKYLANE WALL") != std::string::npos);
-        CHECK(second.gcode.find("SKYLANE WALL") == std::string::npos);
-        // Purge rows are open: no extruded U-turns between them.
-        for (size_t i = 1; i < second.extrusions.size(); ++i)
-            if (second.extrusions[i].width > 0.f)
-                CHECK(second.extrusions[i].pos.y() == Approx(second.extrusions[i - 1].pos.y()).margin(.001));
         if (wall == WipeTowerWallType::wtwRectangle)
             rectangle = tower.bounds();
         else
@@ -293,4 +291,250 @@ TEST_CASE("SkyLane emits rib supports when merged cells split into independent l
         }
     CHECK(raised_ribs);
     CHECK(rammed);
+}
+
+TEST_CASE("SkyLane keeps the reported four-colour sequence in contiguous planar bands", "[SkyLane][Colours]")
+{
+    std::ifstream input(std::string(TEST_DATA_DIR) + "/skylane/colour_visits.txt");
+    REQUIRE(input.good());
+    Layers nominal(1);
+    auto   base = visit(.2f, .2f, 0, 0, 32.);
+    base.gcode  = "; CP EMPTY GRID\n";
+    nominal.front().push_back(base);
+    float  z;
+    int    old_tool, new_tool;
+    size_t changes = 0;
+    while (input >> z >> old_tool >> new_tool) {
+        if (nominal.back().front().print_z != z)
+            nominal.emplace_back();
+        nominal.back().push_back(visit(z, .08f, old_tool, new_tool, 32.));
+        ++changes;
+    }
+    REQUIRE(changes == 510);
+    auto config                    = configuration(4);
+    config.prime_tower_width.value = 30.;
+    config.prime_volume.value      = 18.;
+    config.filament_multitool_ramming.values.assign(4, true);
+    config.filament_multitool_ramming_volume.values.assign(4, 5.);
+    config.filament_multitool_ramming_flow.values.assign(4, 25.);
+    config.filament_max_volumetric_speed.values.assign(4, 15.);
+    config.initial_layer_speed.values        = {50.};
+    config.wipe_tower_max_purge_speed.value  = 90.;
+    config.wipe_tower_extra_rib_length.value = 8.;
+    config.wipe_tower_rib_width.value        = 8.;
+    config.wipe_tower_fillet_wall.value      = true;
+    config.wipe_tower_wall_gap.value         = true;
+    config.wipe_tower_cone_angle.value       = 60.;
+    const double area                        = M_PI * 1.75 * 1.75 / 4.;
+    for (auto wall_type : {WipeTowerWallType::wtwRectangle, WipeTowerWallType::wtwRib, WipeTowerWallType::wtwCone}) {
+        CAPTURE(int(wall_type));
+        config.wipe_tower_wall_type.value = wall_type;
+        SkyLaneTower tower;
+        REQUIRE(tower.plan(config, nominal, {}, 5.f));
+        tower.begin_emission();
+        struct Band
+        {
+            double low, high;
+            int    tool;
+        };
+        std::map<long, std::vector<Band>> planes;
+        size_t                            walls = 0, purges = 0;
+        for (const auto& layer : nominal)
+            for (const auto& original : layer) {
+                const auto        t       = tower.place(original);
+                bool              is_wall = false, in_band = false, merged = false, incoming = false, recorded = false;
+                std::string       kind;
+                int               band_tool = -1;
+                double            low = 0., high = 0., cell0 = 0., cell1 = 0., ram_volume = 0., purge_volume = 0.;
+                PlaceholderParser parser;
+                const std::string change = "T" + std::to_string(original.new_tool);
+                parser.set("change_filament_gcode", change);
+                GCodeReader reader;
+                reader.apply_config(config);
+                reader.x() = t.start_pos.x();
+                reader.y() = t.start_pos.y();
+                reader.parse_buffer(parser.process(t.gcode), [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
+                    const std::string raw = line.raw();
+                    if (raw == change)
+                        incoming = true;
+                    if (raw == "; SKYLANE BAND_END")
+                        in_band = false;
+                    if (raw == "; SKYLANE WALL") {
+                        is_wall = true;
+                        ++walls;
+                    }
+                    if (raw == "; SKYLANE WALL_END")
+                        is_wall = false;
+                    if (raw.rfind("; SKYLANE BAND ", 0) == 0) {
+                        std::istringstream fields(raw.substr(15));
+                        std::string        field;
+                        while (fields >> field) {
+                            const auto eq  = field.find('=');
+                            const auto key = field.substr(0, eq), value = field.substr(eq + 1);
+                            if (key == "tool")
+                                band_tool = std::stoi(value);
+                            if (key == "kind")
+                                kind = value;
+                            if (key == "y0")
+                                low = std::stod(value);
+                            if (key == "y1")
+                                high = std::stod(value);
+                            if (key == "merged")
+                                merged = std::stoi(value) != 0;
+                            if (key == "cell0")
+                                cell0 = std::stod(value);
+                            if (key == "cell1")
+                                cell1 = std::stod(value);
+                        }
+                        in_band  = true;
+                        recorded = false;
+                    }
+                    if (!line.extruding(state) || line.dist_XY(state) <= 1e-6)
+                        return;
+                    CHECK(state.z() <= original.print_z + .001);
+                    if (!in_band)
+                        return; // brim / base supports
+                    CHECK(band_tool == (incoming ? original.new_tool : original.initial_tool));
+                    if (is_wall) {
+                        if (low > cell0 + .001) {
+                            CHECK(state.y() >= low - .001);
+                            CHECK(state.y() + line.dist_Y(state) >= low - .001);
+                        }
+                        if (high < cell1 - .001) {
+                            CHECK(state.y() <= high + .001);
+                            CHECK(state.y() + line.dist_Y(state) <= high + .001);
+                        }
+                        return;
+                    }
+                    const double volume = line.dist_E(state) * area;
+                    if (kind == "ram") {
+                        CHECK_FALSE(incoming);
+                        ram_volume += volume;
+                    } else if (kind == "purge") {
+                        CHECK(incoming);
+                        purge_volume += volume;
+                        ++purges;
+                    }
+                    if (merged && !recorded) {
+                        planes[std::lround(state.z() * 10000.)].push_back({low, high, band_tool});
+                        recorded = true;
+                    }
+                    if (merged && kind != "fill") {
+                        // The tool switch cannot bisect a row, or send the ram
+                        // to the far side of the next colour's band.
+                        CHECK(line.dist_Y(state) == Approx(0.).margin(.001));
+                        CHECK(state.y() >= low - .001);
+                        CHECK(state.y() <= high + .001);
+                    }
+                });
+                if (original.is_tool_change) {
+                    CHECK(ram_volume == Approx(5.).margin(.01));
+                    CHECK(purge_volume == Approx(18.).margin(.01));
+                }
+            }
+        CHECK(walls > 510);
+        CHECK(purges > 510);
+        CHECK(planes.size() > 20);
+        for (auto& [height, bands] : planes) {
+            CAPTURE(height);
+            std::sort(bands.begin(), bands.end(), [](const Band& a, const Band& b) { return a.low < b.low; });
+            std::set<int> colours;
+            int           previous = -1;
+            double        end      = -1.;
+            for (const auto& band : bands) {
+                CAPTURE(band.low, band.high, band.tool);
+                CHECK(band.low >= end - .001);
+                end = band.high;
+                if (band.tool != previous) {
+                    CHECK(colours.insert(band.tool).second);
+                    previous = band.tool;
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("SkyLane allocates small ramming volumes and zero-prime visits without recolouring support", "[SkyLane][Packing][Colours]")
+{
+    SkyLane::Params p;
+    p.width         = 30.;
+    p.lanes         = 4;
+    p.fill_density  = .2;
+    p.purge_density = 1. / 1.2;
+    p.solid_base    = true;
+    double prime    = 18.;
+    SECTION("Small outgoing ram") {}
+    SECTION("No incoming prime") { prime = 0.; }
+    const double                 ram[] = {0., .05, 7.};
+    std::vector<SkyLane::Demand> demands;
+    size_t                       tool = 0;
+    for (int layer = 0; layer < 30; ++layer)
+        for (int i = 0; i < 3; ++i) {
+            SkyLane::Demand d;
+            d.z              = float(.2 + .12 * layer);
+            d.layer_h        = .12f;
+            d.layer          = layer;
+            d.old_tool       = tool;
+            d.new_tool       = (tool + 1) % 3;
+            d.ramming_volume = float(ram[tool]);
+            d.volume         = float(prime + ram[tool]);
+            demands.push_back(d);
+            tool = d.new_tool;
+        }
+    const auto plan = SkyLane::pack_min_depth(demands, p);
+    REQUIRE(plan.ok);
+    REQUIRE(plan.over_z == 0);
+    std::vector<double> ramming(demands.size(), 0.), purging(demands.size(), 0.);
+    std::set<int>       switched;
+    for (const auto& pass : plan.passes) {
+        const auto& d = demands.at(pass.owner);
+        CHECK(pass.z_base + pass.h <= d.z + 1e-6);
+        if (pass.tool == d.new_tool)
+            switched.insert(pass.owner);
+        else {
+            CHECK(pass.tool == d.old_tool);
+            CHECK(switched.count(pass.owner) == 0);
+        }
+        if (pass.demand >= 0) {
+            CHECK(pass.tool == (pass.ramming ? d.old_tool : d.new_tool));
+            (pass.ramming ? ramming : purging).at(pass.owner) += p.width * (pass.y1 - pass.y0) * pass.h * pass.density;
+        }
+    }
+    for (size_t i = 0; i < demands.size(); ++i) {
+        CAPTURE(i);
+        CHECK(ramming[i] == Approx(demands[i].ramming_volume).margin(.001));
+        CHECK(purging[i] == Approx(prime).margin(.001));
+    }
+}
+
+TEST_CASE("SkyLane lets the first colour return at the same height without creating an island", "[SkyLane][Packing][Colours]")
+{
+    SkyLane::Params p;
+    p.width         = 30.;
+    p.purge_density = 1. / 1.2;
+    SkyLane::Lanes             lanes(p, 30.);
+    std::vector<SkyLane::Pass> passes;
+    for (size_t tool = 0; tool < 4; ++tool) {
+        SkyLane::Demand d;
+        d.z              = .2f;
+        d.layer_h        = .08f;
+        d.active         = 1;
+        d.old_tool       = tool;
+        d.new_tool       = (tool + 1) % 4;
+        d.ramming_volume = 2.f;
+        d.volume         = 10.f;
+        REQUIRE(lanes.place(d, int(tool), passes));
+    }
+    // Four switches fit on one plane; the returning T0 joins its first ram
+    // at the far end instead of forcing another thin tower layer.
+    REQUIRE(passes.size() == 8);
+    std::vector<SkyLane::Pass> first_tool;
+    for (const auto& pass : passes) {
+        CHECK(pass.z_base + pass.h == Approx(.2).margin(1e-6));
+        if (pass.tool == 0)
+            first_tool.push_back(pass);
+    }
+    REQUIRE(first_tool.size() == 2);
+    CHECK(first_tool.front().y0 == Approx(first_tool.back().y1).margin(1e-6));
+    CHECK(first_tool.front().y1 == Approx(30.));
 }

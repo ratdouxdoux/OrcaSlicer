@@ -93,8 +93,8 @@ a simplified nozzle-clearance envelope, including a 40° cone and at least a
 The ramp controls a flow ceiling, not a promise that every move will reach a
 particular speed. Maximum tower speed, initial-layer speed, filament volumetric
 limits and applicable ramming limits still constrain the emitted moves. These
-profile-derived limits apply with Profile speeds enabled. The wall is delayed
-until the ramp completes or the purge pass ends. Preceding grid extrusion
+profile-derived limits apply with Profile speeds enabled. Each band's wall is printed
+after its purge rows, without a detour back into the unfinished strip. Preceding grid extrusion
 counts towards priming, but the grid itself is not slowed by the purge ramp.
 
 Several features of the preview are intentional:
@@ -102,7 +102,7 @@ Several features of the preview are intentional:
 | What you see | Explanation |
 |---|---|
 | Parallel purge rows with open ends | The nozzle moves between rows without extruding. Extruded U-turn connections are not part of the SkyLane path. |
-| One colour ending exactly where another starts | With ramming enabled, the outgoing tool can deposit the beginning of a strip and the incoming tool continues from the same point after the actual tool change. |
+| Adjacent colour bands | Outgoing ramming and incoming purge have separate bands of complete rows. The adjacent wall sections use the band's material. No empty separator is required. |
 | A short break in an otherwise continuous outer wall | This is the optional Wall gap. |
 | Open regions inside a larger tower outline | Lanes can be at different heights, unused regions can contain sparse grid, and the footprint must accommodate busier parts of the schedule. Inspect surrounding heights and moves to distinguish these cases. |
 | A tower level that differs from the selected model layer | SkyLane uses its own deposition heights below the current model height. |
@@ -118,13 +118,22 @@ Their absence in the preview is not, by itself, a missing-path defect.
 
 **Touching colour transitions do not mean the printer skips the tool change.**
 Ramming is material deposited by the outgoing tool before it is parked. At
-eligible visits, SkyLane allocates that material together with the incoming
-purge. For example, 5 mm³ of ramming followed by a 38 mm³ purge occupies a
-43 mm³ allocation, apart from additional structural material. The outgoing
-tool ends at a point in the strip; the printer performs its tool-change
-sequence; the incoming tool resumes at that point. There is no requirement
-for an empty interval between the two colours on the tower. The actual
-docking motion is determined by the printer profile's tool-change macros.
+eligible visits, SkyLane reserves a separate band for that material before the incoming
+purge. For example, 5 mm³ of ramming followed by a 38 mm³ purge still requires
+43 mm³ of purge-path material, apart from additional structure. The outgoing
+tool completes its rows and adjacent wall sections, the printer performs its
+tool-change sequence, and the incoming tool starts its own band. A tool change
+does not split a row between colours. The actual docking motion is determined
+by the printer profile's tool-change macros.
+
+On shared levels, deposits of the same material stay together. The first
+material grows from one end of the level and the other bands from the opposite
+end, so the first colour can return beside its earlier deposit. If a later
+return cannot fit beside its own colour, the remaining space is closed using
+the outgoing material and a new deposition level begins. No permanent tower is assigned to a colour.
+Independent lanes retain their separate support heights and nozzle-clearance
+requirements. The closure can add support material, so removing wall detours
+does not guarantee a shorter total print time.
 
 **Wall gap is a separate feature.** It opens 2.5 line widths in the shared
 perimeter near the entry position. At a line width of 0.5 mm, the opening is

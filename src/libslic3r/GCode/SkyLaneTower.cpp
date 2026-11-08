@@ -230,6 +230,44 @@ std::vector<Vec2d> open_loop_at(const std::vector<Vec2d>& loop, const Vec2d& ent
     return out;
 }
 
+// Keep only the part of an existing wall inside a material band. This does not
+// add dividing walls: neighbouring bands meet at exactly the same endpoints.
+std::vector<std::vector<Vec2d>> clip_wall_band(const std::vector<Vec2d>& path, bool closed, double low, double high)
+{
+    std::vector<std::vector<Vec2d>> paths;
+    if (path.size() < 2)
+        return paths;
+    for (size_t i = 1; i < path.size() + (closed ? 1 : 0); ++i) {
+        const Vec2d& a  = path[i - 1];
+        const Vec2d& b  = path[i % path.size()];
+        const double dy = b.y() - a.y();
+        double       t0 = 0., t1 = 1.;
+        if (std::abs(dy) < 1e-9) {
+            if (a.y() < low || a.y() >= high)
+                continue;
+        } else {
+            double u = (low - a.y()) / dy, v = (high - a.y()) / dy;
+            if (u > v)
+                std::swap(u, v);
+            t0 = std::max(t0, u);
+            t1 = std::min(t1, v);
+            if (t1 - t0 < 1e-9)
+                continue;
+        }
+        const Vec2d from = a + (b - a) * t0, to = a + (b - a) * t1;
+        if (paths.empty() || (paths.back().back() - from).squaredNorm() > 1e-12)
+            paths.push_back({from});
+        paths.back().push_back(to);
+    }
+    if (paths.size() > 1 && (paths.back().back() - paths.front().front()).squaredNorm() < 1e-12) {
+        auto last = std::move(paths.back());
+        paths.pop_back();
+        last.insert(last.end(), paths.front().begin() + 1, paths.front().end());
+        paths.front() = std::move(last);
+    }
+    return paths;
+}
+
 // "Fillet wall": every corner of the path becomes an arc tangent to both sides, cut `d` mm back
 // from the corner (same 2 mm as the classic rib wall; less on short sides). No sharp turns: the
 // head does not brake at each corner and the wall has no stress points.
@@ -336,99 +374,15 @@ double purge_seconds(double v0, double v1, double fmax, double ramp, double q_pa
     return v1 > v0 ? t + (v1 - v0) / std::min(q_pass, fmax) : t;
 }
 
-// ramming. The classic tower lets the outgoing tool lay its ramming
-// volume on a strip of its own before the toolchange. SkyLane has no such strip: the outgoing tool
-// prints the HEAD of the path this toolchange is about to lay (the first `vol` mm3 of `wipe`, the
-// G-code of its passes, which starts on `pos`), and the incoming tool carries on from there.
-// ram  = that head for the outgoing tool (E for its own filament, at `feed` mm/min);
-// rest = what is left, starting with a travel to the point where the head ended (`end`).
-// ok = false: the passes are shorter than the ramming volume (nothing is split).
-// z = the Z the head ends at (as written, Z offset included; NaN = no Z move in the head).
-struct RamSplit
+// Outgoing-tool paths are allocated before emission, so a tool change never
+// divides a purge row. The endpoint also tells the integration where to park.
+struct OutgoingBlock
 {
-    std::string ram, rest;
-    Vec2f       end = Vec2f::Zero();
-    double      z   = std::numeric_limits<double>::quiet_NaN();
-    bool        ok  = false;
+    std::string gcode;
+    Vec2f       end     = Vec2f::Zero();
+    double      z       = 0.;
+    bool        printed = false;
 };
-
-RamSplit split_ram(const std::string& wipe, Vec2f pos, double vol, double area_new, double area_old, double feed, double flow)
-{
-    RamSplit r;
-    if (vol <= 0. || area_new <= 0. || area_old <= 0.)
-        return r;
-    const double                   nan   = std::numeric_limits<double>::quiet_NaN();
-    const std::vector<std::string> lines = split_lines(wipe);
-    std::string                    z_line, h_line, w_line;
-    std::ostringstream             ram, rest;
-    ram << std::fixed;
-    rest << std::fixed;
-    double x = pos.x(), y = pos.y(), done = 0., modal_f = 0.;
-    size_t k = 0;
-    for (; k < lines.size() && !r.ok; ++k) {
-        const std::string& l = lines[k];
-        if (!starts(l, "G1 ")) {
-            if (starts(l, ";HEIGHT:"))
-                h_line = l;
-            if (starts(l, ";WIDTH:"))
-                w_line = l;
-            ram << l << "\n";
-            continue;
-        }
-        const double lx = num_after(l, 'X', nan), ly = num_after(l, 'Y', nan), le = num_after(l, 'E', nan), lf = num_after(l, 'F', nan);
-        const double tx = std::isnan(lx) ? x : lx, ty = std::isnan(ly) ? y : ly;
-        const bool   moves = std::abs(tx - x) + std::abs(ty - y) > 1e-9;
-        if (!(moves && !std::isnan(le) && le > 0.)) { // travel, Z move or bare feedrate: the outgoing tool does it too
-            if (!std::isnan(num_after(l, 'Z', nan)))
-                z_line = l;
-            if (!std::isnan(lf))
-                modal_f = lf;
-            ram << l << "\n";
-            x = tx;
-            y = ty;
-            continue;
-        }
-        const double v = le * area_new;                  // mm3 of this move
-        double       f = std::min(1., (vol - done) / v); // the part of it that is ramming
-        if (f > 1. - 1e-4)
-            f = 1.; // (no crumb left for the incoming tool)
-        const double mx = x + (tx - x) * f, my = y + (ty - y) * f;
-        const double segment_feed = std::min(feed, flow * std::hypot(tx - x, ty - y) / v * 60.);
-        ram << std::setprecision(3) << "G1 X" << mx << " Y" << my << " E" << std::setprecision(5) << le * f * area_new / area_old
-            << std::setprecision(0) << " F" << segment_feed << "\n";
-        done += v * f;
-        if (!std::isnan(lf))
-            modal_f = lf;
-        x = mx;
-        y = my;
-        if (done < vol - 1e-9)
-            continue;
-        // the head ends here: the incoming tool starts on this point, at the pass's own Z
-        r.ok  = true;
-        r.end = Vec2f(float(mx), float(my));
-        if (!z_line.empty())
-            r.z = num_after(z_line, 'Z', nan);
-        rest << std::setprecision(3) << "G1 X" << mx << " Y" << my << " F12000\n";
-        if (!z_line.empty())
-            rest << z_line << "\n";
-        if (!h_line.empty())
-            rest << h_line << "\n";
-        if (!w_line.empty())
-            rest << w_line << "\n";
-        if (f < 1. - 1e-9)
-            rest << std::setprecision(3) << "G1 X" << tx << " Y" << ty << " E" << std::setprecision(5) << le * (1. - f)
-                 << std::setprecision(0) << " F" << (modal_f > 0. ? modal_f : feed) << "\n";
-        else if (modal_f > 0.)
-            rest << std::setprecision(0) << "G1 F" << modal_f << "\n";
-    }
-    if (!r.ok)
-        return r;
-    for (; k < lines.size(); ++k)
-        rest << lines[k] << "\n";
-    r.ram  = ram.str();
-    r.rest = rest.str();
-    return r;
-}
 
 } // namespace
 
@@ -453,10 +407,11 @@ struct SkyLaneTower::Runtime
     double                     ramp        = 0.;                      // "Purge ramp", mm3 (0 = none; only with profile_speeds)
     int                        ramp_logged = 0;
     bool                       brim_done   = false;
-    int                        wall_passes = 0;            // merged-cell passes with perimeter, for their start corner
     double                     wall_h = 0., wall_top = 0.; // base wall ring: target height, printed top
-    bool                       wall_ended = false;         // the ring stops for good at the first merged zone
-    bool                       wall_gap   = false;         // "Wall gap" (open_loop_at)
+    bool                       wall_ended    = false;      // the ring stops for good at the first merged zone
+    bool                       wall_gap      = false;      // "Wall gap" (open_loop_at)
+    bool                       band_wall_gap = false, band_wall_transition = false, band_wall_roots = false;
+    Vec2d                      band_wall_entry = Vec2d::Zero();
     // ramming of the OUTGOING tool (filament "Enable ramming for multi-tool setups"):
     // per tool, mm3 (0 = that filament does not ram) and mm3/s.
     std::vector<double> ram_vol, ram_flow;
@@ -602,6 +557,7 @@ bool SkyLaneTower::plan(const PrintConfig&                                      
         d.old_tool = size_t(std::max(t.initial_tool, 0));
         d.new_tool = size_t(std::max(t.new_tool, 0));
         d.volume = info.is_tc ? purge_volume + float(rt->ram(d.old_tool)) : 0.f; // the ramming is laid in the tower too
+        d.ramming_volume = info.is_tc ? float(rt->ram(d.old_tool)) : 0.f;
         demand.push_back(d);
     };
     for (size_t li = 0; li < tool_changes.size(); ++li) {
@@ -706,7 +662,7 @@ bool SkyLaneTower::plan(const PrintConfig&                                      
         SKY_LOG("LANES_AUTO lanes=" << k << " ok=" << cand.ok << " depth=" << cand.depth << " lane_width=" << cand.depth * 1.15 / k
                                     << " fill_mm3=" << cand.fill_volume << " tower_h=" << secs / 3600.
                                     << (narrow ? " (lanes under 4 mm: out)" : ""));
-        if (!cand.ok || narrow)
+        if (!cand.ok || cand.over_z > 0 || narrow)
             continue;
         cands.push_back({std::move(cand), q, secs});
     }
@@ -891,13 +847,14 @@ void SkyLaneTower::begin_emission() const
     rt.brim_done     = false;
     rt.base_done     = false;
     rt.rib_top       = 0.;
-    rt.wall_passes   = 0;
-    rt.wall_top      = 0.;
-    rt.wall_ended    = false;
-    rt.placed        = 0;
-    rt.over_z_logged = 0;
-    rt.ramp_logged   = 0;
-    rt.deepest       = 0.;
+    rt.band_wall_gap = rt.band_wall_transition = rt.band_wall_roots = false;
+    rt.band_wall_entry                                              = Vec2d::Zero();
+    rt.wall_top                                                     = 0.;
+    rt.wall_ended                                                   = false;
+    rt.placed                                                       = 0;
+    rt.over_z_logged                                                = 0;
+    rt.ramp_logged                                                  = 0;
+    rt.deepest                                                      = 0.;
     rt.emitted_keys.clear();
     rt.emitted_purges = 0;
     rt.extra_purges   = 0;
@@ -931,14 +888,18 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
     const double           lw    = p.line_w;
     const double           z_off = rt.z_off;
     const double           xmin = rt.xmin, xmax = rt.xmax;
-    const size_t           tool = size_t(std::max(src.new_tool, 0));
+    size_t                 tool = size_t(std::max(src.new_tool, 0));
     // "Profile speeds" on: the flow ceiling is the incoming filament's "Max volumetric
     // speed", the purge speed ceiling is "Maximum wipe tower print speed", the first layer uses
     // "Initial layer speed", and every purge ramps up with the plastic laid (ramp_vol,
     // purge_flow_cap). Off: the fixed figures below, as before.
-    const bool   prof        = rt.profile_speeds;
-    const double max_flow    = prof && tool < rt.fil_flow.size() && rt.fil_flow[tool] > 0. ? rt.fil_flow[tool] :
-                                                                                             15.; // mm3/s, below the ~20 ceiling (§28.1)
+    const bool prof        = rt.profile_speeds;
+    double     max_flow    = 15.;
+    auto       select_tool = [&](size_t selected) {
+        tool     = selected;
+        max_flow = prof && tool < rt.fil_flow.size() && rt.fil_flow[tool] > 0. ? rt.fil_flow[tool] : 15.;
+    };
+    select_tool(tool);
     const double first_speed = prof ? rt.first_speed : 30.;
     double       ramp_vol    = 0.;  // mm3 laid by this toolchange so far, grid included
     double       ramp_secs   = 0.;  // seconds of it spent below the pass's own speed
@@ -952,14 +913,15 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
 
     const TcrInfo   info = inspect(src, rt.area(tool));
     SkyLane::Demand d;
-    d.z           = src.print_z;
-    d.layer_h     = src.layer_height;
-    d.old_tool    = size_t(std::max(src.initial_tool, 0));
-    d.new_tool    = tool;
-    d.volume      = info.is_tc ? rt.purge + float(rt.ram(d.old_tool)) : 0.f; // same figure as the plan
-    d.active      = rt.active_at(d.z);
-    d.depth       = rt.depth_at(d.z); // taper (applied by the packer when the next round opens)
-    const int idx = rt.placed++;
+    d.z              = src.print_z;
+    d.layer_h        = src.layer_height;
+    d.old_tool       = size_t(std::max(src.initial_tool, 0));
+    d.new_tool       = tool;
+    d.volume         = info.is_tc ? rt.purge + float(rt.ram(d.old_tool)) : 0.f; // same figure as the plan
+    d.ramming_volume = info.is_tc ? float(rt.ram(d.old_tool)) : 0.f;
+    d.active         = rt.active_at(d.z);
+    d.depth          = rt.depth_at(d.z); // taper (applied by the packer when the next round opens)
+    const int idx    = rt.placed++;
     if (d.volume > 0.f) { // emission vs plan
         ++rt.emitted_purges;
         const auto key = Runtime::purge_key(d);
@@ -976,11 +938,11 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         SKY_LOG("OVER_Z emission " << idx << " z=" << d.z << " T" << d.old_tool << "->T" << d.new_tool
                                    << " (a min pass above the nozzle: lanes already at its Z)");
 
-    // Passes up to the last purge pass print in the WIPE section (with the new tool, before the
-    // tower leaves); the levelling fills after the toolchange block.
+    // Outgoing fills and all purge bands belong inside the tool-change block;
+    // only incoming levelling fills may follow it.
     size_t n_wipe = 0;
     for (size_t k = 0; k < passes.size(); ++k)
-        if (passes[k].demand >= 0)
+        if (passes[k].demand >= 0 || (passes[k].tool == d.old_tool && d.old_tool != d.new_tool))
             n_wipe = k + 1;
     const SkyLane::Pass* lead  = passes.empty() ? nullptr : &passes.front();
     const float          new_z = lead ? float(lead->z_base + lead->h) : src.print_z;
@@ -1091,54 +1053,27 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         return true;
     };
 
-    // start corner of a merged-cell pass (bit 0 = far X, bit 1 = far Y): all four corners
-    // every four passes, in an order that shifts from one group of four to the next.
-    auto merged_corner = [](int pc) { return (pc * 3 + (pc / 4) * 2) % 4; }; // 0 3 2 1 | 2 1 0 3 | ...: never twice in a row
-    // the first plastic of a toolchange goes on the purge, not on the wall: a merged-cell
-    // purge pass that carries the perimeter starts with its strips (they lie on the open grid, the
-    // softest part of the tower) and prints the perimeter once the purge ramp is over, with the
-    // nozzle back at pressure. Before, 944 of 2 755 toolchanges of the owl (91 of 131 of
-    // WIPE-test01) opened with the perimeter at full flow and ramped the purge afterwards.
-    // "Purge ramp" 0 = perimeter first, as before.
-    // with "Wall gap" the first plastic of a toolchange never goes on the perimeter, ramp
-    // or no ramp: a pass that would open the toolchange with it lays its lines first. That goes
-    // for the full-cell grid passes too (WIPE-test02: 3 of 131 toolchanges opened with the
-    // perimeter of a grid pass, primed on the corner of the wall). The solid base is left alone.
-    bool  gap_on = false;    // "Wall gap" applies to this visit (a toolchange)
-    Vec2d gap_entry(0., 0.); // where this toolchange came in
-    auto  purge_first = [&](const SkyLane::Pass& ps) {
-        if (!ps.merged || !ps.wall)
-            return false;
-        if (gap_on && !ps.solid && ramp_vol < 1e-9)
-            return true;
-        return ps.demand >= 0 && rt.ramp > 0. && ramp_vol < rt.ramp;
-    };
-    // Start corner of a pass: cycles through the 4 corners of the lane band every two passes.
+    // Rows advance in Y within each material band. Only the X starting side
+    // alternates; material ownership is settled by the packer before emission.
     auto pass_start = [&](const SkyLane::Pass& ps, int pc) {
-        const int    corner = (pc / 2) % 4;
-        const double y0 = ps.y0 + lw / 2, y1 = ps.y1 - lw / 2;
-        // merged cell: the perimeter starts at the cell's corner; a strip of a round
-        // starts at its own corner, one bead inside the wall
-        // merged cell: the start (= where the tool change stops and primes, and drips)
-        // hops between the four corners of the cell / of the strip in a shuffled order, instead
-        // of always the left one: the drops no longer pile up on one corner.
         if (ps.merged) {
-            // (wall passes count on their own: a round is often 4 passes, and by pass number
-            // every round opened on the same corner — 5 of 5 in Z 4.0-4.5 of BIGTEST)
-            const int mc = merged_corner(ps.wall ? rt.wall_passes : pc);
-            // (the cell of the pass, [cell_y0, cell_y1] — narrower than the tower once tapered)
-            if (ps.wall && !purge_first(ps))
-                return Vec2f(float((mc & 1) ? xmax : xmin), float((mc & 2) ? ps.cell_y1 - lw / 2 : ps.cell_y0 + lw / 2));
-            double sy0 = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2, sy1 = std::min(ps.y1, ps.cell_y1 - lw) - lw / 2;
-            if (sy1 < sy0)
-                sy0 = sy1 = (sy0 + sy1) / 2;
-            return Vec2f(float((mc & 1) ? xmax - lw : xmin + lw), float((mc & 2) ? sy1 : sy0));
+            double y0 = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2;
+            double y1 = std::min(ps.y1, ps.cell_y1 - lw) - lw / 2;
+            return Vec2f(float(pc % 2 ? xmax - lw : xmin + lw), float(y1 < y0 ? (y0 + y1) / 2 : y0));
         }
-        return Vec2f(float((corner & 1) ? xmax : xmin), float((corner & 2) ? y1 : y0));
+        double y0 = ps.y0 + lw / 2, y1 = ps.y1 - lw / 2;
+        if (y1 < y0)
+            y0 = y1 = (ps.y0 + ps.y1) / 2;
+        return Vec2f(float((pc / 2) % 2 ? xmax : xmin), float(y0));
     };
     auto emit_pass = [&](std::ostringstream& o, const SkyLane::Pass& ps, double& cur_z, Vec2f& cur_xy, bool& first) {
         const double top     = ps.z_base + ps.h;
         const bool   is_fill = ps.demand < 0;
+        if (ps.tool != tool)
+            throw std::runtime_error("SkyLane material order differs from the tool-change sequence");
+        o << "; SKYLANE BAND tool=" << ps.tool << " kind=" << (ps.ramming ? "ram" : (is_fill ? "fill" : "purge"))
+          << " y0=" << std::setprecision(4) << ps.y0 << " y1=" << ps.y1 << " merged=" << ps.merged << " cell0=" << ps.cell_y0
+          << " cell1=" << ps.cell_y1 << "\n";
         // fills: open grid; purges: solid, or spaced out to extrude exactly the requested volume
         const double spacing = is_fill ? (ps.solid ? lw : lw / (ps.merged ? p.merged_density : p.fill_density)) :
                                          lw / std::clamp(ps.density, 0.1, 1.);
@@ -1146,11 +1081,12 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             rt.H[size_t(ps.lane)] = std::max(rt.H[size_t(ps.lane)], top);
             return;
         }
-        double      y0 = ps.y0 + lw / 2, y1 = ps.y1 - lw / 2;
+        double y0 = ps.y0 + lw / 2, y1 = ps.y1 - lw / 2;
+        if (y1 < y0)
+            y0 = y1 = (ps.y0 + ps.y1) / 2;
         double      xa = xmin, xb = xmax;
         const int   pc = rt.lane_pass[size_t(ps.lane)]++;
         const Vec2f st = pass_start(ps, pc);
-        const int   mc = merged_corner(ps.merged && ps.wall ? rt.wall_passes++ : pc); // same corner as st
         // safe travel: rise above every lane before moving sideways, then drop into this one
         const double hi = *std::max_element(rt.H.begin(), rt.H.end());
         if (!first) {
@@ -1162,7 +1098,10 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         o << ";HEIGHT:" << std::setprecision(4) << ps.h << "\n";
         o << ";WIDTH:" << std::setprecision(3) << lw << "\n";
         // first-layer base goes slow so it grips the bed
-        double speed = std::min(ps.solid ? first_speed : (is_fill ? base_speed : purge_vmax), max_flow / (lw * ps.h));
+        double       speed     = std::min(ps.solid ? first_speed : (is_fill ? base_speed : purge_vmax), max_flow / (lw * ps.h));
+        const double line_flow = ps.ramming && tool < rt.ram_flow.size() && rt.ram_flow[tool] > 0. ? rt.ram_flow[tool] : max_flow;
+        if (ps.ramming)
+            speed = std::min(250., line_flow / (lw * ps.h));
         if (prof && top <= rt.lanes->z0() + 1e-4)
             speed = std::min(speed, first_speed); // everything on the bed
         const double e_per_mm = lw * ps.h / rt.area(tool);
@@ -1175,9 +1114,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             const double mm3  = e_mm * rt.area(tool); // per mm of line
             double       done = 0.;
             do {
-                double seg = len - done, v = mm3 > 0. ? std::min(speed, max_flow / mm3) : speed;
-                if (!is_fill && rt.ramp > 0. && ramp_vol < rt.ramp && mm3 > 0.) {
-                    // (ramp_vol < 0: the head the outgoing tool rams, the ramp starts after it)
+                double seg = len - done, v = mm3 > 0. ? std::min(speed, line_flow / mm3) : speed;
+                if (!is_fill && !ps.ramming && rt.ramp > 0. && ramp_vol < rt.ramp && mm3 > 0.) {
                     v = std::min(v, purge_flow_cap(std::max(ramp_vol, 0.), max_flow, rt.ramp) / mm3);
                     if (v < speed - 1e-6) {
                         seg = std::min(seg, std::max(1., rt.ramp / 16. / mm3));
@@ -1192,7 +1130,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                 // grid goes first (84 of 131 toolchanges of WIPE-test01: ~10 mm3 at 80 mm/s) the
                 // nozzle is at pressure by the time the purge starts, and ramping it then only
                 // lost time. The grid itself is never slowed: it is where the cold start belongs.
-                ramp_vol += seg * mm3;
+                if (!ps.ramming)
+                    ramp_vol += seg * mm3;
                 o << std::setprecision(3) << "G1 " << axis << (len - done < 1e-6 ? to : from + dir * done) << " E" << std::setprecision(5)
                   << seg * e_mm << std::setprecision(0) << " F" << v * 60. << "\n";
             } while (len - done > 1e-6);
@@ -1203,148 +1142,105 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         bool fx = st.x() > (xa + xb) / 2, fy = st.y() > (y0 + y1) / 2;
         // Merged cell = a classic tower layer: its own perimeter (the tower wall up here, at
         // the very height of the grid it encloses) and the lines, one bead inside.
-        // only the pass that opens a round (and the full-cell grid passes) carries
-        // the perimeter; the strips of a round are just lines inside it.
+        // Each band carries the adjacent parts of the shared perimeter.
         const double wfeed = std::min(speed, 60.) * 60.;
         // the wall's centreline: the cell of the pass (tapered = narrower, centred; the cone
         // then leaves from the cell's own sides, like the classic tower's layer box)
         const double cy0 = (ps.merged ? ps.cell_y0 : 0.) + lw / 2, cy1 = (ps.merged ? ps.cell_y1 : rt.depth) - lw / 2;
         record_outline(top, rt.cone ? wall_loop(xa, cy0, xb, cy1, top, 0.) :
                                       shape(rib_loop(xa, cy0, xb, cy1, rt.rib ? rt.rib_hw : 0., rt.rib_ext(top)), true));
-        const bool wall_late    = purge_first(ps); // strips first, perimeter after the ramp
-        bool       wall_pending = wall_late;
-        // (xa, xb by value: the perimeter runs on the cell's edge, the strips one bead inside)
-        auto emit_wall_body = [&, xa, xb]() {
-            // "Wall gap": the closed perimeters (rectangle, Rib with level arms, Cone)
-            // are printed open, from one edge of the gap round to the other. The piecewise
-            // ones right after a lanes zone are left as they are.
-            if (ps.wall && gap_on && (!butt || !far_ok(top) || std::abs(rt.rib_top - ps.z_base) < 1e-3)) {
-                const std::vector<Vec2d> loop = !butt ? std::vector<Vec2d>{Vec2d(xa, cy0), Vec2d(xb, cy0), Vec2d(xb, cy1), Vec2d(xa, cy1)} :
-                                                rt.cone ? wall_loop(xa, cy0, xb, cy1, top, 0.) :
-                                                          shape(rib_loop(xa, cy0, xb, cy1, rt.rib_hw, rt.rib_ext(top)), true);
-                const std::vector<Vec2d> open = open_loop_at(loop, gap_entry, gap_entry.x() > (xa + xb) / 2, 2.5 * lw, lw / 2);
-                if (!open.empty()) {
-                    o << std::setprecision(3) << "G1 X" << open.front().x() << " Y" << open.front().y() << " F12000\n";
-                    emit_path(o, open, false, e_per_mm, wfeed, cur_xy);
-                    if (butt)
-                        rt.rib_top = top;
-                    return;
-                }
-            }
-            if (!ps.wall) {
-            } else if (!butt) {
-                // the ring starts (and closes) on the pass's start corner
-                const double     ring[4][2] = {{xa, cy0}, {xb, cy0}, {xb, cy1}, {xa, cy1}};
-                static const int ring_of[4] = {0, 1, 3, 2}; // corner (bit 0 = far X, bit 1 = far Y) -> ring index
-                const int        r0         = ring_of[mc];
-                double           px = ring[r0][0], py = ring[r0][1];
-                if (wall_late)
-                    o << std::setprecision(3) << "G1 X" << px << " Y" << py << " F12000\n"; // coming from the strips
-                for (int k = 1; k <= 4; ++k) {
-                    const double* q   = ring[(r0 + k) % 4];
-                    const double  len = std::hypot(q[0] - px, q[1] - py);
-                    o << std::setprecision(3) << "G1 X" << q[0] << " Y" << q[1] << " E" << std::setprecision(5) << len * e_per_mm
-                      << std::setprecision(0) << " F" << wfeed << "\n";
-                    px = q[0];
-                    py = q[1];
-                }
-            } else if (!far_ok(top) || std::abs(rt.rib_top - ps.z_base) < 1e-3) {
-                // Rib: the perimeter goes round the four arms in one go (the arms below
-                // are level with the cell: the usual case, merged pass after merged pass).
-                std::vector<Vec2d> loop = rt.cone ? wall_loop(xa, cy0, xb, cy1, top, 0.) :
-                                                    shape(rib_loop(xa, cy0, xb, cy1, rt.rib_hw, rt.rib_ext(top)), true);
-                // start the loop on its vertex nearest to the pass's start corner
-                std::rotate(loop.begin(),
-                            std::min_element(loop.begin(), loop.end(),
-                                             [&](const Vec2d& a, const Vec2d& b) {
-                                                 const Vec2d c(st.x(), st.y());
-                                                 return (a - c).squaredNorm() < (b - c).squaredNorm();
-                                             }),
-                            loop.end());
-                o << std::setprecision(3) << "G1 X" << loop.front().x() << " Y" << loop.front().y() << " F12000\n";
-                emit_path(o, loop, true, e_per_mm, wfeed, cur_xy);
-                rt.rib_top = top;
-            } else if (rt.cone) {
-                // Cone right after a lanes zone (same rules as the arms below): arcs lower
-                // than the cell are raised first, on their own, and then tied to the cell with
-                // their four roots (fence line -> tower side); arcs taller than the cell are left
-                // alone and the cell prints its plain rectangle until it catches up.
-                Vec2f      xy    = cur_xy;
-                double     z     = top + z_off;
-                const bool level = top - rt.rib_top >= p.hmin - 1e-6 && raise_far(o, top, z, xy);
-                if (level)
-                    o << ";HEIGHT:" << std::setprecision(4) << ps.h << "\n";
-                std::vector<Vec2d> rect = {Vec2d(xa, cy0), Vec2d(xb, cy0), Vec2d(xb, cy1), Vec2d(xa, cy1)};
-                std::rotate(rect.begin(),
-                            std::min_element(rect.begin(), rect.end(),
-                                             [&](const Vec2d& a, const Vec2d& b) {
-                                                 const Vec2d c(st.x(), st.y());
-                                                 return (a - c).squaredNorm() < (b - c).squaredNorm();
-                                             }),
-                            rect.end());
-                o << std::setprecision(3) << "G1 X" << rect.front().x() << " Y" << rect.front().y() << " F12000\n";
-                o << "G1 Z" << top + z_off << " F600\n";
-                emit_path(o, rect, true, e_per_mm, wfeed, xy);
-                if (const double b = rt.cone_b(top); level && b > 0.) {
-                    // (the roots start on the cell's own sides, cy0 / cy1)
-                    const double a = b / rt.cone_sx, t0 = std::asin(std::min(1., (cy1 - cy0) / 2 / b)), tf = std::asin(fence_d / b);
-                    for (int sgn : {-1, 1})
-                        for (int end = 0; end < 2; ++end) {
-                            const std::vector<Vec2d> root = end == 0 ? cone_span(ccx, ccy, a, b, sgn, M_PI - t0, M_PI - tf) :
-                                                                       cone_span(ccx, ccy, a, b, sgn, t0, tf);
-                            o << std::setprecision(3) << "G1 X" << root.front().x() << " Y" << root.front().y() << " F12000\n";
-                            emit_path(o, root, false, e_per_mm, wfeed, xy);
-                        }
-                }
-            } else {
-                // Right after a lanes zone the far part of the arms is not level with the cell.
-                // Lower: raise it first, on its own. Taller: leave it alone and print the sides
-                // without roots (nozzle cone), until the cell catches up.
-                Vec2f  xy = cur_xy;
-                double z  = top + z_off;
-                // (only once the cell is a full minimum pass above the arms — a 0.01 mm
-                // arm pass was printed at z=10.06 of BIGTEST-adaptive.)
-                const bool level = top - rt.rib_top >= p.hmin - 1e-6 && raise_far(o, top, z, xy);
-                if (level)
-                    o << ";HEIGHT:" << std::setprecision(4) << ps.h << "\n";
-                // (a root stopped just short of a taller arm left the tip flush with it —
-                // 383 near misses in BIGTEST-adaptive. No roots at all until the cell catches up.)
-                const double root = level ? rib_g * std::sqrt(2.) : 0.;
-                for (int i = 0; i < 4; ++i) {
-                    const RibArm       a    = rib_arm(xa, cy0, xb, cy1, i, rt.rib_hw, rt.rib_ext(top));
-                    const RibArm       b    = rib_arm(xa, cy0, xb, cy1, (i + 1) % 4, rt.rib_hw, rt.rib_ext(top));
-                    std::vector<Vec2d> side = {a.p_out, b.p_in};
-                    if (root > 0.05) {
-                        side.insert(side.begin(), a.p_out + a.u * root);
-                        side.push_back(b.p_in + b.u * root);
-                    }
-                    side = shape(side, false);
-                    o << std::setprecision(3) << "G1 X" << side.front().x() << " Y" << side.front().y() << " F12000\n";
-                    if (i == 0)
-                        o << "G1 Z" << top + z_off << " F600\n";
-                    emit_path(o, side, false, e_per_mm, wfeed, xy);
-                }
-            }
-        };
+        // Each band owns the adjacent pieces of the existing perimeter. The
+        // first/last bands also own the buttresses beyond the cell's ends.
         auto emit_wall = [&] {
-            if (!ps.wall)
+            if (!ps.merged)
                 return;
+            if (ps.wall) {
+                rt.band_wall_gap        = rt.wall_gap && info.is_tc;
+                rt.band_wall_entry      = st.cast<double>();
+                rt.band_wall_transition = butt && far_ok(top) && std::abs(rt.rib_top - ps.z_base) >= 1e-3;
+                rt.band_wall_roots      = false;
+            }
+            const double low       = ps.y0 <= ps.cell_y0 + 1e-6 ? -std::numeric_limits<double>::infinity() : ps.y0;
+            const double high      = ps.y1 >= ps.cell_y1 - 1e-6 ? std::numeric_limits<double>::infinity() : ps.y1;
+            auto         wall_path = [&](const std::vector<Vec2d>& path, bool closed) {
+                auto pieces = clip_wall_band(path, closed, low, high);
+                while (!pieces.empty()) {
+                    size_t best     = 0;
+                    bool   reverse  = false;
+                    double distance = std::numeric_limits<double>::infinity();
+                    for (size_t i = 0; i < pieces.size(); ++i)
+                        for (bool back : {false, true}) {
+                            const double next = ((back ? pieces[i].back() : pieces[i].front()) - cur_xy.cast<double>()).squaredNorm();
+                            if (next < distance) {
+                                best     = i;
+                                reverse  = back;
+                                distance = next;
+                            }
+                        }
+                    auto piece = std::move(pieces[best]);
+                    pieces.erase(pieces.begin() + best);
+                    if (reverse)
+                        std::reverse(piece.begin(), piece.end());
+                    o << std::setprecision(3) << "G1 X" << piece.front().x() << " Y" << piece.front().y() << " F12000\n";
+                    emit_path(o, piece, false, e_per_mm, wfeed, cur_xy);
+                }
+            };
             o << "; SKYLANE WALL\n";
-            emit_wall_body();
+            if (!rt.band_wall_transition) {
+                const std::vector<Vec2d> loop = rt.cone ?
+                                                    wall_loop(xmin, cy0, xmax, cy1, top, 0.) :
+                                                    shape(rib_loop(xmin, cy0, xmax, cy1, rt.rib ? rt.rib_hw : 0., rt.rib_ext(top)), true);
+                const auto               open = rt.band_wall_gap ?
+                                                    open_loop_at(loop, rt.band_wall_entry, rt.band_wall_entry.x() > (xmin + xmax) / 2, 2.5 * lw, lw / 2) :
+                                                    std::vector<Vec2d>{};
+                wall_path(open.empty() ? loop : open, open.empty());
+                if (butt && ps.ends_round)
+                    rt.rib_top = top;
+            } else {
+                // A return from independent lanes may need the distant supports
+                // raised first. Keep those nozzle-clearance rules across all bands.
+                if (ps.wall && top - rt.rib_top >= p.hmin - 1e-6) {
+                    rt.band_wall_roots = raise_far(o, top, cur_z, cur_xy);
+                    o << ";HEIGHT:" << std::setprecision(4) << ps.h << "\n";
+                }
+                o << std::setprecision(3) << "G1 Z" << top + z_off << " F600\n";
+                if (rt.cone) {
+                    wall_path({Vec2d(xmin, cy0), Vec2d(xmax, cy0), Vec2d(xmax, cy1), Vec2d(xmin, cy1)}, true);
+                    const double b = rt.cone_b(top);
+                    if (rt.band_wall_roots && b > 0.) {
+                        const double a = b / rt.cone_sx, t0 = std::asin(std::min(1., (cy1 - cy0) / 2 / b)), tf = std::asin(fence_d / b);
+                        for (int sgn : {-1, 1})
+                            for (int end = 0; end < 2; ++end)
+                                wall_path(end == 0 ? cone_span(ccx, ccy, a, b, sgn, M_PI - t0, M_PI - tf) :
+                                                     cone_span(ccx, ccy, a, b, sgn, t0, tf),
+                                          false);
+                    }
+                } else {
+                    const double root = rt.band_wall_roots ? rib_g * std::sqrt(2.) : 0.;
+                    for (int i = 0; i < 4; ++i) {
+                        const RibArm       a    = rib_arm(xmin, cy0, xmax, cy1, i, rt.rib_hw, rt.rib_ext(top));
+                        const RibArm       b    = rib_arm(xmin, cy0, xmax, cy1, (i + 1) % 4, rt.rib_hw, rt.rib_ext(top));
+                        std::vector<Vec2d> side = {a.p_out, b.p_in};
+                        if (root > 0.05) {
+                            side.insert(side.begin(), a.p_out + a.u * root);
+                            side.push_back(b.p_in + b.u * root);
+                        }
+                        wall_path(shape(side, false), false);
+                    }
+                }
+            }
             o << "; SKYLANE WALL_END\n";
         };
         if (ps.merged) {
-            if (!wall_late)
-                emit_wall();
             xa += lw;
             xb -= lw;
-            y0 = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2; // one bead inside the wall,
-            y1 = std::min(ps.y1, ps.cell_y1 - lw) - lw / 2; // edge to edge of its own band
+            y0 = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2;
+            y1 = std::min(ps.y1, ps.cell_y1 - lw) - lw / 2;
             if (y1 < y0)
                 y0 = y1 = (y0 + y1) / 2;
-            fx = (mc & 1) != 0;
-            fy = (mc & 2) != 0;
-            o << std::setprecision(3) << "G1 X" << (fx ? xb : xa) << " Y" << (fy ? y1 : y0) << " F12000\n";
+            fx = st.x() > (xa + xb) / 2;
+            fy = false;
+            o << std::setprecision(3) << "G1 X" << (fx ? xb : xa) << " Y" << y0 << " F12000\n";
         }
         int n = 0;
         // A purge strip of the merged cell runs along its long side (few, long lines); everything
@@ -1352,14 +1248,20 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         // the first pass of a lane after a merged stretch lands on the cell's open grid,
         // whose carrying lines run along Y: it must cross them (along X). Along Y it fell between
         // them (BIGTEST-adaptive: 9 mm lines of a 0.045 pass over a 1 mm void at every return to lanes).
-        const bool on_grid = !ps.merged && rt.on_grid[size_t(ps.lane)];
+        const bool on_grid         = !ps.merged && rt.on_grid[size_t(ps.lane)];
+        const bool same_lane_plane = !ps.merged && std::abs(rt.H[size_t(ps.lane)] - top) < 1e-6;
+        // The outgoing and incoming portions of one lane pass share the same
+        // supporting layer. Splitting the material must not rotate the second
+        // portion onto (rather than across) the supporting grid below it.
+        const bool lane_along_x = on_grid || (same_lane_plane ? !rt.lane_x[size_t(ps.lane)] : rt.lane_x[size_t(ps.lane)]);
         // a lane pass always crosses the one below it (lane_x), not "even passes along X":
         // after the forced X pass on the grid the parity could ask for X again, and over a sparse
         // fill (2 lines in a 3.3 mm lane) the purge lines ran between them, 35 mm over nothing
         // (FSFD_stairs_multipass, z=12.47).
-        const bool along_x = (ps.merged && !is_fill) ? (xb - xa) >= (y1 - y0) :
+        const bool along_x = y1 - y0 < lw            ? true :
+                             (ps.merged && !is_fill) ? (xb - xa) >= (y1 - y0) :
                              ps.merged               ? (pc % 2 == 0) :
-                                                       (on_grid || rt.lane_x[size_t(ps.lane)]);
+                                                       lane_along_x;
         // A purge pass extrudes the volume the packer counted for it (W x band x h x density):
         // the lines lose half a width at each end and one bead to the wall, which left a strip
         // 7-13 % short. Small flow correction, never on the structure (fills).
@@ -1367,7 +1269,7 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             if (is_fill || total_len <= 0.)
                 return 1.;
             const double want = p.width * (ps.y1 - ps.y0) * ps.h * ps.density;
-            return std::clamp(want / (total_len * lw * ps.h), 0.85, 1.25);
+            return want / (total_len * lw * ps.h);
         };
         bool crossed_fill = false;
         auto lines        = [&](bool along, double spacing) {
@@ -1378,9 +1280,9 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                 // (a floor() left up to one line width uncovered there — the wall then had no base)
                 // (a purge rounds the line count UP — a 1.7 mm strip with floor() got 2 lines
                 // 1.2 mm apart, a 0.7 mm slot the next round's line fell into; purge_scale trims the flow.)
-                const int    ny = std::max(1,
+                const int ny = std::max(y1 - y0 < 1e-6 ? 0 : 1,
                                         is_fill ? int(std::floor((y1 - y0) / spacing + 1e-6)) : int(std::ceil((y1 - y0) / spacing - 1e-6)));
-                const double sy = (y1 - y0) / ny;
+                const double sy = ny > 0 ? (y1 - y0) / ny : 0.;
                 const double ks = purge_scale((ny + 1) * (xb - xa));
                 for (int j = 0; j <= ny; ++j, ++n) {
                     const double y = fy ? y1 - j * sy : y0 + j * sy;
@@ -1390,12 +1292,6 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                     purge_line(o, 'X', at_b ? xb : xa, xe, e_per_mm * ks);
                     at_b   = !at_b;
                     cur_xy = Vec2f(float(xe), float(y));
-                    if (wall_pending && ramp_vol >= rt.ramp && j < ny) { // ramp over: perimeter now, then back to the strip
-                        wall_pending = false;
-                        emit_wall();
-                        o << std::setprecision(3) << "G1 X" << xe << " Y" << y << " F12000\n";
-                        cur_xy = Vec2f(float(xe), float(y));
-                    }
                 }
             } else {
                 // lines along Y, stepping in X
@@ -1412,12 +1308,6 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                     purge_line(o, 'Y', at_1 ? y1 : y0, ye, e_per_mm * ks);
                     at_1   = !at_1;
                     cur_xy = Vec2f(float(x), float(ye));
-                    if (wall_pending && ramp_vol >= rt.ramp && j < nx) {
-                        wall_pending = false;
-                        emit_wall();
-                        o << std::setprecision(3) << "G1 X" << x << " Y" << ye << " F12000\n";
-                        cur_xy = Vec2f(float(x), float(ye));
-                    }
                 }
             }
         };
@@ -1428,10 +1318,17 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         // half the lines each way the bridges were 9.5 mm.)
         if (ps.merged && is_fill && !ps.solid) {
             lines(false, spacing);
-            o << std::setprecision(3) << "G1 X" << xa << " Y" << y0 << " F12000\n";
-            fx = fy = false;
-            n       = 0;
-            lines(true, 3. * spacing);
+            // The ends of these Y fins already meet the neighbouring purge
+            // rows or the cell wall. Add ties only inside the gap, at no more
+            // than three grid spacings, rather than duplicating both borders.
+            const int ties = std::max(0, int(std::ceil((y1 - y0) / (3. * spacing) - 1e-6)) - 1);
+            for (int j = 1; j <= ties; ++j) {
+                const double y          = y0 + (y1 - y0) * j / (ties + 1);
+                const bool   from_right = j % 2 == 0;
+                o << std::setprecision(3) << "G1 X" << (from_right ? xb : xa) << " Y" << y << " F12000\n";
+                purge_line(o, 'X', from_right ? xb : xa, from_right ? xa : xb, e_per_mm);
+                cur_xy = Vec2f(float(from_right ? xa : xb), float(y));
+            }
         } else if (!ps.merged && is_fill && !ps.solid && !on_grid) {
             // a lane's sparse fill is a crossed grid too (both ways at twice the spacing,
             // same material): whatever lands on it next finds lines to cross. With lines one way
@@ -1445,13 +1342,9 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             crossed_fill = true;
         } else
             lines(along_x, spacing);
-        if (wall_pending) { // the pass ended before the ramp did: perimeter last, and back to where the strips ended
-            const Vec2f back = cur_xy;
-            wall_pending     = false;
-            emit_wall();
-            o << std::setprecision(3) << "G1 X" << back.x() << " Y" << back.y() << " F12000\n";
-            cur_xy = back;
-        }
+        // Finish the purge band before its wall; leave at the wall endpoint.
+        // There is no detour back to the middle of an unfinished purge strip.
+        emit_wall();
         cur_z = top + z_off;
         if (ps.merged)
             for (double& h : rt.H)
@@ -1462,13 +1355,14 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             rt.on_grid[size_t(ps.lane)] = 0;
             // on a crossed fill the next pass runs along X: it crosses the Y lines every two
             // spacings (along Y it would only rest on the X lines at the band edges)
-            rt.lane_x[size_t(ps.lane)] = crossed_fill || !along_x;
+            rt.lane_x[size_t(ps.lane)] = crossed_fill || !lane_along_x;
         } else if (is_fill && !ps.solid) {                                        // the grid covers [ps.y0, ps.y1]: every lane it reaches
             const double d = rt.lanes->depth() / rt.p.lanes, g0 = rt.lanes->y0(); // the lanes live in the (tapered) cell
             for (size_t c = 0; c < rt.on_grid.size(); ++c)
                 if (std::min(ps.y1, g0 + (c + 1) * d) - std::max(ps.y0, g0 + c * d) > lw)
                     rt.on_grid[c] = 1;
         }
+        o << "; SKYLANE BAND_END\n";
         first = false;
     };
 
@@ -1564,41 +1458,35 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
     if (idx == 0)
         o << rt.summary;
     o << std::fixed;
-    double cur_z       = new_z + z_off;
-    gap_on             = rt.wall_gap && info.is_tc && lead != nullptr; // (before pass_start: it decides where the lead pass starts)
-    Vec2f       cur_xy = lead ? pass_start(*lead, rt.lane_pass[size_t(lead->lane)]) : src.start_pos;
-    const Vec2f start  = cur_xy;
-    bool        first  = true;
-    gap_entry          = Vec2d(start.x(), start.y());
-
-    // the passes of the toolchange are written first, on their own, so the outgoing tool
-    // can be handed the head of them as its ramming (split_ram). Not on the first layer (solid
-    // base, brim), like the classic tower.
-    std::string wipe_txt;
-    RamSplit    ram;
+    double        cur_z  = new_z + z_off;
+    Vec2f         cur_xy = lead ? pass_start(*lead, rt.lane_pass[size_t(lead->lane)]) : src.start_pos;
+    const Vec2f   start  = cur_xy;
+    bool          first  = true;
+    std::string   wipe_txt;
+    OutgoingBlock outgoing;
     if (info.is_tc) {
-        const bool   base_ready = rt.brim_done && lead != nullptr && !lead->solid;
-        const double ram_v      = base_ready && n_wipe > 0 ? rt.ram(d.old_tool) : 0.;
-        if (ram_v > 0.)
-            ramp_vol = -ram_v; // the purge ramp counts the incoming tool's plastic only
-        std::ostringstream w;
-        w << std::fixed;
+        std::ostringstream old, incoming;
+        old << std::fixed;
+        incoming << std::fixed;
+        size_t k = 0;
+        select_tool(d.old_tool);
         if (n_wipe > 0)
-            emit_brim(w, cur_z, cur_xy, first);
-        for (size_t k = 0; k < n_wipe; ++k)
-            emit_pass(w, passes[k], cur_z, cur_xy, first);
-        wipe_txt = w.str();
-        if (ram_v > 0.) {
-            const double flow = d.old_tool < rt.ram_flow.size() && rt.ram_flow[d.old_tool] > 0. ? rt.ram_flow[d.old_tool] : 10.;
-            // The ramming goes at the filament's own ramming flow, like the classic tower's (which
-            // does not cap it with "Maximum wipe tower print speed" either: 214 mm/s on the slug).
-            // SLUG, 5 mm3 at 0.12: capped at 90 mm/s it took 0.93 s per toolchange, 0.33 h in all.
-            const double feed = std::min(250., flow / (lw * lead->h)) * 60.;
-            ram               = split_ram(wipe_txt, start, ram_v, rt.area(tool), rt.area(d.old_tool), feed, flow);
-            if (ram.ok)
-                wipe_txt = ram.rest;
-        }
+            emit_brim(old, cur_z, cur_xy, first);
+        // Fills that close the outgoing colour's region belong before the
+        // switch too; never recolour their lines with the incoming filament.
+        for (; k < n_wipe && passes[k].tool == d.old_tool && d.old_tool != d.new_tool; ++k)
+            emit_pass(old, passes[k], cur_z, cur_xy, first);
+        outgoing.gcode   = old.str();
+        outgoing.printed = !outgoing.gcode.empty();
+        outgoing.end     = cur_xy;
+        outgoing.z       = cur_z;
+        select_tool(d.new_tool);
+        ramp_vol = 0.;
+        for (; k < n_wipe; ++k)
+            emit_pass(incoming, passes[k], cur_z, cur_xy, first);
+        wipe_txt = incoming.str();
     }
+    select_tool(d.new_tool);
 
     enum class Sec { Head, Unload, Wipe, Tail, After } sec = info.is_tc ? Sec::Head : Sec::After;
     if (info.is_tc) {
@@ -1611,8 +1499,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                 // FullSpectrum keeps unloading in a sidecar, so its main block may
                 // go directly from START to the tool-change placeholder.
                 if (has(l, "[change_filament_gcode]")) {
-                    if (ram.ok)
-                        o << "; SKYLANE ramming\n" << ram.ram;
+                    if (outgoing.printed)
+                        o << "; SKYLANE outgoing\n" << outgoing.gcode;
                     o << l << "\n";
                     sec = Sec::Unload;
                     continue;
@@ -1628,10 +1516,10 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                     sec = Sec::Wipe;
                     continue;
                 }
-                if (ram.ok && has(l, "[change_filament_gcode]"))
-                    o << "; SKYLANE ramming\n" << ram.ram;          // before the tool leaves
-                if (has(l, WipeTower2::never_skip_tag().c_str())) { // tool-change position: keep, but in the lane
-                    const Vec2f at = ram.ok ? ram.end : start;      // (the incoming tool starts where the ramming ended)
+                if (outgoing.printed && has(l, "[change_filament_gcode]"))
+                    o << "; SKYLANE outgoing\n" << outgoing.gcode;            // before the tool leaves
+                if (has(l, WipeTower2::never_skip_tag().c_str())) {           // tool-change position: keep, but in the lane
+                    const Vec2f at = outgoing.printed ? outgoing.end : start; // (the incoming tool starts where the ramming ended)
                     o << std::setprecision(5) << "G1 X" << at.x() << " Y" << at.y() << WipeTower2::never_skip_tag() << "\n";
                     continue;
                 }
@@ -1757,16 +1645,16 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
     // 5 mm3 over a short strip: 238 toolchanges). The incoming tool arrives where the ramming
     // ended, so it must arrive at THAT pass's Z: at the lead's it came down 0.12 mm into the
     // plastic just rammed. (The outgoing tool arrives a little high and the ramming sets its own Z.)
-    if (ram.ok && !std::isnan(ram.z))
-        t.skylane_z = std::max(new_z, float(ram.z - z_off));
+    if (outgoing.printed && !std::isnan(outgoing.z))
+        t.skylane_z = std::max(new_z, float(outgoing.z - z_off));
     t.start_pos             = start;
-    t.tool_change_start_pos = ram.ok ? ram.end : start;
+    t.tool_change_start_pos = outgoing.printed ? outgoing.end : start;
     t.nozzle_change_result  = {};
     t.purge_volume          = info.is_tc ? float(rt.purge) : 0.f;
     double final_z          = new_z + z_off;
     GCodeProcessor::get_last_z_from_gcode(t.gcode, final_z);
     t.skylane_safe_z = float(final_z - z_off);
-    t.skylane_ram    = ram.ok;
+    t.skylane_ram    = outgoing.printed;
     // dry park (append_tcr2): the outgoing tool wipes from the start point towards the
     // middle of the first pass's band, i.e. over what the incoming tool purges right after.
     if (info.is_tc && lead) {

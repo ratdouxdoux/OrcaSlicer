@@ -29,9 +29,10 @@ struct Demand
     int active = 0;
     // taper: depth of the merged cell from this demand on (0 = as it is). The cell only
     // ever gets shallower, centred on the footprint, and only between rounds (when it is level).
-    float  depth    = 0.f;
-    size_t old_tool = 0;
-    size_t new_tool = 0;
+    float  depth          = 0.f;
+    size_t old_tool       = 0;
+    size_t new_tool       = 0;
+    float  ramming_volume = 0.f; // outgoing-tool portion of volume
 };
 
 struct Params
@@ -91,6 +92,9 @@ struct Pass
     double density = 1.;
     // merged cell: the cell this pass belongs to, [cell_y0, cell_y1] (the tower wall there).
     double cell_y0 = 0., cell_y1 = 0.;
+    size_t tool       = 0;
+    bool   ramming    = false;
+    bool   ends_round = false;
 };
 
 struct Plan
@@ -143,9 +147,12 @@ private:
     bool                m_have_z0 = false, m_base_done = false, m_base_now = false, m_merged = false;
     double              m_fill = 0., m_over_z_max = 0.;
     // merged cell "round" in progress: m_H is its base, purges fill strips of height
-    // m_round_h from y = 0 up to m_round_y; the rest is closed with grid when the round ends.
-    double m_round_h = 0., m_round_y = 0.;
-    int    m_over_z = 0, m_first_over = -1;
+    // m_round_h; the first material grows from the far end (m_round_tail), the
+    // others from the near end (m_round_y). The remaining gap closes with grid.
+    double              m_round_h = 0., m_round_y = 0., m_round_tail = 0.;
+    size_t              m_round_tool = 0;
+    std::vector<size_t> m_round_tools;
+    int                 m_over_z = 0, m_first_over = -1;
 };
 
 // Simulate with a fixed depth. ok == false when infeasible.
