@@ -656,6 +656,7 @@ private:
     int get_bed_temperature_max(const Print& print, const bool is_first_layer) const;
 
     std::string _extrude(const ExtrusionPath &path, std::string description = "", double speed = -1);
+    std::string _extrude_gloss(const ExtrusionPath &path, std::string description, double speed, double gloss_time);
     bool _needSAFC(const ExtrusionPath &path);
 
     // Snapmaker: flow variant — read a process-domain vector option

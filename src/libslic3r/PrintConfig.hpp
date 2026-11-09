@@ -892,6 +892,7 @@ protected: \
 // This object is mapped to Perl as Slic3r::Config::PrintObject.
 PRINT_CONFIG_CLASS_DEFINE(
     PrintObjectConfig,
+    ((ConfigOptionFloats,               gloss_paint_times))
 
     ((ConfigOptionFloat, brim_object_gap))((ConfigOptionEnum<BrimType>, brim_type))((ConfigOptionFloat, brim_width))(
         (ConfigOptionFloat, brim_ears_detection_length))((ConfigOptionFloat, brim_ears_max_angle))((ConfigOptionFloat, skirt_start_angle))(

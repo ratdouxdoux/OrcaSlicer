@@ -428,6 +428,7 @@ public:
     bool                    is_mm_painted() const;
     // Checks if any of object volume is painted using the fuzzy skin painting gizmo.
     bool                    is_fuzzy_skin_painted() const;
+    bool                    is_gloss_painted() const;
     // This object may have a varying layer height by painting or by a table.
     // Even if true is returned, the layer height profile may be "flat" with no difference to default layering.
     bool                    has_custom_layering() const
@@ -883,6 +884,8 @@ public:
 
     // List of mesh facets painted for fuzzy skin.
     FacetsAnnotation    fuzzy_skin_facets;
+    // Independent surface finish colors; never remapped with extruder IDs.
+    FacetsAnnotation    gloss_facets;
 
     // BBS: quick access for volume extruders, 1 based
     mutable std::vector<int> mmuseg_extruders;
@@ -1009,12 +1012,14 @@ public:
         this->seam_facets.set_new_unique_id();
         this->mmu_segmentation_facets.set_new_unique_id();
         this->fuzzy_skin_facets.set_new_unique_id();
+        this->gloss_facets.set_new_unique_id();
     }
 
     bool is_fdm_support_painted() const { return !this->supported_facets.empty(); }
     bool is_seam_painted() const { return !this->seam_facets.empty(); }
     bool is_mm_painted() const { return !this->mmu_segmentation_facets.empty(); }
     bool is_fuzzy_skin_painted() const { return !this->fuzzy_skin_facets.empty(); }
+    bool is_gloss_painted() const { return !this->gloss_facets.empty(); }
 
     // Id of the source ModelObject this volume was cloned from when objects were
     // assembled (merged) into a multi-part object. Opaque group label only compared for
@@ -1078,11 +1083,13 @@ private:
         assert(this->seam_facets.id().valid());
         assert(this->mmu_segmentation_facets.id().valid());
         assert(this->fuzzy_skin_facets.id().valid());
+        assert(this->gloss_facets.id().valid());
         assert(this->id() != this->config.id());
         assert(this->id() != this->supported_facets.id());
         assert(this->id() != this->seam_facets.id());
         assert(this->id() != this->mmu_segmentation_facets.id());
         assert(this->id() != this->fuzzy_skin_facets.id());
+        assert(this->id() != this->gloss_facets.id());
         if (mesh.facets_count() > 1)
             calculate_convex_hull();
     }
@@ -1094,11 +1101,13 @@ private:
         assert(this->seam_facets.id().valid());
         assert(this->mmu_segmentation_facets.id().valid());
         assert(this->fuzzy_skin_facets.id().valid());
+        assert(this->gloss_facets.id().valid());
         assert(this->id() != this->config.id());
         assert(this->id() != this->supported_facets.id());
         assert(this->id() != this->seam_facets.id());
         assert(this->id() != this->mmu_segmentation_facets.id());
         assert(this->id() != this->fuzzy_skin_facets.id());
+        assert(this->id() != this->gloss_facets.id());
     }
     ModelVolume(ModelObject *object, TriangleMesh &&mesh, TriangleMesh &&convex_hull, ModelVolumeType type = ModelVolumeType::MODEL_PART) :
 		m_mesh(new TriangleMesh(std::move(mesh))), m_convex_hull(new TriangleMesh(std::move(convex_hull))), m_type(type), object(object) {
@@ -1108,11 +1117,13 @@ private:
         assert(this->seam_facets.id().valid());
         assert(this->mmu_segmentation_facets.id().valid());
         assert(this->fuzzy_skin_facets.id().valid());
+        assert(this->gloss_facets.id().valid());
         assert(this->id() != this->config.id());
         assert(this->id() != this->supported_facets.id());
         assert(this->id() != this->seam_facets.id());
         assert(this->id() != this->mmu_segmentation_facets.id());
         assert(this->id() != this->fuzzy_skin_facets.id());
+        assert(this->id() != this->gloss_facets.id());
 	}
 
     // Copying an existing volume, therefore this volume will get a copy of the ID assigned.
@@ -1121,7 +1132,7 @@ private:
         name(other.name), source(other.source), m_mesh(other.m_mesh), m_convex_hull(other.m_convex_hull),
         config(other.config), m_type(other.m_type), object(object), m_transformation(other.m_transformation),
         supported_facets(other.supported_facets), seam_facets(other.seam_facets), mmu_segmentation_facets(other.mmu_segmentation_facets),
-        fuzzy_skin_facets(other.fuzzy_skin_facets), cut_info(other.cut_info), text_configuration(other.text_configuration),
+        fuzzy_skin_facets(other.fuzzy_skin_facets), gloss_facets(other.gloss_facets), cut_info(other.cut_info), text_configuration(other.text_configuration),
         emboss_shape(other.emboss_shape), m_merged_group_id(other.m_merged_group_id)
     {
 		assert(this->id().valid()); 
@@ -1130,6 +1141,7 @@ private:
         assert(this->seam_facets.id().valid());
         assert(this->mmu_segmentation_facets.id().valid());
         assert(this->fuzzy_skin_facets.id().valid());
+        assert(this->gloss_facets.id().valid());
         assert(this->id() != this->config.id());
         assert(this->id() != this->supported_facets.id());
         assert(this->id() != this->seam_facets.id());
@@ -1140,6 +1152,7 @@ private:
         assert(this->seam_facets.id() == other.seam_facets.id());
         assert(this->mmu_segmentation_facets.id() == other.mmu_segmentation_facets.id());
         assert(this->fuzzy_skin_facets.id() == other.fuzzy_skin_facets.id());
+        assert(this->gloss_facets.id() == other.gloss_facets.id());
         this->set_material_id(other.material_id());
     }
     // Providing a new mesh, therefore this volume will get a new unique ID assigned.
@@ -1154,11 +1167,13 @@ private:
         assert(this->seam_facets.id().valid());
         assert(this->mmu_segmentation_facets.id().valid());
         assert(this->fuzzy_skin_facets.id().valid());
+        assert(this->gloss_facets.id().valid());
         assert(this->id() != this->config.id());
         assert(this->id() != this->supported_facets.id());
         assert(this->id() != this->seam_facets.id());
         assert(this->id() != this->mmu_segmentation_facets.id());
         assert(this->id() != this->fuzzy_skin_facets.id());
+        assert(this->id() != this->gloss_facets.id());
 		assert(this->id() != other.id());
         assert(this->config.id() == other.config.id());
         this->set_material_id(other.material_id());
@@ -1171,11 +1186,13 @@ private:
         assert(this->seam_facets.id() != other.seam_facets.id());
         assert(this->mmu_segmentation_facets.id() != other.mmu_segmentation_facets.id());
         assert(this->fuzzy_skin_facets.id() != other.fuzzy_skin_facets.id());
+        assert(this->gloss_facets.id() != other.gloss_facets.id());
         assert(this->id() != this->config.id());
         assert(this->supported_facets.empty());
         assert(this->seam_facets.empty());
         assert(this->mmu_segmentation_facets.empty());
         assert(this->fuzzy_skin_facets.empty());
+        assert(this->gloss_facets.empty());
     }
 
     ModelVolume& operator=(ModelVolume &rhs) = delete;
@@ -1183,13 +1200,14 @@ private:
 	friend class cereal::access;
 	friend class UndoRedo::StackImpl;
 	// Used for deserialization, therefore no IDs are allocated.
-	ModelVolume() : ObjectBase(-1), config(-1), supported_facets(-1), seam_facets(-1), mmu_segmentation_facets(-1), fuzzy_skin_facets(-1), object(nullptr) {
+	ModelVolume() : ObjectBase(-1), config(-1), supported_facets(-1), seam_facets(-1), mmu_segmentation_facets(-1), fuzzy_skin_facets(-1), gloss_facets(-1), object(nullptr) {
 		assert(this->id().invalid());
         assert(this->config.id().invalid());
         assert(this->supported_facets.id().invalid());
         assert(this->seam_facets.id().invalid());
         assert(this->mmu_segmentation_facets.id().invalid());
         assert(this->fuzzy_skin_facets.id().invalid());
+        assert(this->gloss_facets.id().invalid());
 	}
 	template<class Archive> void load(Archive &ar) {
 		bool has_convex_hull;
@@ -1210,6 +1228,9 @@ private:
         mesh_changed |= t != mmu_segmentation_facets.timestamp();
         cereal::load_by_value(ar, fuzzy_skin_facets);
         mesh_changed |= t != fuzzy_skin_facets.timestamp();
+        t = gloss_facets.timestamp();
+        cereal::load_by_value(ar, gloss_facets);
+        mesh_changed |= t != gloss_facets.timestamp();
         cereal::load_by_value(ar, config);
         cereal::load(ar, text_configuration);
         cereal::load(ar, emboss_shape);
@@ -1232,6 +1253,7 @@ private:
         cereal::save_by_value(ar, seam_facets);
         cereal::save_by_value(ar, mmu_segmentation_facets);
         cereal::save_by_value(ar, fuzzy_skin_facets);
+        cereal::save_by_value(ar, gloss_facets);
         cereal::save_by_value(ar, config);
         cereal::save(ar, text_configuration);
         cereal::save(ar, emboss_shape);
@@ -1730,6 +1752,7 @@ public:
     bool          is_mm_painted() const;
     // Checks if any of objects is painted using the fuzzy skin painting gizmo.
     bool          is_fuzzy_skin_painted() const;
+    bool          is_gloss_painted() const;
 
     std::unique_ptr<CalibPressureAdvancePattern> calib_pa_pattern;
 
@@ -1791,6 +1814,7 @@ extern bool model_mmu_segmentation_data_changed(const ModelObject& mo, const Mod
 // Test whether the now ModelObject has newer fuzzy skin data than the old one.
 // The function assumes that volumes list is synchronized.
 extern bool model_fuzzy_skin_data_changed(const ModelObject &mo, const ModelObject &mo_new);
+extern bool model_gloss_data_changed(const ModelObject &mo, const ModelObject &mo_new);
 
 bool model_brim_points_data_changed(const ModelObject& mo, const ModelObject& mo_new);
 

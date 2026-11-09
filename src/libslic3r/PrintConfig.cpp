@@ -3080,6 +3080,16 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionInts{ -1 });
 
+    def = this->add("gloss_paint_times", coFloats);
+    def->label = L("Gloss surface times");
+    def->tooltip = L("Surface traversal time in seconds per 100 mm for each gloss paint color. "
+                     "Speeds are limited by surface speed, machine limits, filament flow and cooling. "
+                     "This is local surface timing, not total layer time. Calibrate finishes for your filament.");
+    def->sidetext = L("s/100 mm");
+    def->min = 0.000001;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloats{1., 2., 4., 8.});
+
     def = this->add("fuzzy_skin", coEnum);
     def->label = L("Fuzzy Skin");
     def->category = L("Others");

@@ -1123,7 +1123,7 @@ bool PrintObject::invalidate_state_by_config_options(
                    opt_key == "overhang_totally_speed" || opt_key == "bridge_speed" || opt_key == "internal_bridge_speed" ||
                    opt_key == "outer_wall_speed" || opt_key == "small_perimeter_speed" || opt_key == "small_perimeter_threshold" ||
                    opt_key == "sparse_infill_speed" || opt_key == "inner_wall_speed" || opt_key == "internal_solid_infill_speed" ||
-                   opt_key == "top_surface_speed" || opt_key == "bed_mesh_min" || opt_key == "bed_mesh_max" ||
+                   opt_key == "top_surface_speed" || opt_key == "gloss_paint_times" || opt_key == "bed_mesh_min" || opt_key == "bed_mesh_max" ||
                    opt_key == "adaptive_bed_mesh_margin" || opt_key == "bed_mesh_probe_distance") {
             invalidated |= m_print->invalidate_step(psGCodeExport);
         } else if (opt_key == "flush_into_infill" || opt_key == "flush_into_objects" || opt_key == "flush_into_support" ||

@@ -13200,6 +13200,7 @@ bool Plater::priv::replace_volume_with_stl(int object_idx, int volume_idx, const
     new_volume->seam_facets.assign(old_volume->seam_facets);
     new_volume->mmu_segmentation_facets.assign(old_volume->mmu_segmentation_facets);
     new_volume->fuzzy_skin_facets.assign(old_volume->fuzzy_skin_facets);
+    new_volume->gloss_facets.assign(old_volume->gloss_facets);
     std::swap(old_model_object->volumes[volume_idx], old_model_object->volumes.back());
     old_model_object->delete_volume(old_model_object->volumes.size() - 1);
     if (!sinking)
@@ -22753,11 +22754,12 @@ void Plater::clear_before_change_mesh(int obj_idx)
     // may be different and they would make no sense.
     bool paint_removed = false;
     for (ModelVolume* mv : mo->volumes) {
-        paint_removed |= ! mv->supported_facets.empty() || ! mv->seam_facets.empty() || ! mv->mmu_segmentation_facets.empty() || !mv->fuzzy_skin_facets.empty();
+        paint_removed |= ! mv->supported_facets.empty() || ! mv->seam_facets.empty() || ! mv->mmu_segmentation_facets.empty() || !mv->fuzzy_skin_facets.empty() || !mv->gloss_facets.empty();
         mv->supported_facets.reset();
         mv->seam_facets.reset();
         mv->mmu_segmentation_facets.reset();
         mv->fuzzy_skin_facets.reset();
+        mv->gloss_facets.reset();
     }
     if (paint_removed) {
         // snapshot_time is captured by copy so the lambda knows where to undo/redo to.

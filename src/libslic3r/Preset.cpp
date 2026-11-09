@@ -994,6 +994,7 @@ static std::vector<std::string> s_Preset_print_options{
     "support_ironing_spacing",
     "max_travel_detour_distance",
     "fuzzy_skin",
+    "gloss_paint_times",
     "fuzzy_skin_thickness",
     "fuzzy_skin_point_distance",
     "fuzzy_skin_first_layer",

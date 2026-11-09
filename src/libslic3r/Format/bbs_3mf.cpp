@@ -290,6 +290,8 @@ static constexpr const char* PRINTABLE_ATTR = "printable";
 static constexpr const char* INSTANCESCOUNT_ATTR = "instances_count";
 static constexpr const char* CUSTOM_SUPPORTS_ATTR = "paint_supports";
 static constexpr const char* CUSTOM_FUZZY_SKIN_ATTR      = "paint_fuzzy_skin";
+static constexpr const char* CUSTOM_GLOSS_ATTR      = "paint_gloss";
+static constexpr const char* CUSTOM_GLOSS_ATTR_OLD  = "slic3rpe:gloss";
 static constexpr const char* CUSTOM_FUZZY_SKIN_ATTR_OLD  = "paint_fuzzy";
 static constexpr const char* CUSTOM_SEAM_ATTR = "paint_seam";
 static constexpr const char* MMU_SEGMENTATION_ATTR = "paint_color";
@@ -742,6 +744,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
             std::vector<std::string> custom_seam;
             std::vector<std::string> mmu_segmentation;
             std::vector<std::string> fuzzy_skin;
+            std::vector<std::string> gloss;
             // BBS
             std::vector<std::string> face_properties;
 
@@ -762,6 +765,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                 custom_seam.clear();
                 mmu_segmentation.clear();
                 fuzzy_skin.clear();
+                gloss.clear();
             }
         };
 
@@ -3747,6 +3751,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
             m_curr_object->geometry.custom_seam.push_back(bbs_get_attribute_value_string(attributes, num_attributes, CUSTOM_SEAM_ATTR));
             m_curr_object->geometry.mmu_segmentation.push_back(bbs_get_attribute_value_string(attributes, num_attributes, MMU_SEGMENTATION_ATTR));
             m_curr_object->geometry.fuzzy_skin.push_back(bbs_get_attribute_value_string(attributes, num_attributes, {CUSTOM_FUZZY_SKIN_ATTR, CUSTOM_FUZZY_SKIN_ATTR_OLD}));
+            m_curr_object->geometry.gloss.push_back(bbs_get_attribute_value_string(attributes, num_attributes, {CUSTOM_GLOSS_ATTR, CUSTOM_GLOSS_ATTR_OLD}));
             // BBS
             m_curr_object->geometry.face_properties.push_back(bbs_get_attribute_value_string(attributes, num_attributes, FACE_PROPERTY_ATTR));
         }
@@ -4910,11 +4915,13 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                 volume->seam_facets.reserve(triangles_count);
                 volume->mmu_segmentation_facets.reserve(triangles_count);
                 volume->fuzzy_skin_facets.reserve(triangles_count);
+                volume->gloss_facets.reserve(triangles_count);
                 for (size_t i=0; i<triangles_count; ++i) {
                     assert(i < sub_object->geometry.custom_supports.size());
                     assert(i < sub_object->geometry.custom_seam.size());
                     assert(i < sub_object->geometry.mmu_segmentation.size());
                     assert(i < sub_object->geometry.fuzzy_skin.size());
+                    assert(i < sub_object->geometry.gloss.size());
                     if (! sub_object->geometry.custom_supports[i].empty())
                         volume->supported_facets.set_triangle_from_string(i, sub_object->geometry.custom_supports[i]);
                     if (! sub_object->geometry.custom_seam[i].empty())
@@ -4923,13 +4930,17 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                         volume->mmu_segmentation_facets.set_triangle_from_string(i, sub_object->geometry.mmu_segmentation[i]);
                     if (!sub_object->geometry.fuzzy_skin[i].empty())
                         volume->fuzzy_skin_facets.set_triangle_from_string(i, sub_object->geometry.fuzzy_skin[i]);
+                    if (!sub_object->geometry.gloss[i].empty())
+                        volume->gloss_facets.set_triangle_from_string(i, sub_object->geometry.gloss[i]);
                 }
                 volume->supported_facets.shrink_to_fit();
                 volume->seam_facets.shrink_to_fit();
                 volume->mmu_segmentation_facets.shrink_to_fit();
                 volume->mmu_segmentation_facets.touch();
                 volume->fuzzy_skin_facets.shrink_to_fit();
+                volume->gloss_facets.shrink_to_fit();
                 volume->fuzzy_skin_facets.touch();
+                volume->gloss_facets.touch();
             }
 
             volume->set_type(volume_data->part_type);
@@ -5073,6 +5084,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
             volume->supported_facets.reserve(triangles_count);
             volume->seam_facets.reserve(triangles_count);
             volume->mmu_segmentation_facets.reserve(triangles_count);
+            volume->gloss_facets.reserve(triangles_count);
             for (size_t i=0; i<triangles_count; ++i) {
                 size_t index = volume_data.first_triangle_id + i;
                 assert(index < geometry.custom_supports.size());
@@ -5084,10 +5096,14 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                     volume->seam_facets.set_triangle_from_string(i, geometry.custom_seam[index]);
                 if (! geometry.mmu_segmentation[index].empty())
                     volume->mmu_segmentation_facets.set_triangle_from_string(i, geometry.mmu_segmentation[index]);
+                if (index < geometry.gloss.size() && !geometry.gloss[index].empty())
+                    volume->gloss_facets.set_triangle_from_string(i, geometry.gloss[index]);
             }
             volume->supported_facets.shrink_to_fit();
             volume->seam_facets.shrink_to_fit();
             volume->mmu_segmentation_facets.shrink_to_fit();
+
+            volume->gloss_facets.shrink_to_fit();
 
             volume->set_type(volume_data.part_type);
 
@@ -5393,6 +5409,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
             current_object->geometry.custom_seam.push_back(bbs_get_attribute_value_string(attributes, num_attributes, CUSTOM_SEAM_ATTR));
             current_object->geometry.mmu_segmentation.push_back(bbs_get_attribute_value_string(attributes, num_attributes, MMU_SEGMENTATION_ATTR));
             current_object->geometry.fuzzy_skin.push_back(bbs_get_attribute_value_string(attributes, num_attributes, {CUSTOM_FUZZY_SKIN_ATTR, CUSTOM_FUZZY_SKIN_ATTR_OLD}));
+            current_object->geometry.gloss.push_back(bbs_get_attribute_value_string(attributes, num_attributes, {CUSTOM_GLOSS_ATTR, CUSTOM_GLOSS_ATTR_OLD}));
             // BBS
             current_object->geometry.face_properties.push_back(bbs_get_attribute_value_string(attributes, num_attributes, FACE_PROPERTY_ATTR));
         }
@@ -6779,7 +6796,8 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                                 if ((shared_volume->supported_facets.equals(volume->supported_facets))
                                     && (shared_volume->seam_facets.equals(volume->seam_facets))
                                     && (shared_volume->mmu_segmentation_facets.equals(volume->mmu_segmentation_facets))
-                                    && (shared_volume->fuzzy_skin_facets.equals(volume->fuzzy_skin_facets)))
+                                    && (shared_volume->fuzzy_skin_facets.equals(volume->fuzzy_skin_facets))
+                                    && (shared_volume->gloss_facets.equals(volume->gloss_facets)))
                                 {
                                     auto data = iter->second.first;
                                     const_cast<_BBS_3MF_Exporter *>(this)->m_volume_paths.insert({volume, {data->sub_path, data->volumes_objectID.find(iter->second.second)->second}});
@@ -7191,6 +7209,15 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                     output_buffer += CUSTOM_FUZZY_SKIN_ATTR;
                     output_buffer += "=\"";
                     output_buffer += fuzzy_skin_painting_data_string;
+                    output_buffer += "\"";
+                }
+
+                std::string gloss_painting_data_string = volume->gloss_facets.get_triangle_as_string(i);
+                if (!gloss_painting_data_string.empty()) {
+                    output_buffer += " ";
+                    output_buffer += CUSTOM_GLOSS_ATTR;
+                    output_buffer += "=\"";
+                    output_buffer += gloss_painting_data_string;
                     output_buffer += "\"";
                 }
 

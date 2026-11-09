@@ -19,6 +19,8 @@ endif()
 option(BUILD_SHARED_LIBS "Build shared libs" OFF)
 
 set(lisbslic3r_sources
+    GlossPainting.cpp
+    GlossPainting.hpp
     AABBMesh.cpp
     AABBMesh.hpp
     AABBTreeIndirect.hpp

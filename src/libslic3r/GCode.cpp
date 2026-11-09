@@ -7591,6 +7591,44 @@ bool GCode::_needSAFC(const ExtrusionPath& path)
 
 std::string GCode::_extrude(const ExtrusionPath& path, std::string description, double speed)
 {
+    if (!m_layer || this->on_first_layer() || path.is_force_no_extrusion() ||
+        (path.role() != erExternalPerimeter && path.role() != erTopSolidInfill) ||
+        std::all_of(m_layer->gloss_regions.begin(), m_layer->gloss_regions.end(), [](const ExPolygons &mask) { return mask.empty(); }))
+        return _extrude_gloss(path, std::move(description), speed, 0.);
+
+    auto parts = split_gloss_path(path.polyline, m_layer->gloss_regions);
+    if (parts.empty() || (parts.size() == 1 && parts.front().color == 0))
+        return _extrude_gloss(path, std::move(description), speed, 0.);
+
+    std::string gcode;
+    const auto *sloped = dynamic_cast<const ExtrusionPathSloped *>(&path);
+    const auto &times = m_layer->object()->config().gloss_paint_times.values;
+    const double total_length = path.polyline.length();
+    double traversed = 0.;
+    for (auto &part : parts) {
+        const double length = part.polyline.length();
+        double time = part.color == 0 ? 0. : part.color <= times.size() ? times[part.color - 1] : GLOSS_DEFAULT_TIMES[part.color - 1];
+        if (part.color > 0 && (!std::isfinite(time) || time <= 0.))
+            time = GLOSS_DEFAULT_TIMES[part.color - 1];
+        gcode += ";GLOSS_COLOR:" + std::to_string(part.color) + "\n";
+        // Arc fitting is intentionally dropped at paint boundaries. Keep the
+        // original sampled geometry and interpolate scarf height/flow by distance.
+        if (sloped && total_length > 0.) {
+            ExtrusionPathSloped segment(std::move(part.polyline), path, sloped->interpolate(traversed / total_length),
+                                        sloped->interpolate(std::min(1., (traversed + length) / total_length)));
+            gcode += _extrude_gloss(segment, description, speed, time);
+        } else {
+            ExtrusionPath segment(std::move(part.polyline), path);
+            gcode += _extrude_gloss(segment, description, speed, time);
+        }
+        traversed += length;
+    }
+    gcode += ";GLOSS_COLOR:0\n";
+    return gcode;
+}
+
+std::string GCode::_extrude_gloss(const ExtrusionPath& path, std::string description, double speed, double gloss_time)
+{
     std::string gcode;
 
     if (is_bridge(path.role()))
@@ -7840,6 +7878,14 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
         }
     }
 
+    if (gloss_time > 0.) {
+        const auto limits = gloss_speed_range(speed, EXTRUDER_CONFIG(slow_down_min_speed), 0.,
+                                             m_config.machine_max_speed_x.get_at(0), m_config.machine_max_speed_y.get_at(0),
+                                             m_config.machine_max_speed_e.get_at(0), filament_max_volumetric_speed,
+                                             _mm3_per_mm, e_per_mm);
+        speed = limits.speed_for_time(gloss_time);
+    }
+
     bool                        variable_speed = false;
     std::vector<ProcessedPoint> new_points{};
 
@@ -7892,6 +7938,9 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
         new_points = m_extrusion_quality_estimator.estimate_extrusion_quality(path, overhang_overlap_levels, dynamic_overhang_speeds,
                                                                               ref_speed, speed,
                                                                               this->process_flow_value(m_config.slowdown_for_curled_perimeters));
+        if (gloss_time > 0.)
+            for (ProcessedPoint &point : new_points)
+                point.speed = std::min(point.speed, float(speed));
         variable_speed = std::any_of(new_points.begin(), new_points.end(), [speed](const ProcessedPoint& p) {
             return fabs(double(p.speed) - speed) > 1;
         }); // Ignore small speed variations (under 1mm/sec)

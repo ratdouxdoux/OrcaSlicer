@@ -1,6 +1,7 @@
 #ifndef slic3r_Layer_hpp_
 #define slic3r_Layer_hpp_
 
+#include "GlossPainting.hpp"
 #include "libslic3r.h"
 #include "BoundingBox.hpp"
 #include "Flow.hpp"
@@ -156,6 +157,9 @@ public:
     std::vector<BoundingBox> lslices_bboxes;
 
     // BBS
+    // Surface finish masks; independent of material segmentation.
+    GlossPaintRegions       gloss_regions;
+
     ExPolygons              loverhangs;
     std::vector<std::pair<ExPolygon, int>> loverhangs_with_type;
     BoundingBox             loverhangs_bbox;

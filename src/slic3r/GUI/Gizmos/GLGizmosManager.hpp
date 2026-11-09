@@ -91,6 +91,7 @@ public:
         Assembly,
         Simplify,
         BrimEars,
+        Gloss,
         //SlaSupports,
         // BBS
         //FaceRecognition,

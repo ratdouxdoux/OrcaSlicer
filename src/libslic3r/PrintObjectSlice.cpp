@@ -963,6 +963,17 @@ void PrintObject::slice()
     if (m_layers.empty())
         throw Slic3r::SlicingError(L("No layers were detected. You might want to repair your STL file(s) or check their size or thickness and retry.\n"));
 
+    if (model_object()->is_gloss_painted()) {
+        const auto facets = [](const ModelVolume &volume) -> ModelVolumeFacetsInfo {
+            return {volume.gloss_facets, volume.is_gloss_painted(), false};
+        };
+        auto masks = segmentation_by_painting(*this, facets, GLOSS_PAINT_COLORS + 1, 0.f, 0.f, false,
+                                              IncludeTopAndBottomLayers::Yes, [this] { m_print->throw_if_canceled(); });
+        for (size_t layer = 0; layer < m_layers.size(); ++layer)
+            for (size_t color = 0; color < GLOSS_PAINT_COLORS; ++color)
+                m_layers[layer]->gloss_regions[color] = std::move(masks[layer][color + 1]);
+    }
+
     capture_prepared_layers(*this, [this] { m_print->throw_if_canceled(); });
     // BBS
     this->set_done(posSlice);
