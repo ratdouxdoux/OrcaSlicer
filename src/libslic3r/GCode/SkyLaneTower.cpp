@@ -384,6 +384,38 @@ struct OutgoingBlock
     bool        printed = false;
 };
 
+// Project a printed segment plus nozzle clearance onto the X axis within a band of Y.
+// The extremes of this capsule lie on its two parallel sides or its endpoint circles.
+std::pair<double, double> rib_shadow(const Vec2d& a, const Vec2d& b, double r, double y0, double y1)
+{
+    double lo = std::numeric_limits<double>::infinity(), hi = -lo;
+    auto   include = [&](double x) {
+        lo = std::min(lo, x);
+        hi = std::max(hi, x);
+    };
+    for (const auto& p : {a, b}) {
+        const double dy = std::clamp(p.y(), y0, y1) - p.y();
+        if (std::abs(dy) <= r) {
+            const double dx = std::sqrt(std::max(0., r * r - dy * dy));
+            include(p.x() - dx);
+            include(p.x() + dx);
+        }
+    }
+    const Vec2d d = b - a;
+    if (std::abs(d.y()) > 1e-9) {
+        const Vec2d normal = Vec2d(-d.y(), d.x()) * (r / d.norm());
+        for (int sign : {-1, 1}) {
+            const Vec2d start = a + sign * normal;
+            for (double y : {y0, y1}) {
+                const double t = (y - start.y()) / d.y();
+                if (t >= 0. && t <= 1.)
+                    include(start.x() + t * d.x());
+            }
+        }
+    }
+    return {lo, hi};
+}
+
 } // namespace
 
 struct SkyLaneTower::Runtime
@@ -420,6 +452,8 @@ struct SkyLaneTower::Runtime
     // lie beyond the fence line (the only parts a lanes zone may raise: nozzle-cone clearance).
     bool   rib = false, rib_fillet = false, base_done = false;
     double rib_hw = 0., rib_len = 0., height = 0., rib_top = 0.;
+    // Actual arm and fence paths indexed by the height at which they were deposited.
+    std::map<double, std::vector<std::vector<Vec2d>>> printed_ribs;
     // Wall type = Cone: the Y semi-axis of the cone at height z (0 = no cone there: it
     // only exists while it reaches past the fence line, cone_min_b). X semi-axis = b / cone_sx.
     // It shares rib_top (printed top of the part beyond the fence line) with the Rib arms.
@@ -924,6 +958,7 @@ void SkyLaneTower::begin_emission() const
     rt.brim_done     = false;
     rt.base_done     = false;
     rt.rib_top       = 0.;
+    rt.printed_ribs.clear();
     rt.band_wall_gap = rt.band_wall_transition = rt.band_wall_roots = false;
     rt.band_wall_entry                                              = Vec2d::Zero();
     rt.wall_top                                                     = 0.;
@@ -1023,8 +1058,11 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
     for (size_t k = 0; k < passes.size(); ++k)
         if (passes[k].demand >= 0 || (passes[k].tool == d.old_tool && d.old_tool != d.new_tool))
             n_wipe = k + 1;
-    const SkyLane::Pass* lead  = passes.empty() ? nullptr : &passes.front();
-    const float          new_z = lead ? float(lead->z_base + lead->h) : src.print_z;
+    // A levelling sliver emits no moves. The external travel must go to the
+    // first band that will actually be printed, using that band's clearance.
+    const auto           printable = std::find_if(passes.begin(), passes.end(), [](const SkyLane::Pass& ps) { return ps.h >= .02; });
+    const SkyLane::Pass* lead      = printable == passes.end() ? nullptr : &*printable;
+    const float          new_z     = lead ? float(lead->z_base + lead->h) : src.print_z;
     if (double(src.print_z) - new_z > rt.deepest)
         rt.deepest = double(src.print_z) - new_z;
 
@@ -1056,6 +1094,13 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
     };
     // "Fillet wall" (Rib only): rounds the corners of a path before it is travelled to and printed.
     auto shape = [&](const std::vector<Vec2d>& pts, bool closed) { return rt.rib && rt.rib_fillet ? rib_round(pts, closed, 2.) : pts; };
+    auto remember_rib = [&](double z, const std::vector<Vec2d>& pts, bool closed) {
+        if (rt.rib && pts.size() >= 2) {
+            auto& path = rt.printed_ribs[z].emplace_back(pts);
+            if (closed)
+                path.push_back(pts.front());
+        }
+    };
     auto record_outline = [&](double z, const std::vector<Vec2d>& points, bool brim = false) {
         Polyline line;
         for (const auto& point : points)
@@ -1120,6 +1165,7 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                     const double       top = rt.rib_top + h * (k + 1);
                     const RibArm       a   = rib_arm(fx0, fy0, fx1, fy1, i, rt.rib_hw, rib_far_ext(top));
                     std::vector<Vec2d> pts = shape({a.p_in, a.t_in, a.t_out, a.p_out}, false);
+                    remember_rib(top, pts, false);
                     if (k % 2)
                         std::reverse(pts.begin(), pts.end());
                     o << std::setprecision(3) << "G1 X" << pts.front().x() << " Y" << pts.front().y() << " F12000\n";
@@ -1146,13 +1192,45 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         }
         return {center, center};
     };
-    auto pass_start = [&](const SkyLane::Pass& ps, int pc) {
+    auto row_range = [&](const SkyLane::Pass& ps) -> std::pair<double, double> {
         if (ps.merged) {
             double y0 = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2;
             double y1 = std::min(ps.y1, ps.cell_y1 - lw) - lw / 2;
-            return Vec2f(float(pc % 2 ? xmax - lw : xmin + lw), float(y1 < y0 ? (y0 + y1) / 2 : y0));
+            if (y1 < y0)
+                y0 = y1 = (y0 + y1) / 2;
+            return {y0, y1};
         }
-        return Vec2f(float((pc / 2) % 2 ? xmax : xmin), float(lane_rows(ps).first));
+        return lane_rows(ps);
+    };
+    auto row_ends = [&](const SkyLane::Pass& ps, double y0, double y1) {
+        double       left = xmin + (ps.merged ? lw : 0.), right = xmax - (ps.merged ? lw : 0.);
+        const double mid = (left + right) / 2., z = ps.z_base + ps.h;
+        // Keep the entire row rectangle clear. Landing inside and then moving
+        // at purge height to the old corner would still strike the rib.
+        for (auto it = rt.printed_ribs.upper_bound(z + 1e-6); it != rt.printed_ribs.end(); ++it) {
+            // Allow for XYZ rounding in the final, rotated machine G-code.
+            const double radius = lw / 2 + p.r_tip + (it->first - z) * std::tan(p.cone_deg * M_PI / 180.) + .005;
+            for (const auto& path : it->second)
+                for (size_t k = 1; k < path.size(); ++k) {
+                    const Vec2d &a = path[k - 1], &b = path[k];
+                    if (std::max(a.y(), b.y()) + radius < y0 || std::min(a.y(), b.y()) - radius > y1 ||
+                        std::max(a.x(), b.x()) + radius <= left || std::min(a.x(), b.x()) - radius >= right)
+                        continue;
+                    const auto [lo, hi] = rib_shadow(a, b, radius, y0, y1);
+                    if (lo <= mid)
+                        left = std::max(left, hi);
+                    if (hi >= mid)
+                        right = std::min(right, lo);
+                }
+        }
+        if (right - left < lw)
+            throw std::runtime_error("SkyLane cannot fit a purge row clear of the printed rib; export stopped");
+        return std::pair<double, double>{left, right};
+    };
+    auto pass_start = [&](const SkyLane::Pass& ps, int pc) {
+        const auto [y0, y1] = row_range(ps);
+        const auto [xa, xb] = row_ends(ps, y0, y1);
+        return Vec2f(float((ps.merged ? pc : pc / 2) % 2 ? xb : xa), float(y0));
     };
     const SkyLane::Pass* previous_pass = nullptr;
 
@@ -1173,29 +1251,23 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             rt.H[size_t(ps.lane)] = std::max(rt.H[size_t(ps.lane)], top);
             return;
         }
-        auto [y0, y1] = lane_rows(ps);
-        double    xa = xmin, xb = xmax;
+        const auto [y0, y1] = row_range(ps);
+        const auto [xa, xb] = row_ends(ps, y0, y1);
         const int pc = rt.lane_pass[size_t(ps.lane)]++;
-        Vec2f     st = pass_start(ps, pc);
+        Vec2f     st(float((ps.merged ? pc : pc / 2) % 2 ? xb : xa), float(y0));
         if (!first && (ps.merged || ps.block_round)) {
-            // A whole-tower round has an inner wall margin. A material block's
-            // rows already have their clearance. Both can start at the nearest end.
-            const double low   = ps.merged ? std::max(ps.y0, ps.cell_y0 + lw) + lw / 2 : y0;
-            const double high  = ps.merged ? std::min(ps.y1, ps.cell_y1 - lw) - lw / 2 : y1;
-            const double inset = ps.merged ? lw : 0.;
-            st.x()             = float(cur_xy.x() > (xmin + xmax) / 2 ? xmax - inset : xmin + inset);
-            st.y() = float(high < low ? (low + high) / 2 : (std::abs(cur_xy.y() - high) < std::abs(cur_xy.y() - low) ? high : low));
+            st.x() = float(cur_xy.x() > (xmin + xmax) / 2 ? xb : xa);
+            st.y() = float(std::abs(cur_xy.y() - y1) < std::abs(cur_xy.y() - y0) ? y1 : y0);
         }
         // Only an adjacent, unprinted band on the same merged plane permits a
         // level entry. All other repositioning retains the clearance lift.
-        const double hi       = *std::max_element(rt.H.begin(), rt.H.end());
+        const double hi       = std::max({*std::max_element(rt.H.begin(), rt.H.end()), rt.wall_top, rt.rib_top});
         const bool   adjacent = !first && ps.merged && previous_pass && previous_pass->merged &&
                               std::abs(previous_pass->z_base + previous_pass->h - top) < 1e-6 && std::abs(cur_z - (top + z_off)) < 1e-4 &&
-                              std::max({hi, rt.rib_top, rt.wall_top}) <= top + 1e-6 && cur_xy.x() >= xmin - 1e-4 &&
-                              cur_xy.x() <= xmax + 1e-4 &&
+                              hi <= top + 1e-6 && cur_xy.x() >= xmin - 1e-4 && cur_xy.x() <= xmax + 1e-4 &&
                               ((std::abs(previous_pass->y1 - ps.y0) < 1e-6 && std::abs(cur_xy.y() - ps.y0) < 1e-4) ||
                                (std::abs(previous_pass->y0 - ps.y1) < 1e-6 && std::abs(cur_xy.y() - ps.y1) < 1e-4));
-        if (!first) {
+        if (!first || !cur_xy.isApprox(st, 1e-6f)) {
             if (adjacent)
                 o << "; SKYLANE adjacent band travel\n";
             else if (cur_z < hi + 0.2 + z_off)
@@ -1258,8 +1330,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         // the wall's centreline: the cell of the pass (tapered = narrower, centred; the cone
         // then leaves from the cell's own sides, like the classic tower's layer box)
         const double cy0 = (ps.merged ? ps.cell_y0 : 0.) + lw / 2, cy1 = (ps.merged ? ps.cell_y1 : rt.depth) - lw / 2;
-        record_outline(top, rt.cone ? wall_loop(xa, cy0, xb, cy1, top, 0.) :
-                                      shape(rib_loop(xa, cy0, xb, cy1, rt.rib ? rt.rib_hw : 0., rt.rib_ext(top)), true));
+        record_outline(top, rt.cone ? wall_loop(xmin, cy0, xmax, cy1, top, 0.) :
+                                      shape(rib_loop(xmin, cy0, xmax, cy1, rt.rib ? rt.rib_hw : 0., rt.rib_ext(top)), true));
         if (ps.merged && ps.wall) {
             rt.band_wall_gap        = rt.wall_gap && info.is_tc;
             rt.band_wall_entry      = st.cast<double>();
@@ -1284,6 +1356,7 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             o << "; SKYLANE WALL\n";
             o << std::setprecision(3) << "G1 X" << piece.front().x() << " Y" << piece.front().y() << " F12000\n";
             emit_path(o, piece, false, e_per_mm, wfeed, cur_xy);
+            remember_rib(top, piece, false);
             o << "; SKYLANE WALL_END\n";
         };
         // Use a purge row to cross between the two side walls. Printing both
@@ -1342,6 +1415,7 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                     }
                     o << std::setprecision(3) << "G1 X" << piece.front().x() << " Y" << piece.front().y() << " F12000\n";
                     emit_path(o, piece, false, e_per_mm, wfeed, cur_xy);
+                    remember_rib(top, piece, false);
                 }
             };
             auto wall_path = [&](const std::vector<Vec2d>& path, bool closed) { emit_pieces(clip_wall_band(path, closed, low, high)); };
@@ -1386,12 +1460,6 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             o << "; SKYLANE WALL_END\n";
         };
         if (ps.merged) {
-            xa += lw;
-            xb -= lw;
-            y0 = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2;
-            y1 = std::min(ps.y1, ps.cell_y1 - lw) - lw / 2;
-            if (y1 < y0)
-                y0 = y1 = (y0 + y1) / 2;
             fx = st.x() > (xa + xb) / 2;
             fy = st.y() > (y0 + y1) / 2;
             o << std::setprecision(3) << "G1 X" << (fx ? xb : xa) << " Y" << (fy ? y1 : y0) << " F12000\n";
@@ -1604,6 +1672,7 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                     o << "G1 X" << pts.front().x() << " Y" << pts.front().y() << " F12000\n";
                     o << "G1 Z" << z0 + z_off << " F600\n";
                     emit_path(o, pts, false, lw * (z0 - rt.rib_top) / rt.area(tool), first_speed * 60., cur_xy);
+                    remember_rib(z0, pts, false);
                 }
             cur_z = z0 + z_off;
             o << "; WIPE_TOWER_BRIM_END\n";
@@ -1764,6 +1833,7 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
                 o << std::setprecision(3) << "G1 X" << ring_start.x() << " Y" << ring_start.y() << " F12000\n";
                 o << "G1 Z" << top + z_off << " F600\n;HEIGHT:" << std::setprecision(4) << h << "\n";
                 emit_path(o, loop, true, e_mm, 2400., cur_xy);
+                remember_rib(top, loop, true);
                 rt.wall_top = top;
                 cur_z       = top + z_off;
             }

@@ -749,3 +749,89 @@ TEST_CASE("A partitioned SkyLane fence uses supported passes up to its chosen he
     CHECK(rings > 0);
     CHECK(rings < nominal.size() - 1);
 }
+
+TEST_CASE("Dips and purge rows clear previously printed rib corners", "[SkyLane][Geometry]")
+{
+    auto config                                     = configuration(4);
+    config.filament_adhesiveness_category.values    = {100, 300, 100, 300};
+    config.filament_multitool_ramming.values        = {true, true, true, true};
+    config.filament_multitool_ramming_volume.values = {5., .5, 0., 4.};
+    config.prime_volume.value                       = 18.;
+    config.wipe_tower_wall_type.value               = WipeTowerWallType::wtwRib;
+    config.wipe_tower_extra_rib_length.value        = 2.;
+    config.wipe_tower_rib_width.value               = 8.;
+    SECTION("Filleted corners") { config.wipe_tower_fillet_wall.value = true; }
+    SECTION("Sharp corners") { config.wipe_tower_fillet_wall.value = false; }
+    Layers nominal(55);
+    int    tool = 0;
+    for (size_t layer = 0; layer < nominal.size(); ++layer) {
+        int                    n     = 0;
+        const std::vector<int> order = layer % 2 ? std::vector<int>{1, 2, 3, 0} : std::vector<int>{2, 1, 3, 0};
+        for (int next : order) {
+            const float z = float(.2 + .12 * layer - (layer == 0 && n++ > 0 ? .08 : 0.));
+            nominal[layer].push_back(visit(z, .12f, tool, next));
+            tool = next;
+        }
+    }
+    SkyLaneTower tower;
+    REQUIRE(tower.plan(config, nominal, {}, 5.f));
+    tower.begin_emission();
+    std::map<double, Linesf> ribs;
+    int                      checked = 0;
+    double                   worst   = std::numeric_limits<double>::infinity();
+    std::string              worst_move;
+    auto                     check_move = [&](const Linef& move, double z, const std::string& source) {
+        for (auto it = ribs.upper_bound(z + .001); it != ribs.end(); ++it) {
+            const double required = .25 + .5 + (it->first - z) * std::tan(40. * M_PI / 180.);
+            for (const Linef& edge : it->second) {
+                auto side = [](const Linef& l, const Vec2d& p) {
+                    return (l.b.x() - l.a.x()) * (p.y() - l.a.y()) - (l.b.y() - l.a.y()) * (p.x() - l.a.x());
+                };
+                const bool   cross = side(move, edge.a) * side(move, edge.b) < 0. && side(edge, move.a) * side(edge, move.b) < 0.;
+                const double distance = cross ? 0. :
+                                                                    std::min({line_alg::distance_to(edge, move.a), line_alg::distance_to(edge, move.b),
+                                                          line_alg::distance_to(move, edge.a), line_alg::distance_to(move, edge.b)});
+                if (distance - required < worst) {
+                    worst = distance - required;
+                    std::ostringstream detail;
+                    detail << source << " Z=" << z << " move=" << move.a.transpose() << " to " << move.b.transpose()
+                           << " rib Z=" << it->first << " from " << edge.a.transpose() << " to " << edge.b.transpose();
+                    worst_move = detail.str();
+                }
+            }
+            ++checked;
+        }
+    };
+    for (const auto& layer : nominal)
+        for (const auto& original : layer) {
+            const auto result = tower.place(original);
+            for (const auto& entry : {result.start_pos, result.tool_change_start_pos})
+                check_move(Linef(entry.cast<double>(), entry.cast<double>()), result.skylane_z, "tool entry");
+            bool        fence = false, band = false;
+            GCodeReader reader;
+            reader.apply_config(config);
+            reader.x() = result.start_pos.x();
+            reader.y() = result.start_pos.y();
+            reader.z() = result.skylane_z;
+            reader.parse_buffer(result.gcode, [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
+                if (line.raw() == "; SKYLANE base wall" || line.raw() == "; SKYLANE rib")
+                    fence = true;
+                if (line.raw() == "; WIPE_TOWER_END")
+                    fence = false;
+                if (line.raw().rfind("; SKYLANE BAND ", 0) == 0)
+                    band = true;
+                if (line.raw() == "; SKYLANE BAND_END")
+                    band = false;
+                if (!line.cmd_is("G1"))
+                    return;
+                const Linef move({state.x(), state.y()}, {line.new_X(state), line.new_Y(state)});
+                if (fence && line.extruding(state) && line.dist_XY(state) > .001)
+                    ribs[state.z()].push_back(move);
+                if (band && (line.dist_Z(state) < 0. || line.dist_XY(state) > .001))
+                    check_move(move, line.new_Z(state), line.raw());
+            });
+        }
+    REQUIRE(checked > 0);
+    INFO(worst_move);
+    CHECK(worst >= 0.);
+}

@@ -71,6 +71,12 @@ when regions need support before the next round. The foundation is solid and
 the brim follows its outline. Taller neighbouring lanes also reduce the width
 available for a lower pass, leaving clearance for the nozzle.
 
+On a first layer with no tool change, a shared tower can start with a thin
+grid and outline. For example, with a 0.25 mm first layer and 0.20 mm reserved
+for upcoming purges, the grid prints directly on the bed at Z = 0.05 mm. On
+the next visit the tower completes its base to 0.25 mm. The model still prints
+its first layer at the configured height.
+
 The three wall types use the same lane-planning approach:
 
 | Wall type | Shape and behaviour |
@@ -105,6 +111,9 @@ the largest configured Z hop, with a minimum of 75% of the smallest nozzle
 diameter. An explicit dip also limits the maximum pass height. The planner uses
 a simplified nozzle-clearance envelope, including a 40° cone and at least a
 0.5 mm tip radius. This is not a model of the entire toolhead or printer.
+When a rib corner is already higher than the target lane, the nozzle lands
+farther inside the lane if needed. The purge rows also stop short of the
+printed corner. A deeper dip needs more room for the wider part of the nozzle.
 
 The ramp controls a flow ceiling, not a promise that every move will reach a
 particular speed. Maximum tower speed, initial-layer speed, filament volumetric
