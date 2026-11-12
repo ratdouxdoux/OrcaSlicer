@@ -1,4 +1,5 @@
 #include "AIModelTools.hpp"
+#include "AIModelFeatures.hpp"
 #include "AIPrintAssistant.hpp"
 #include "Emboss.hpp"
 #include "CutUtils.hpp"
@@ -58,6 +59,10 @@ void validate(const json& value, const json& schema, const std::string& path)
             throw std::runtime_error("Invalid array length for " + path + ".");
         for (const auto& element : value)
             validate(element, schema.at("items"), path);
+    } else if (value.is_object() && !schema.contains("properties")) {
+        // Free-form maps such as modifier settings; their consumer validates them.
+        if (value.size() > 64)
+            throw std::runtime_error("Too many entries in " + path + ".");
     } else if (value.is_object()) {
         for (const auto& key : schema.at("required"))
             if (!value.contains(key.get<std::string>()))
@@ -206,6 +211,18 @@ json model_tool_catalog()
          {"filament_id", {{"type", "integer"}, {"minimum", 1}, {"maximum", 64}}},
          {"instance_id", str()}},
         {"channel", "state", "face"});
+    const json settings = {{"type", "object"},
+                           {"description", "Setting key: value pairs, typed as search_settings shows them. Only per-region settings "
+                                           "(walls, infill, speeds, ...) apply inside a modifier. null removes a key."}};
+    add("add_feature_modifier",
+        "Add a modifier volume around a feature from get_model_features and give it settings that apply only inside it. shape=mesh "
+        "follows the feature band by band: a slab along a slope or curve, one prism for a straight wall. shape=box fills the "
+        "feature's bounding box, including any other geometry inside it. margin_mm (default 1) grows either shape in every "
+        "direction. Layer height and other object-wide settings cannot vary inside a modifier.",
+        {{"feature_id", str()}, {"shape", enumeration({"box", "mesh"})}, {"margin_mm", number(0, 20)}, {"settings", settings}, {"name", str()}},
+        {"feature_id", "shape", "settings"});
+    add("set_modifier_settings", "Change the settings of the modifier volume_id. null removes a key.", {{"settings", settings}},
+        {"settings"});
     add("split_parts", "Split a disconnected volume into parts, preserving its transform.", json::object());
     add("boolean",
         "Union, subtract or intersect two parts of the same object; consumes the second part. Replaces meshes and clears painting/text "
@@ -547,7 +564,9 @@ PreparedModelEdit prepare_model_edit(const Model&                    original,
                                      const std::vector<std::string>& colors,
                                      const ModelOperation&           operation,
                                      const std::string&              resources,
-                                     const std::optional<Vec3d>&     new_object_plate_center)
+                                     const std::optional<Vec3d>&     new_object_plate_center,
+                                     const DynamicPrintConfig*       object_settings,
+                                     const FeatureReport*            features)
 {
     // The same strict validation applies to model proposals and offline callers.
     parse_model_operation({{"context_id", operation.context_id},
@@ -810,6 +829,45 @@ PreparedModelEdit prepare_model_edit(const Model&                    original,
             throw std::runtime_error("No facets match this surface selection.");
         annotation.set(selector);
         edit.result["painted_facets"] = count;
+    } else if (action == "add_feature_modifier" || action == "set_modifier_settings") {
+        if (!object_settings)
+            throw std::runtime_error("This operation requires the native application adapter.");
+        ModelVolume* volume = nullptr;
+        if (action == "add_feature_modifier") {
+            if (!features || features->object_id != operation.object_id)
+                throw std::runtime_error("Read get_model_features for this object first.");
+            const auto inst = std::find_if(object.instances.begin(), object.instances.end(),
+                                           [&](const ModelInstance* item) { return id(item->id()) == features->instance_id; });
+            if (inst == object.instances.end() ||
+                feature_geometry_key(object, size_t(inst - object.instances.begin()), *object_settings) != features->geometry_key)
+                throw std::runtime_error("The object changed since get_model_features. Read it again.");
+            const auto wanted  = p.at("feature_id").get<std::string>();
+            const auto feature = std::find_if(features->features.begin(), features->features.end(),
+                                              [&](const ModelFeature& item) { return item.id == wanted; });
+            if (feature == features->features.end())
+                throw std::runtime_error("Unknown feature_id. Read get_model_features again.");
+            // Centre the mesh on its own origin, as add_primitive does, so the
+            // modifier rotates and scales about itself in the object list.
+            TriangleMesh mesh(feature_modifier_mesh(*feature, p.at("shape") == "mesh", p.value("margin_mm", 1.)));
+            const Vec3d  center = mesh.bounding_box().center();
+            mesh.translate(-center.cast<float>());
+            volume       = object.add_volume(std::move(mesh), ModelVolumeType::PARAMETER_MODIFIER, false);
+            volume->name = p.value("name", feature->id);
+            volume->set_transformation((*inst)->get_matrix().inverse() * Transform3d(Eigen::Translation3d(center)));
+            edit.result["volume_id"] = id(volume->id());
+            edit.result["size_mm"]   = vec(volume->mesh().transformed_bounding_box((*inst)->get_matrix() * volume->get_matrix()).size());
+        } else {
+            volume = &find_volume(object, operation.volume_id);
+            if (volume->type() != ModelVolumeType::PARAMETER_MODIFIER)
+                throw std::runtime_error("Choose a modifier volume.");
+        }
+        volume->config.assign_config(prepare_modifier_settings(*object_settings, volume->config.get(), p.at("settings")));
+        json applied = json::object();
+        for (const auto& key : volume->config.keys())
+            applied[key] = setting_value(volume->config.get(), key);
+        edit.result["settings"] = applied;
+        object.sort_volumes(true);
+        object.invalidate_bounding_box();
     } else if (action == "split_parts") {
         auto& volume = find_volume(object, operation.volume_id);
         if (!volume.mesh().is_splittable())

@@ -24,5 +24,8 @@ AIPrintAssistant::GeneratedModels& ai_generated_models();
 // The generated part of object_id. Throws unless exactly one of its parts still matches its code.
 const ModelVolume& ai_generated_part(Plater& plater, const std::string& object_id);
 nlohmann::json     ai_model_source(Plater& plater, const nlohmann::json& arguments);
+// Detects an active-plate object's features before slicing. The report stays
+// cached for add_feature_modifier until the object's geometry or settings change.
+nlohmann::json ai_model_features(Plater& plater, const nlohmann::json& arguments);
 } // namespace Slic3r::GUI
 #endif

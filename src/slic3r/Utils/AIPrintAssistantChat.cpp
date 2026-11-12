@@ -1,6 +1,7 @@
 #include "AIPrintAssistantChat.hpp"
 #include "libslic3r/AIKnowledgeBase.hpp"
 #include "libslic3r/AIGeneratedModel.hpp"
+#include "libslic3r/AIModelFeatures.hpp"
 #include "libslic3r/AISliceTools.hpp"
 
 #include <algorithm>
@@ -102,6 +103,21 @@ json tool_definitions(Provider provider)
          {"properties", {{"object_id", {{"type", "string"}, {"maxLength", 32}}}}},
          {"required", {"object_id"}},
          {"additionalProperties", false}});
+    add("get_model_features",
+        "Detect an active-plate object's printing features before slicing, using the slicer's own geometry and settings: overhangs "
+        "graded like its overhang speeds, bridges, floating areas, thin walls, details finer than a line, small sections, thin "
+        "plates, vertical and horizontal holes, cavities, narrow gaps, flat tops, shallow slopes, curved surfaces, sharp edges, bed "
+        "contact, material boundaries, painted regions and text. Each feature has an id, a world bounding box and measurements, and "
+        "definitions explains every kind returned. Pass the id to add_feature_modifier to give that feature its own settings. "
+        "Use it whenever you work on an object's print quality, strength or reliability, not only when features are mentioned. "
+        "Read-only; does not slice.",
+        {{"type", "object"},
+         {"properties",
+          {{"object_id", {{"type", "string"}, {"maxLength", 32}}},
+           {"kinds", {{"type", "array"}, {"items", {{"type", "string"}, {"enum", feature_kinds()}}}}},
+           {"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 50}, {"description", "Most features per kind, largest first; default 8."}}}}},
+         {"required", {"object_id"}},
+         {"additionalProperties", false}});
     return tools;
 }
 
@@ -199,7 +215,8 @@ std::string make_chat_request(Provider provider, const std::string& model, const
         "Complete ALL requested steps in order without asking the user to Apply between steps. After every mutation read fresh "
         "context before the next dependent edit; geometry and setting context IDs change. Tool results confirm preview updates. "
         "For example, resize first, then add lettering to the resized face, then adjust print settings. "
-        "Use propose_settings for print-setting edits. Continue until the requested work is finished or a real blocker requires user "
+        "Use propose_settings for print-setting edits that apply to a whole object or preset; settings for one feature go in a "
+        "modifier, as described below. Continue until the requested work is finished or a real blocker requires user "
         "input. If a tool fails, use its explanation to correct the request; do not repeatedly retry the same failure. "
         "Then summarize the COMPLETE preview and invite the user to Apply to keep everything or Dismiss to remove everything. "
         "Say changes are previewed, not permanently accepted, until an application event confirms Apply. "
@@ -212,6 +229,16 @@ std::string make_chat_request(Provider provider, const std::string& model, const
         "and the rendered view when one is attached, against the request. To change a generated model, read its code with "
         "get_model_source, edit it and call generate_model with that object_id; it is rebuilt in place. Native tools remain best "
         "for primitives, text on existing models and edits of imported meshes, and they can edit generated models too. "
+        "When asked to improve an object's print quality, strength or reliability, or when settings should differ on part of a "
+        "model, call get_model_features for that object. Keep object or preset settings for what applies everywhere, and fix "
+        "problems confined to some features with modifiers instead of changing the whole print: one add_feature_modifier per "
+        "feature through propose_model_operation, whose settings apply only inside it. Examples: slower outer walls on an "
+        "overhang steeper than the overhang speeds handle well, ironing on a visible flat_top, finer walls on fine_detail and "
+        "text, more walls around a load-bearing hole or thin_wall. The slicer already grades overhang walls, bridges, gap fill and "
+        "small perimeters by itself, so add a modifier only where a feature's measures show that is not enough, and say which "
+        "measure. Use shape=mesh: it follows slopes and curves band by band; shape=box fills the whole bounding box, "
+        "including other geometry inside it. Modifiers cannot change layer height or filament settings such as cooling. Name "
+        "each modifier after its feature; change one with set_modifier_settings or remove it with delete and its volume_id. "
         "One edit scope is active at a time; other scopes are read-only. When a needed change belongs to another scope (a shared "
         "process, filament or printer preset setting, or an override on one object), call request_edit_scope with the target scope "
         "and a one-sentence reason; the user confirms or declines in the app. After a switch, read get_print_context again before "

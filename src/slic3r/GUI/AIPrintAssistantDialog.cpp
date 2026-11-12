@@ -84,6 +84,8 @@ wxString model_action_label(const std::string& action)
                                                            {"delete", _L("Delete")},
                                                            {"rename", _L("Rename")},
                                                            {"set_part_type", _L("Change part type")},
+                                                           {"add_feature_modifier", _L("Add feature modifier")},
+                                                           {"set_modifier_settings", _L("Change modifier settings")},
                                                            {"split_parts", _L("Split into parts")},
                                                            {"boolean", _L("Combine shapes")},
                                                            {"simplify", _L("Simplify mesh")},
@@ -834,6 +836,7 @@ void AIPrintAssistantPanel::add_tool_card(const AI::ChatToolCall& call, const js
                  call.name == "request_edit_scope" ? _L("Asked to change the edit scope") :
                  call.name == "generate_model"     ? _L("Generated a model") :
                  call.name == "get_model_source"   ? _L("Read the model's code") :
+                 call.name == "get_model_features" ? _L("Detected model features") :
                  call.name == "propose_model_operation" && call.arguments.is_object() && call.arguments.contains("operation") &&
                          call.arguments["operation"].is_string() ?
                                                    model_action_label(call.arguments["operation"].get<std::string>()) :
@@ -1374,6 +1377,13 @@ void AIPrintAssistantPanel::run_tools()
             } else if (call.name == "get_model_source") {
                 result         = ai_model_source(*m_plater, call.arguments);
                 m_tool_summary = from_utf8(result["name"].get<std::string>());
+            } else if (call.name == "get_model_features") {
+                result = ai_model_features(*m_plater, call.arguments);
+                for (const auto& [kind, count] : result["counts"].items()) {
+                    auto name = from_utf8(kind);
+                    name.Replace("_", " ");
+                    m_tool_summary += wxString::Format("%s%d %s", m_tool_summary.empty() ? "" : ", ", count.get<int>(), name);
+                }
             } else if (call.name == "get_model_context" || call.name == "list_model_tools") {
                 if (!call.arguments.is_object() || !call.arguments.empty())
                     throw std::runtime_error("This tool takes no arguments.");

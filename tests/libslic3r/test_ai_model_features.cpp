@@ -458,6 +458,57 @@ TEST_CASE("Assistant mesh modifiers follow sloped features", "[AIPrintAssistant]
     }
 }
 
+TEST_CASE("Assistant adds and edits feature modifiers through model operations", "[AIPrintAssistant][fast]")
+{
+    Model                    model;
+    auto*                    object = model.add_object();
+    MixedFilamentManager     mixes;
+    std::vector<std::string> colors{"#FF0000"};
+    auto                     shape = box(10, 10, 10, {10, 0, 0});
+    MeshBoolean::cgal::plus(shape, box(30, 10, 2, {0, 0, 10}));
+    object->add_volume(std::move(shape), ModelVolumeType::MODEL_PART, false);
+    object->add_instance()->set_offset({50, 50, 0});
+    object->invalidate_bounding_box();
+    const auto config   = settings();
+    const auto features = AI::detect_model_features(*object, 0, config);
+    auto       prepare  = [&](const Model& current, const std::string& action, const json& parameters, const std::string& volume = {}) {
+        const auto context = AI::capture_model_tool_context(current, {}, colors, mixes);
+        const auto op      = AI::parse_model_operation({{"context_id", context.id},
+                                                        {"operation", action},
+                                                        {"object_id", std::to_string(current.objects.front()->id().id)},
+                                                        {"volume_id", volume},
+                                                        {"parameters", parameters}});
+        return AI::prepare_model_edit(current, mixes, colors, op, AI_ASSISTANT_RESOURCE_DIR, std::nullopt, &config, &features);
+    };
+    const auto overhang = of(features, "overhang").front();
+    auto       edit     = prepare(model, "add_feature_modifier",
+                                  {{"feature_id", overhang->id}, {"shape", "mesh"}, {"settings", {{"outer_wall_speed", 20}}}});
+    const auto& volumes = edit.model.objects.front()->volumes;
+    const auto  added   = std::find_if(volumes.begin(), volumes.end(), [](const ModelVolume* v) { return v->is_modifier(); });
+    REQUIRE(added != volumes.end());
+    CHECK((*added)->name == overhang->id);
+    CHECK((*added)->config.get().option<ConfigOptionFloats>("outer_wall_speed")->values.front() == 20.);
+    // In world coordinates the modifier wraps the feature, whatever the instance offset.
+    const auto world = (*added)->mesh().transformed_bounding_box(edit.model.objects.front()->instances.front()->get_matrix() *
+                                                                 (*added)->get_matrix());
+    CHECK(world.contains(overhang->box.center()));
+    CHECK(edit.result["settings"]["outer_wall_speed"][0] == 20.);
+
+    const auto modifier_id = std::string(edit.result["volume_id"]);
+    const auto changed     = prepare(edit.model, "set_modifier_settings", {{"settings", {{"outer_wall_speed", nullptr}, {"wall_loops", 5}}}},
+                                     modifier_id);
+    CHECK(changed.result["settings"] == json({{"wall_loops", 5}}));
+    // A second modifier from the same report still works: modifiers change no geometry.
+    CHECK_NOTHROW(prepare(edit.model, "add_feature_modifier", {{"feature_id", overhang->id}, {"shape", "box"}, {"settings", {{"wall_loops", 3}}}}));
+
+    CHECK_THROWS(prepare(model, "add_feature_modifier", {{"feature_id", "overhang-99"}, {"shape", "box"}, {"settings", {{"wall_loops", 3}}}}));
+    CHECK_THROWS(prepare(model, "add_feature_modifier", {{"feature_id", overhang->id}, {"shape", "box"}, {"settings", {{"layer_height", 0.1}}}}));
+    CHECK_THROWS(prepare(model, "set_modifier_settings", {{"settings", {{"wall_loops", 3}}}}, std::to_string(object->volumes[0]->id().id)));
+    // Moving the object makes the report stale.
+    auto moved = prepare(model, "transform", {{"mode", "move"}, {"value", {5, 0, 0}}});
+    CHECK_THROWS(prepare(moved.model, "add_feature_modifier", {{"feature_id", overhang->id}, {"shape", "box"}, {"settings", {{"wall_loops", 3}}}}));
+}
+
 TEST_CASE("Assistant feature detection agrees with the slicer", "[AIPrintAssistant][fast]")
 {
     // Slice for real and check that the slicer prints bridge infill and overhang

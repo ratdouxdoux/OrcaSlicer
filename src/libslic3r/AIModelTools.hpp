@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 namespace Slic3r::AIPrintAssistant {
+struct FeatureReport;
 
 struct ModelToolContext
 {
@@ -73,13 +74,17 @@ private:
 // Work on copies. The caller rechecks context, snapshots, then commits on the UI
 // thread. Font paths and the active plate's world-space surface centre are
 // supplied by the application, never guessed by the model. The plate centre is
-// required when creating a new object without an explicit position.
+// required when creating a new object without an explicit position. Modifier
+// operations need the target object's effective settings, and
+// add_feature_modifier the object's current feature report.
 PreparedModelEdit prepare_model_edit(const Model&                    model,
                                      const MixedFilamentManager&     mixes,
                                      const std::vector<std::string>& colors,
                                      const ModelOperation&           operation,
                                      const std::string&              resource_directory,
-                                     const std::optional<Vec3d>&     new_object_plate_center = std::nullopt);
+                                     const std::optional<Vec3d>&     new_object_plate_center = std::nullopt,
+                                     const DynamicPrintConfig*       object_settings         = nullptr,
+                                     const FeatureReport*            features                = nullptr);
 
 } // namespace Slic3r::AIPrintAssistant
 #endif

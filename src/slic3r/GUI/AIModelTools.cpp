@@ -14,6 +14,7 @@
 #include "MixedFilamentDialog.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/AIKnowledgeBase.hpp"
+#include "libslic3r/AIModelFeatures.hpp"
 #include "libslic3r/AISliceTools.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Utils.hpp"
@@ -45,6 +46,19 @@ const std::map<std::string, Gizmos::EType> editors = {{"move", Gizmos::Move},
                                                       {"simplify", Gizmos::Simplify},
                                                       {"brim_ears", Gizmos::BrimEars}};
 
+// The settings an object prints with: the presets, then its own overrides.
+DynamicPrintConfig object_settings(const ModelObject& object)
+{
+    auto config = wxGetApp().preset_bundle->full_config();
+    config.apply(object.config.get());
+    return config;
+}
+// Latest feature report per object ID, for add_feature_modifier.
+std::map<std::string, AIPrintAssistant::FeatureReport>& feature_reports()
+{
+    static std::map<std::string, AIPrintAssistant::FeatureReport> reports;
+    return reports;
+}
 std::string printer_model()
 {
     const auto* model = wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionString>("printer_model");
@@ -467,8 +481,17 @@ AI::PreparedModelEdit ai_prepare_model_edit(Plater& plater, const AI::ModelOpera
     std::optional<Vec3d> plate_center;
     if (auto* plate = plater.get_partplate_list().get_curr_plate())
         plate_center = plate->get_center_origin();
+    std::optional<DynamicPrintConfig> settings;
+    const AI::FeatureReport*          features = nullptr;
+    for (const auto* object : plater.model().objects)
+        if (std::to_string(object->id().id) == resolved.object_id) {
+            settings      = object_settings(*object);
+            const auto it = feature_reports().find(resolved.object_id);
+            if (it != feature_reports().end())
+                features = &it->second;
+        }
     auto result = AI::prepare_model_edit(plater.model(), wxGetApp().preset_bundle->mixed_filaments, colors, resolved, resources_dir(),
-                                         plate_center);
+                                         plate_center, settings ? &*settings : nullptr, features);
     if (result.mixes_changed) {
         // Use the same calibrated preview pipeline as the native mixing dialog.
         auto&                       mix = result.mixes.mixed_filaments().back();
@@ -654,6 +677,50 @@ const ModelVolume& ai_generated_part(Plater& plater, const std::string& object_i
         return *found;
     }
     throw std::runtime_error("The object no longer exists. Read get_model_context again.");
+}
+
+json ai_model_features(Plater& plater, const json& arguments)
+{
+    if (!arguments.is_object() || !arguments.contains("object_id") || !arguments["object_id"].is_string())
+        throw std::runtime_error("Give the object_id of an object on the active plate.");
+    for (auto it = arguments.begin(); it != arguments.end(); ++it)
+        if (it.key() != "object_id" && it.key() != "kinds" && it.key() != "limit")
+            throw std::runtime_error("Unknown argument: " + it.key());
+    std::vector<std::string> kinds;
+    if (arguments.contains("kinds"))
+        kinds = arguments["kinds"].get<std::vector<std::string>>();
+    const size_t limit = arguments.value("limit", 8);
+    if (limit < 1 || limit > 50)
+        throw std::runtime_error("Use a limit from 1 to 50.");
+    if (plater.printer_technology() != ptFFF)
+        throw std::runtime_error("Feature detection supports filament printing only.");
+    auto*       plate   = plater.get_partplate_list().get_curr_plate();
+    const auto& objects = plater.model().objects;
+    for (size_t oi = 0; plate && oi < objects.size(); ++oi) {
+        const auto& object = *objects[oi];
+        if (std::to_string(object.id().id) != arguments["object_id"].get<std::string>())
+            continue;
+        size_t instance = object.instances.size();
+        for (size_t ii = 0; ii < object.instances.size() && instance == object.instances.size(); ++ii)
+            if (plate->contain_instance(int(oi), int(ii)))
+                instance = ii;
+        if (instance == object.instances.size())
+            break;
+        size_t triangles = 0;
+        for (const auto* volume : object.volumes)
+            triangles += volume->mesh().facets_count();
+        if (triangles > 500000)
+            throw std::runtime_error("Feature detection supports objects up to 500,000 triangles.");
+        const auto settings = object_settings(object);
+        auto&      cached   = feature_reports()[arguments["object_id"].get<std::string>()];
+        if (cached.geometry_key != AI::feature_geometry_key(object, instance, settings) ||
+            cached.instance_id != std::to_string(object.instances[instance]->id().id)) {
+            wxBusyCursor busy;
+            cached = AI::detect_model_features(object, instance, settings);
+        }
+        return AI::feature_report_json(cached, kinds, limit);
+    }
+    throw std::runtime_error("That object is not on the active plate. Read get_model_context for current IDs.");
 }
 
 json ai_model_source(Plater& plater, const json& arguments)
