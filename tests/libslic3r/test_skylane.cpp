@@ -694,3 +694,58 @@ TEST_CASE("SkyLane exports permanent adhesion blocks for interleaved materials",
     // Check actual nozzle coordinates against a single boundary for the entire print.
     CHECK(max_pla + .49 < min_petg);
 }
+
+TEST_CASE("A partitioned SkyLane fence uses supported passes up to its chosen height", "[SkyLane][Materials]")
+{
+    auto config                                  = configuration();
+    config.filament_adhesiveness_category.values = {400, 500};
+    config.prime_volume.value                    = 12.;
+    config.wipe_tower_wall_type.value            = WipeTowerWallType::wtwRib;
+    config.wipe_tower_extra_rib_length.value     = 2.;
+    const Layers nominal                         = sequence(64, 2);
+    const double tower_top                       = nominal.back().front().print_z;
+    double       expected_top                    = tower_top;
+    SECTION("Full-height fence") {}
+    SECTION("Fence stops between two object layers")
+    {
+        expected_top                     = 2.37;
+        config.skylane_wall_height.value = expected_top;
+    }
+    SECTION("Fast-shrinking ribs need shorter fence steps") { config.wipe_tower_extra_rib_length.value = 12.; }
+    SkyLaneTower tower;
+    REQUIRE(tower.plan(config, nominal, {}, 5.f));
+    tower.begin_emission();
+    double last_z = nominal.front().front().print_z;
+    size_t rings  = 0;
+    for (const auto& layer : nominal)
+        for (const auto& visit : layer) {
+            auto        result = tower.place(visit);
+            bool        fence  = false;
+            double      height = 0.;
+            GCodeReader reader;
+            reader.apply_config(config);
+            reader.parse_buffer(result.gcode, [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
+                const auto raw = line.raw();
+                if (raw == "; SKYLANE base wall")
+                    fence = true;
+                if (raw == "; WIPE_TOWER_END")
+                    fence = false;
+                if (!fence)
+                    return;
+                if (raw.rfind(";HEIGHT:", 0) == 0)
+                    height = std::stod(raw.substr(8));
+                if (!line.extruding(state) || line.dist_XY(state) <= 1e-6 || std::abs(state.z() - last_z) < .001)
+                    return;
+                REQUIRE(state.z() <= visit.print_z + .001);
+                CHECK(state.z() - last_z == Approx(height).margin(.001));
+                CHECK(height >= .04 - .001);
+                CHECK(height <= .30 + .001);
+                CHECK(height * config.wipe_tower_extra_rib_length.value / tower_top <= .25 + .001);
+                last_z = state.z();
+                ++rings;
+            });
+        }
+    CHECK(last_z == Approx(expected_top).margin(.001));
+    CHECK(rings > 0);
+    CHECK(rings < nominal.size() - 1);
+}

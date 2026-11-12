@@ -37,12 +37,16 @@ height does not have to match the thickness of the current model layer.
 **Mixed materials get fixed purge regions.** SkyLane uses the adhesion category
 in each filament preset. For example, with two Snapmaker PLA colours and two
 Snapmaker PETG colours, both PLA tools purge in one region and both PETG tools
-purge in another. Those regions keep their positions for the life of the tower.
+purge in another. This applies to every adhesion category used on the plate.
+For example, the Snapmaker ABS and ASA presets share a category, while PA and
+PC each have their own. Those regions keep their positions for the life of the tower.
 At a change from PLA to PETG, outgoing ramming takes place on the PLA side and
 incoming priming on the PETG side. Within each region, colours can share a
 deposition level. If the tool-change sequence visits a lower sublayer, SkyLane
 can use independent lanes inside those same boundaries. The brim and outer
-fence serve the whole tower. If a material is absent for several layers and
+fence serve the whole tower. On a partitioned tower, the outer fence can span
+several thin model layers in one pass. Its step height follows the nozzle and
+dip limits and gets smaller where ribs or cone walls taper steeply. If a material is absent for several layers and
 will be needed again, the active tool can lay sparse support in its region.
 
 With one adhesion category, the planner considers tool changes in their

@@ -1177,12 +1177,13 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         double    xa = xmin, xb = xmax;
         const int pc = rt.lane_pass[size_t(ps.lane)]++;
         Vec2f     st = pass_start(ps, pc);
-        if (!first && ps.merged) {
-            // The first arrival still alternates corners. Subsequent bands can
-            // enter at their closest corner instead of crossing the whole cell.
-            const double low  = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2;
-            const double high = std::min(ps.y1, ps.cell_y1 - lw) - lw / 2;
-            st.x()            = float(cur_xy.x() > (xmin + xmax) / 2 ? xmax - lw : xmin + lw);
+        if (!first && (ps.merged || ps.block_round)) {
+            // A whole-tower round has an inner wall margin. A material block's
+            // rows already have their clearance. Both can start at the nearest end.
+            const double low   = ps.merged ? std::max(ps.y0, ps.cell_y0 + lw) + lw / 2 : y0;
+            const double high  = ps.merged ? std::min(ps.y1, ps.cell_y1 - lw) - lw / 2 : y1;
+            const double inset = ps.merged ? lw : 0.;
+            st.x()             = float(cur_xy.x() > (xmin + xmax) / 2 ? xmax - inset : xmin + inset);
             st.y() = float(high < low ? (low + high) / 2 : (std::abs(cur_xy.y() - high) < std::abs(cur_xy.y() - low) ? high : low));
         }
         // Only an adjacent, unprinted band on the same merged plane permits a
@@ -1713,8 +1714,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
     if (any_fill)
         o << "; WIPE_TOWER_END\n";
 
-    // Base wall: one ring around the tower, standing on the brim, raised to the layer Z at every
-    // visit until wall_h. It is NOT glued to the tower: lanes dip up to max_pit below the layer,
+    // Base wall: one ring around the tower, standing on the brim. The separate
+    // material blocks can share a fence built in taller steps. Lanes dip up to max_pit below the layer,
     // and a ring touching them would be a taller neighbour the tip scrapes (1111 scrapes
     // in the first print-ready G-code). So it keeps the nozzle-cone clearance; the brim under it
     // (whose first loop IS glued to the tower) ties ring, brim and tower into one piece.
@@ -1727,8 +1728,22 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         // perimeter is the wall). A lanes zone higher up gets no ring: it would start in mid-air.
         if (rt.lanes->merged())
             rt.wall_ended = true;
-        if (!rt.wall_ended && rt.brim_done && rt.brim >= wall_off + lw // the ring must stand on the brim
-            && rt.wall_h > 0. && rt.wall_top < rt.wall_h - 1e-6 && zl - rt.wall_top >= p.hmin - 1e-6) {
+        const bool   partitioned = !p.block_lane_ends.empty();
+        double       target = zl, step = p.hmax;
+        const double wall_end       = std::min(rt.wall_h, rt.height);
+        const bool   building_fence = !rt.wall_ended && rt.brim_done && rt.brim >= wall_off + lw &&
+                                    (partitioned ? wall_end - rt.wall_top >= p.hmin - 1e-6 : rt.wall_top < rt.wall_h - 1e-6);
+        if (building_fence && partitioned) {
+            // The detached fence supports itself. Use the available bead height
+            // and keep at least half a bead of overlap on a shrinking rib or cone.
+            const double slope = rt.rib ? rt.rib_len / rt.height : rt.cone_tan;
+            const double limit = slope > 0. ? std::clamp(lw / (2. * slope), p.hmin, p.hmax) : p.hmax;
+            const double base = rt.lanes->z0(), span = wall_end - base;
+            step = std::max(p.hmin, span / std::max(1., std::ceil(span / limit - 1e-6)));
+            // Equal steps reach the chosen height without a thin last pass.
+            target = std::min(wall_end, base + std::floor((zl - base + 1e-6) / step) * step);
+        }
+        if (building_fence && target - rt.wall_top >= p.hmin - 1e-6) {
             // with Rib the ring goes round the arms (same arms as the merged cell's
             // perimeter beyond the fence line, so one stands on the other across zones).
             auto ring = [&](double top) {
@@ -1740,8 +1755,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             o << "; SKYLANE base wall\n;TYPE:Prime tower\n; WIPE_TOWER_START\n;WIDTH:" << std::setprecision(3) << lw << "\n";
             o << std::setprecision(3) << "G1 Z" << std::max(hi, zl) + 0.2 + z_off << " F600\n";
             Vec2d ring_start(fx0, fy0);
-            while (zl - rt.wall_top >= p.hmin - 1e-6) {
-                const double             top  = std::min(zl, rt.wall_top + p.hmax);
+            while (target - rt.wall_top >= p.hmin - 1e-6) {
+                const double             top  = std::min(target, rt.wall_top + step);
                 const double             h    = top - rt.wall_top;
                 const double             e_mm = lw * h / rt.area(tool);
                 const std::vector<Vec2d> loop = ring(top);
@@ -1761,7 +1776,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             cur_xy = Vec2f(float(off_pt.x()), float(off_pt.y()));
             o << "; WIPE_TOWER_END\n";
             wall_printed = true;
-        } else if (butt && rt.base_done && !rt.lanes->merged() && zl - rt.rib_top >= p.merged_reserve - 1e-6 && far_ok(zl)) {
+        } else if (!(partitioned && building_fence) && butt && rt.base_done && !rt.lanes->merged() &&
+                   zl - rt.rib_top >= p.merged_reserve - 1e-6 && far_ok(zl)) {
             // lanes zone without ring: only the far part of the arms goes up (the roots
             // would be a taller neighbour of the lanes). The arms may lag up to merged_reserve.
             o << "; SKYLANE rib\n;TYPE:Prime tower\n; WIPE_TOWER_START\n";
