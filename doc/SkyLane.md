@@ -34,18 +34,30 @@ there is 0.3 mm of height available there. Subject to the configured dip and
 pass-height limits, the tower can use that space for a purge. Its deposition
 height does not have to match the thickness of the current model layer.
 
-The planner considers tool changes in their printing order. It tries two
-through six lanes, searches for the required depth, and replans with a 15%
-depth reserve. Among candidates within 3% of the shallowest depth, it uses
+**Mixed materials get fixed purge regions.** SkyLane uses the adhesion category
+in each filament preset. For example, with two Snapmaker PLA colours and two
+Snapmaker PETG colours, both PLA tools purge in one region and both PETG tools
+purge in another. Those regions keep their positions for the life of the tower.
+At a change from PLA to PETG, outgoing ramming takes place on the PLA side and
+incoming priming on the PETG side. Within each region, colours can share a
+deposition level. If the tool-change sequence visits a lower sublayer, SkyLane
+can use independent lanes inside those same boundaries. The brim and outer
+fence serve the whole tower. If a material is absent for several layers and
+will be needed again, the active tool can lay sparse support in its region.
+
+With one adhesion category, the planner considers tool changes in their
+printing order. It tries two through six lanes, searches for the required
+depth, and replans with a 15% depth reserve. Among candidates within 3% of
+the shallowest depth, it uses
 estimated tower time and requires a 2% improvement to choose more lanes.
 There is no manual lane-count setting. The configured tower
 width stays fixed; depth is calculated from the schedule, purge volumes,
 spacing and height limits. The body is **rectangular, with no requirement for
 equal width and depth**. Brims, ribs and cone outlines add to its footprint.
 
-**Quiet stretches can use one shared cell.** When independent lanes are not
-needed, their heights are brought together and purges occupy neighbouring
-strips within a shared round. A round is a tower deposition level; it is not
+**Quiet stretches in a single-category tower can use one shared cell.** When
+independent lanes are not needed, their heights are brought together and
+purges occupy neighbouring strips within a shared round. A round is a tower deposition level; it is not
 necessarily one model layer or one tool change. The round has a shared outer
 wall. Unused space is closed with open grid, and the tower can split into lanes
 again when the schedule requires it.
@@ -231,6 +243,11 @@ cube's exported G-code has 130 rib-outline levels, each using exactly one filame
 The supplied cube was also re-sliced before and after the routing change:
 model extrusion paths and speeds, tool order, band schedule and required purge
 amounts are preserved. Physical printing has not yet been validated for this adapted build.
+
+The material-partition regression uses two PLA and two PETG colours. It checks
+the G-code coordinates and volumes of outgoing ramming and incoming priming
+across the full tower height, including a lower sublayer and a material that
+disappears and returns.
 
 The relevant implementation files are `src/libslic3r/GCode/SkyLanePacker.cpp`
 for planning, `src/libslic3r/GCode/SkyLaneTower.cpp` for geometry and emission,

@@ -32,6 +32,8 @@ PrintConfig configuration(size_t tools = 2)
     dynamic.set("skylane_max_dip", .4);
     dynamic.option<ConfigOptionPercent>("wipe_tower_extra_spacing")->value = 120.;
     dynamic.option<ConfigOptionFloats>("filament_diameter")->values.assign(tools, 1.75);
+    // The geometry and colour fixtures use several colours of the same PLA.
+    dynamic.option<ConfigOptionInts>("filament_adhesiveness_category")->values.assign(tools, 100);
     dynamic.option<ConfigOptionFloats>("filament_max_volumetric_speed")->values.assign(tools, 10.);
     dynamic.option<ConfigOptionBools>("filament_multitool_ramming")->values.assign(tools, false);
     PrintConfig result;
@@ -599,4 +601,96 @@ TEST_CASE("SkyLane lets the first colour return at the same height without creat
     REQUIRE(first_tool.size() == 2);
     CHECK(first_tool.front().y0 == Approx(first_tool.back().y1).margin(1e-6));
     CHECK(first_tool.front().y1 == Approx(30.));
+}
+
+TEST_CASE("SkyLane exports permanent adhesion blocks for interleaved materials", "[SkyLane][Materials]")
+{
+    auto config                                  = configuration(5);
+    config.filament_adhesiveness_category.values = {100, 300, 100, 300, 999};
+    config.filament_multitool_ramming.values.assign(5, true);
+    config.filament_multitool_ramming_volume.values = {5., .5, 0., 4., 0.};
+    config.prime_volume.value                       = 18.;
+    config.wipe_tower_wall_type.value               = WipeTowerWallType::wtwRib;
+    Layers nominal(24);
+    int    tool = 0;
+    for (size_t layer = 0; layer < nominal.size(); ++layer) {
+        const std::vector<int> tools = (layer >= 7 && layer < 14) || layer > 20 ? std::vector<int>{2, 0} :
+                                       layer % 2                                ? std::vector<int>{1, 2, 3, 0} :
+                                                                                  std::vector<int>{2, 1, 3, 0};
+        for (int next : tools) {
+            nominal[layer].push_back(visit(float(.2 + .12 * layer), .12f, tool, next));
+            tool = next;
+        }
+    }
+    std::string packing = "shared rounds within each category";
+    SECTION("Nominal layers") {}
+    SECTION("A lower sublayer follows a purge at first-layer height")
+    {
+        // The first PLA round opens at .20 mm. Later changes on a lower
+        // sublayer require spare lanes in the same permanent regions.
+        for (size_t i = 1; i < nominal.front().size(); ++i)
+            nominal.front()[i].print_z = .12f;
+        packing = "independent lanes within each category";
+    }
+    SkyLaneTower tower;
+    REQUIRE(tower.plan(config, nominal, {}, 5.f));
+    tower.begin_emission();
+    const double  area    = M_PI * 1.75 * 1.75 / 4.;
+    double        max_pla = -1e6, min_petg = 1e6;
+    std::set<int> purging_tools;
+    for (size_t layer = 0; layer < nominal.size(); ++layer) {
+        const bool both_available = layer < 7 || (layer >= 14 && layer <= 20);
+        for (const auto& original : nominal[layer]) {
+            const auto placed = tower.place(original);
+            if (layer == 0 && &original == &nominal.front().front())
+                CHECK(placed.gcode.find("; SKYLANE material packing: " + packing) != std::string::npos);
+            PlaceholderParser parser;
+            const std::string change = "T" + std::to_string(original.new_tool);
+            parser.set("change_filament_gcode", change);
+            GCodeReader reader;
+            reader.apply_config(config);
+            reader.x()         = placed.start_pos.x();
+            reader.y()         = placed.start_pos.y();
+            int         active = original.initial_tool, changes = 0;
+            std::string kind;
+            double      purge = 0., ram = 0.;
+            reader.parse_buffer(parser.process(placed.gcode), [&](GCodeReader& state, const GCodeReader::GCodeLine& line) {
+                const auto raw = line.raw();
+                if (raw == change) {
+                    active = original.new_tool;
+                    ++changes;
+                }
+                if (raw.rfind("; SKYLANE BAND ", 0) == 0) {
+                    const auto start = raw.find("kind=") + 5;
+                    kind             = raw.substr(start, raw.find(' ', start) - start);
+                }
+                if (raw == "; SKYLANE BAND_END")
+                    kind.clear();
+                if (kind.empty() || !line.extruding(state) || line.dist_XY(state) <= 1e-6)
+                    return;
+                CHECK(state.z() <= original.print_z + .001);
+                CHECK(state.z() >= original.print_z - config.skylane_max_dip.value - .001);
+                if (kind == "ram") {
+                    CHECK(changes == 0);
+                    ram += line.dist_E(state) * area;
+                } else if (kind == "purge") {
+                    CHECK(changes == 1);
+                    purge += line.dist_E(state) * area;
+                    purging_tools.insert(active);
+                } else if (!both_available)
+                    return; // an absent category can receive structural support
+                const double y0 = state.y(), y1 = y0 + line.dist_Y(state);
+                if (active == 0 || active == 2)
+                    max_pla = std::max({max_pla, y0, y1});
+                else
+                    min_petg = std::min({min_petg, y0, y1});
+            });
+            CHECK(changes == 1);
+            CHECK(purge == Approx(18.).margin(.01));
+            CHECK(ram == Approx(config.filament_multitool_ramming_volume.values[original.initial_tool]).margin(.01));
+        }
+    }
+    REQUIRE(purging_tools.size() == 4);
+    // Check actual nozzle coordinates against a single boundary for the entire print.
+    CHECK(max_pla + .49 < min_petg);
 }

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <stdexcept>
 
 namespace Slic3r { namespace SkyLane {
@@ -17,9 +18,14 @@ static const Params& checked_parameters(const Params& p, double depth)
                          p.purge_density, p.merged_reserve})
         if (!std::isfinite(value))
             throw std::invalid_argument("SkyLane parameters must be finite");
-    if (depth <= 0. || p.width <= 4. * p.line_w || p.lanes < 2 || p.lanes > 6 || p.hmin <= 0. || p.hmax < p.hmin || p.max_pit < p.hmax ||
-        p.line_w <= 0. || p.r_tip < p.line_w / 2. || p.cone_deg < 0. || p.cone_deg >= 90. || p.fill_density <= 0. || p.fill_density > 1. ||
-        p.merged_density <= 0. || p.merged_density > 1. || p.purge_density <= 0. || p.purge_density > 1.)
+    if (!p.block_lane_ends.empty() &&
+        (p.block_lane_ends.front() <= 0 || p.block_lane_ends.back() != p.lanes || p.block_last_z.size() != p.block_lane_ends.size() ||
+         std::adjacent_find(p.block_lane_ends.begin(), p.block_lane_ends.end(), std::greater_equal<int>()) != p.block_lane_ends.end()))
+        throw std::invalid_argument("Invalid SkyLane material block boundaries");
+    if (depth <= 0. || p.width <= 4. * p.line_w || p.lanes < 2 || (p.lanes > 6 && p.block_lane_ends.empty()) || p.hmin <= 0. ||
+        p.hmax < p.hmin || p.max_pit < p.hmax || p.line_w <= 0. || p.r_tip < p.line_w / 2. || p.cone_deg < 0. || p.cone_deg >= 90. ||
+        p.fill_density <= 0. || p.fill_density > 1. || p.merged_density <= 0. || p.merged_density > 1. || p.purge_density <= 0. ||
+        p.purge_density > 1.)
         throw std::invalid_argument("Invalid SkyLane dimensions, density or nozzle geometry");
     return p;
 }
@@ -30,7 +36,29 @@ Lanes::Lanes(const Params& p, double depth)
     , m_d(depth / p.lanes)
     , m_tg(std::tan(p.cone_deg * M_PI / 180.0))
     , m_H(size_t(p.lanes), 0.)
-{}
+{
+    if (!p.block_rounds)
+        return;
+    Params cell       = p;
+    cell.block_rounds = false;
+    cell.block_lane_ends.clear();
+    cell.block_last_z.clear();
+    cell.tool_block.clear();
+    cell.lanes = 2;
+    // Each cell can have an open round while its neighbour is higher. Leave
+    // the same tip/cone clearance as band() at the greatest permitted dip.
+    const double gap   = p.r_tip - p.line_w / 2 + p.max_pit * m_tg;
+    int          first = 0;
+    for (const int end : p.block_lane_ends) {
+        const double y0 = first * m_d + (first > 0 ? gap / 2 : 0.);
+        const double y1 = end * m_d - (end < p.lanes ? gap / 2 : 0.);
+        if (y1 - y0 < 2 * p.line_w)
+            break;
+        auto& block = m_block_cells.emplace_back(cell, y1 - y0);
+        block.m_y0  = y0;
+        first       = end;
+    }
+}
 
 double Lanes::band(int c, double t, double& y0, double& y1) const
 {
@@ -90,6 +118,8 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
         m_z0      = z;
         m_have_z0 = true;
     }
+    if (!m_p.block_lane_ends.empty())
+        return place_material_blocks(e, idx, out);
 
     // a round left open by an earlier visit ends before the cell stops being a cell
     // (back to lanes) or the first-layer base is closed: both need the footprint level.
@@ -266,10 +296,94 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
 
     // Lanes in use from here on.
     const int ka = e.active > 0 ? std::min(e.active, k) : k;
+    return place_lanes(e, idx, 0, ka, out);
+}
+
+bool Lanes::place_material_blocks(const Demand& e, int idx, std::vector<Pass>& out)
+{
+    if (e.old_tool >= m_p.tool_block.size() || e.new_tool >= m_p.tool_block.size())
+        return false;
+    const int old_block = m_p.tool_block.at(e.old_tool), new_block = m_p.tool_block.at(e.new_tool);
+    if (old_block < 0 || new_block < 0 || size_t(old_block) >= m_p.block_lane_ends.size() || size_t(new_block) >= m_p.block_lane_ends.size())
+        return false;
+    const bool above_bed = e.z > m_z0 + 1e-4;
+    m_base_now           = m_p.solid_base && above_bed && !m_base_done;
+    m_base_done |= m_base_now;
+
+    auto place_block = [&](int block, size_t before, size_t after, float volume, float ram) {
+        const int first = block == 0 ? 0 : m_p.block_lane_ends[block - 1];
+        const int end   = m_p.block_lane_ends[block];
+        Demand    part;
+        part.z              = e.z;
+        part.layer_h        = e.layer_h;
+        part.old_tool       = before;
+        part.new_tool       = after;
+        part.volume         = volume;
+        part.ramming_volume = ram;
+        if (m_p.block_rounds) {
+            if (m_block_cells.size() != m_p.block_lane_ends.size())
+                return false;
+            Lanes& cell                = m_block_cells[block];
+            cell.m_have_z0             = true;
+            cell.m_z0                  = m_z0;
+            part.active                = 1;
+            const size_t start         = out.size();
+            const double previous_fill = cell.m_fill;
+            if (!cell.place(part, idx, out))
+                return false;
+            m_fill += cell.m_fill - previous_fill;
+            for (size_t i = start; i < out.size(); ++i) {
+                Pass& ps = out[i];
+                if (ps.z_base + ps.h > part.z + 1e-5)
+                    return false;
+                ps.lane        = first;
+                ps.block_round = ps.merged;
+                ps.merged = ps.wall = false;
+                // Only the current tool is mounted, including when it closes
+                // an earlier colour's round with a few lines of structural grid.
+                ps.tool = before;
+                std::fill(m_H.begin() + first, m_H.begin() + end, std::max(m_H[first], ps.z_base + ps.h));
+            }
+            return true;
+        }
+        if (m_p.solid_base && above_bed) {
+            for (int lane = first; lane < end; ++lane) {
+                const double h = m_z0 - m_H[lane];
+                if (h <= 1e-6)
+                    continue;
+                double y0, y1;
+                if (band(lane, m_z0, y0, y1) < m_p.line_w)
+                    return false;
+                m_fill += m_p.width * (y1 - y0) * h;
+                push(out, -1, idx, lane, h, y0, y1, true);
+                out.back().tool = before;
+            }
+        }
+        return place_lanes(part, idx, first, end, out);
+    };
+    // If a category visits at this height, its own filament supplies the grid.
+    // Across an absence the active tool carries the empty block with sparse
+    // support until the category returns (as on the conventional tower).
+    for (size_t block = 0; block < m_p.block_lane_ends.size(); ++block) {
+        if (int(block) == old_block || int(block) == new_block || e.z > m_p.block_last_z[block] + 1e-4 ||
+            std::find(e.present_blocks.begin(), e.present_blocks.end(), int(block)) != e.present_blocks.end())
+            continue;
+        if (!place_block(int(block), e.old_tool, e.old_tool, 0.f, 0.f))
+            return false;
+    }
+    if (old_block == new_block && (!m_p.block_rounds || e.old_tool == e.new_tool))
+        return place_block(old_block, e.old_tool, e.new_tool, e.volume, e.ramming_volume);
+    return place_block(old_block, e.old_tool, e.old_tool, e.ramming_volume, e.ramming_volume) &&
+           place_block(new_block, e.new_tool, e.new_tool, e.volume - e.ramming_volume, 0.f);
+}
+
+bool Lanes::place_lanes(const Demand& e, int idx, int first_lane, int end_lane, std::vector<Pass>& out)
+{
+    const double z = e.z, W = m_p.width;
 
     // 1b) Safety net: a lane deeper than max_pit below the nozzle (no visit for a while, or an
     //     emission order the plan did not foresee) is filled up to the pit limit BEFORE purging.
-    for (int c = 0; c < ka; ++c)
+    for (int c = first_lane; c < end_lane; ++c)
         while (z - m_H[size_t(c)] > m_p.max_pit + 1e-9) {
             const double h = std::max(std::min(z - m_p.max_pit - m_H[size_t(c)], m_p.hmax), m_p.hmin);
             double       y0, y1;
@@ -303,13 +417,13 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
     int    tries = 0;
     while (V > 1e-9) {
         int c = -1; // lowest lane with room (first on ties)
-        for (int j = 0; j < ka; ++j)
+        for (int j = first_lane; j < end_lane; ++j)
             if (z - m_H[size_t(j)] >= m_p.hmin - 1e-9 && (c < 0 || m_H[size_t(j)] < m_H[size_t(c)]))
                 c = j;
         if (c < 0) {
             if (!m_p.allow_over_z)
                 return false;
-            c                 = int(std::min_element(m_H.begin(), m_H.begin() + ka) - m_H.begin());
+            c                 = int(std::min_element(m_H.begin() + first_lane, m_H.begin() + end_lane) - m_H.begin());
             const double over = m_H[size_t(c)] + m_p.hmin - z;
             if (over > m_p.hmax + 1e-9)
                 return false; // more than one pass above the nozzle: refuse
@@ -343,7 +457,7 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
     const double rise   = e.layer_h > 0.f ? std::min(double(e.layer_h), m_p.hmax) : m_p.hmax;
     const double target = z - std::max(m_p.max_pit - rise, 0.);
     const double goal   = target + (e.volume <= 0.f ? std::clamp(m_p.catch_up, 0., 1.) : 0.) * (z - target);
-    for (int c = 0; c < ka; ++c) {
+    for (int c = first_lane; c < end_lane; ++c) {
         if (!(m_H[size_t(c)] < target - 1e-9))
             continue; // only lanes that hit the limit
         while (m_H[size_t(c)] < goal - 1e-9 && m_H[size_t(c)] + m_p.hmin <= z + 1e-9) {
@@ -379,6 +493,11 @@ Plan pack(const std::vector<Demand>& ev, double D, const Params& p)
 
 Plan pack_scheduled(std::vector<Demand>& ev, double D, const Params& p)
 {
+    if (!p.block_lane_ends.empty()) {
+        Plan plan = pack(ev, D, p);
+        plan.active.assign(ev.size(), p.lanes);
+        return plan;
+    }
     // Every layer starts in the simple zone (1 = lanes merged into one cell). Where a demand
     // finds no room, that layer becomes a lanes layer (all lanes); if it already was one, its
     // block of lanes layers is extended one layer DOWN, so the lanes have time to build up
@@ -429,7 +548,7 @@ Plan pack_min_depth(const std::vector<Demand>& ev_in, const Params& p)
     double              lo = 1.0, hi = 400.0;
     if (!pack_scheduled(ev, hi, p).ok) {
         // Strictly impossible (Z order not monotonic): retry allowing min passes above the nozzle.
-        if (p.allow_over_z)
+        if (p.allow_over_z || !p.block_lane_ends.empty())
             return Plan{};
         Params q       = p;
         q.allow_over_z = true;

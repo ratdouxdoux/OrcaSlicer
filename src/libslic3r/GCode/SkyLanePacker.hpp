@@ -29,10 +29,11 @@ struct Demand
     int active = 0;
     // taper: depth of the merged cell from this demand on (0 = as it is). The cell only
     // ever gets shallower, centred on the footprint, and only between rounds (when it is level).
-    float  depth          = 0.f;
-    size_t old_tool       = 0;
-    size_t new_tool       = 0;
-    float  ramming_volume = 0.f; // outgoing-tool portion of volume
+    float            depth          = 0.f;
+    size_t           old_tool       = 0;
+    size_t           new_tool       = 0;
+    float            ramming_volume = 0.f; // outgoing-tool portion of volume
+    std::vector<int> present_blocks;       // material blocks with a compatible tool visiting at this Z
 };
 
 struct Params
@@ -63,6 +64,12 @@ struct Params
     bool   allow_over_z = false; // see Plan::over_z; pack_min_depth only enables it as a last resort
     // taper: the merged cell never gets shallower than this (0 = no taper at all).
     double taper_min = 0.;
+    // Multi-material towers keep consecutive lanes in permanent adhesion-category
+    // blocks. Empty on a single-category tower, which may merge and taper freely.
+    std::vector<int>    tool_block;
+    std::vector<int>    block_lane_ends; // exclusive lane index
+    std::vector<double> block_last_z;
+    bool                block_rounds = false; // pack neighbouring strips at a common height within each block
 };
 
 // One deposited pass. demand < 0 => sparse fill of a lagging lane.
@@ -92,9 +99,10 @@ struct Pass
     double density = 1.;
     // merged cell: the cell this pass belongs to, [cell_y0, cell_y1] (the tower wall there).
     double cell_y0 = 0., cell_y1 = 0.;
-    size_t tool       = 0;
-    bool   ramming    = false;
-    bool   ends_round = false;
+    size_t tool        = 0;
+    bool   ramming     = false;
+    bool   ends_round  = false;
+    bool   block_round = false; // strip within one material block, inside the shared external fence
 };
 
 struct Plan
@@ -135,6 +143,8 @@ public:
     int                        first_over() const { return m_first_over; }
 
 private:
+    bool   place_material_blocks(const Demand& e, int idx, std::vector<Pass>& out);
+    bool   place_lanes(const Demand& e, int idx, int first_lane, int end_lane, std::vector<Pass>& out);
     double band(int c, double t, double& y0, double& y1) const;
     void   close_round(std::vector<Pass>& out, int idx);
     void   push(std::vector<Pass>& out, int demand, int owner, int c, double h, double y0, double y1, bool solid);
@@ -143,6 +153,7 @@ private:
     double              m_depth, m_d, m_tg;
     double              m_y0 = 0.; // where the (tapered) cell starts; lanes go from here too
     std::vector<double> m_H;
+    std::vector<Lanes>  m_block_cells;
     double              m_z0      = 0.;
     bool                m_have_z0 = false, m_base_done = false, m_base_now = false, m_merged = false;
     double              m_fill = 0., m_over_z_max = 0.;

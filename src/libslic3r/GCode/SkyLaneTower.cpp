@@ -435,6 +435,7 @@ struct SkyLaneTower::Runtime
     // Lane schedule from the offline plan: segments (nozzle Z up to which, lanes in use), Z
     // ascending. 1 = lanes merged into one cell; merged and lanes zones may alternate.
     std::vector<std::pair<float, int>> schedule;
+    std::map<long, std::vector<int>>   material_visits;
     int                                active_at(float z) const
     {
         for (const auto& s : schedule)
@@ -570,6 +571,43 @@ bool SkyLaneTower::plan(const PrintConfig&                                      
     }
     if (demand.empty())
         return false;
+    // Use the same filament-indexed categories (and missing-entry default)
+    // as WipeTower2::get_filament_category. Only tools on this plate count.
+    const auto category = [&](size_t tool) {
+        const auto& categories = cfg.filament_adhesiveness_category.values;
+        return tool < categories.size() ? categories[tool] : 0;
+    };
+    std::map<int, int> material_blocks;
+    for (const auto& d : demand) {
+        material_blocks.emplace(category(d.old_tool), 0);
+        material_blocks.emplace(category(d.new_tool), 0);
+    }
+    std::vector<double> peak_load;
+    if (material_blocks.size() > 1) {
+        int index = 0;
+        for (auto& entry : material_blocks)
+            entry.second = index++;
+        peak_load.assign(index, 0.);
+        p.block_last_z.assign(index, 0.);
+        std::map<std::pair<int, int>, double> layer_volume;
+        for (const auto& d : demand) {
+            auto& present = rt->material_visits[std::lround(d.z * 10000.)];
+            for (size_t tool : {d.old_tool, d.new_tool}) {
+                const int block = material_blocks.at(category(tool));
+                p.tool_block.resize(std::max(p.tool_block.size(), tool + 1), -1);
+                p.tool_block[tool]    = block;
+                p.block_last_z[block] = std::max(p.block_last_z[block], double(d.z));
+                if (std::find(present.begin(), present.end(), block) == present.end())
+                    present.push_back(block);
+            }
+            layer_volume[{d.layer, p.tool_block[d.old_tool]}] += d.ramming_volume;
+            layer_volume[{d.layer, p.tool_block[d.new_tool]}] += d.volume - d.ramming_volume;
+        }
+        for (const auto& [key, volume] : layer_volume)
+            peak_load[key.second] = std::max(peak_load[key.second], volume);
+        for (auto& d : demand)
+            d.present_blocks = rt->material_visits.at(std::lround(d.z * 10000.));
+    }
     for (const SkyLane::Demand& d : demand)
         if (d.volume > 0.f) {
             ++rt->planned_keys[Runtime::purge_key(d)];
@@ -631,7 +669,7 @@ bool SkyLaneTower::plan(const PrintConfig&                                      
                 t += purge_seconds(rv, rv + vol, est_flow, rt->ramp, est_vmax * q.line_w * ps.h);
                 rv += vol;
             } else {
-                const double dens = ps.solid ? 1. : (ps.merged ? q.merged_density : q.fill_density);
+                const double dens = ps.solid ? 1. : ((ps.merged || ps.block_round) ? q.merged_density : q.fill_density);
                 t += box * dens / (q.line_w * ps.h) / std::min(ps.solid ? rt->first_speed : 80., est_flow / (q.line_w * ps.h));
             }
             if (ps.wall)
@@ -646,26 +684,54 @@ bool SkyLaneTower::plan(const PrintConfig&                                      
         double          secs = 0.;
     };
     std::vector<Cand> cands;
-    for (int k = 2; k <= 6; ++k) {
-        SkyLane::Params q    = p;
-        q.lanes              = k;
-        SkyLane::Plan cand   = SkyLane::pack_min_depth(demand, q);
-        const bool    narrow = cand.ok && k > 2 && cand.depth * 1.15 / k < min_lane;
-        double        secs   = 0.;
+    const int         min_lanes = std::max(2, int(peak_load.size()));
+    const int         max_lanes = std::max(6, 6 * int(peak_load.size()));
+    auto              try_lanes = [&](int k, bool block_rounds) {
+        SkyLane::Params q = p;
+        q.lanes           = k;
+        q.block_rounds    = block_rounds;
+        if (!peak_load.empty()) {
+            std::vector<int> counts(peak_load.size(), 1);
+            for (int spare = k - int(counts.size()); spare > 0; --spare) {
+                size_t busiest = counts.size();
+                for (size_t b = 0; b < counts.size(); ++b)
+                    if (counts[b] < 6 && (busiest == counts.size() || peak_load[b] / counts[b] > peak_load[busiest] / counts[busiest]))
+                        busiest = b;
+                ++counts[busiest];
+            }
+            int end = 0;
+            for (int count : counts)
+                q.block_lane_ends.push_back(end += count);
+        }
+        SkyLane::Plan cand = SkyLane::pack_min_depth(demand, q);
+        if (!peak_load.empty() && !block_rounds && cand.ok && k > min_lanes)
+            cand.depth = std::max(cand.depth, min_lane * k / 1.15);
+        const bool narrow = peak_load.empty() && cand.ok && k > min_lanes && cand.depth * 1.15 / k < min_lane;
+        double     secs   = 0.;
         if (cand.ok && !narrow) { // timed on the tower as built: + 15 % of depth, zones planned again
             SkyLane::Params qb                 = q;
             qb.allow_over_z                    = cand.over_z > 0;
             std::vector<SkyLane::Demand> dem   = demand;
             const SkyLane::Plan          built = SkyLane::pack_scheduled(dem, cand.depth * 1.15, qb);
-            secs                               = tower_seconds(built.ok ? built : cand, q, cand.depth * 1.15);
+            if (!peak_load.empty() && (!built.ok || built.over_z > 0))
+                return;
+            secs = tower_seconds(built.ok ? built : cand, q, cand.depth * 1.15);
         }
         SKY_LOG("LANES_AUTO lanes=" << k << " ok=" << cand.ok << " depth=" << cand.depth << " lane_width=" << cand.depth * 1.15 / k
-                                    << " fill_mm3=" << cand.fill_volume << " tower_h=" << secs / 3600.
-                                    << (narrow ? " (lanes under 4 mm: out)" : ""));
+                                                 << " fill_mm3=" << cand.fill_volume << " tower_h=" << secs / 3600.
+                                                 << (narrow ? " (lanes under 4 mm: out)" : ""));
         if (!cand.ok || cand.over_z > 0 || narrow)
-            continue;
+            return;
         cands.push_back({std::move(cand), q, secs});
-    }
+    };
+    if (!peak_load.empty())
+        for (int k = min_lanes; k <= max_lanes; ++k)
+            try_lanes(k, true);
+    // Schedules with overlapping Local-Z visits may require independent lane
+    // heights even within a category. The material boundaries still apply.
+    if (cands.empty())
+        for (int k = min_lanes; k <= max_lanes; ++k)
+            try_lanes(k, false);
     SkyLane::Plan plan;
     if (!cands.empty()) {
         double dmin = std::numeric_limits<double>::max();
@@ -711,7 +777,7 @@ bool SkyLaneTower::plan(const PrintConfig&                                      
     // and Cone; with Rib the tower is left as it was (its arms leave from the full footprint).
     // Never under 8 mm, nor under min_lane per lane (the lanes of a later busy zone live in it).
     std::vector<float> cell_depth;
-    if (cfg.wipe_tower_wall_type.value != WipeTowerWallType::wtwRib && plan.active.size() == demand.size()) {
+    if (p.block_lane_ends.empty() && cfg.wipe_tower_wall_type.value != WipeTowerWallType::wtwRib && plan.active.size() == demand.size()) {
         SkyLane::Params q                = p;
         q.allow_over_z                   = plan.over_z > 0;
         q.taper_min                      = std::max(8., min_lane * p.lanes);
@@ -818,6 +884,17 @@ bool SkyLaneTower::plan(const PrintConfig&                                      
            << " prime_volume=" << purge_volume << " max_dip=" << p.max_pit << " demands=" << demand.size()
            << " purges=" << rt->planned_purges << " over_z=" << plan.over_z << "\n";
         sm << "; SKYLANE zones: " << sc.str() << "\n";
+        if (!p.block_lane_ends.empty()) {
+            sm << "; SKYLANE material packing: "
+               << (p.block_rounds ? "shared rounds within each category" : "independent lanes within each category") << "\n";
+            int first = 0;
+            for (const auto& [category_id, block] : material_blocks) {
+                const int end = p.block_lane_ends[block];
+                sm << "; SKYLANE material block: category=" << category_id << " y0=" << rt->depth * first / p.lanes
+                   << " y1=" << rt->depth * end / p.lanes << "\n";
+                first = end;
+            }
+        }
         if (rt->depth_sched.empty())
             sm << "; SKYLANE taper: none\n";
         else {
@@ -921,7 +998,9 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
     d.ramming_volume = info.is_tc ? float(rt.ram(d.old_tool)) : 0.f;
     d.active         = rt.active_at(d.z);
     d.depth          = rt.depth_at(d.z); // taper (applied by the packer when the next round opens)
-    const int idx    = rt.placed++;
+    if (auto it = rt.material_visits.find(std::lround(d.z * 10000.)); it != rt.material_visits.end())
+        d.present_blocks = it->second;
+    const int idx = rt.placed++;
     if (d.volume > 0.f) { // emission vs plan
         ++rt.emitted_purges;
         const auto key = Runtime::purge_key(d);
@@ -1055,16 +1134,25 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
 
     // Alternate the first arrival's X side. Later merged bands may enter from
     // either Y end; material ownership is settled by the packer before emission.
+    auto lane_rows = [&](const SkyLane::Pass& ps) -> std::pair<double, double> {
+        if (ps.y1 - ps.y0 >= lw)
+            return {ps.y0 + lw / 2, ps.y1 - lw / 2};
+        double center = (ps.y0 + ps.y1) / 2;
+        if (!p.block_lane_ends.empty() && !p.block_rounds) {
+            // A short ram can occupy less than one bead of an independent
+            // lane. Keep its centreline half a bead inside the lane edges.
+            const double depth = rt.depth / p.lanes;
+            center             = std::clamp(center, ps.lane * depth + lw / 2, (ps.lane + 1) * depth - lw / 2);
+        }
+        return {center, center};
+    };
     auto pass_start = [&](const SkyLane::Pass& ps, int pc) {
         if (ps.merged) {
             double y0 = std::max(ps.y0, ps.cell_y0 + lw) + lw / 2;
             double y1 = std::min(ps.y1, ps.cell_y1 - lw) - lw / 2;
             return Vec2f(float(pc % 2 ? xmax - lw : xmin + lw), float(y1 < y0 ? (y0 + y1) / 2 : y0));
         }
-        double y0 = ps.y0 + lw / 2, y1 = ps.y1 - lw / 2;
-        if (y1 < y0)
-            y0 = y1 = (ps.y0 + ps.y1) / 2;
-        return Vec2f(float((pc / 2) % 2 ? xmax : xmin), float(y0));
+        return Vec2f(float((pc / 2) % 2 ? xmax : xmin), float(lane_rows(ps).first));
     };
     const SkyLane::Pass* previous_pass = nullptr;
 
@@ -1079,15 +1167,13 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
           << " y0=" << std::setprecision(4) << ps.y0 << " y1=" << ps.y1 << " merged=" << ps.merged << " cell0=" << ps.cell_y0
           << " cell1=" << ps.cell_y1 << "\n";
         // fills: open grid; purges: solid, or spaced out to extrude exactly the requested volume
-        const double spacing = is_fill ? (ps.solid ? lw : lw / (ps.merged ? p.merged_density : p.fill_density)) :
+        const double spacing = is_fill ? (ps.solid ? lw : lw / ((ps.merged || ps.block_round) ? p.merged_density : p.fill_density)) :
                                          lw / std::clamp(ps.density, 0.1, 1.);
         if (ps.h < 0.02) { // sliver (first-layer top-up over a purge, levelling before a merge): nothing printable
             rt.H[size_t(ps.lane)] = std::max(rt.H[size_t(ps.lane)], top);
             return;
         }
-        double y0 = ps.y0 + lw / 2, y1 = ps.y1 - lw / 2;
-        if (y1 < y0)
-            y0 = y1 = (ps.y0 + ps.y1) / 2;
+        auto [y0, y1] = lane_rows(ps);
         double    xa = xmin, xb = xmax;
         const int pc = rt.lane_pass[size_t(ps.lane)]++;
         Vec2f     st = pass_start(ps, pc);
@@ -1325,10 +1411,10 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         // after the forced X pass on the grid the parity could ask for X again, and over a sparse
         // fill (2 lines in a 3.3 mm lane) the purge lines ran between them, 35 mm over nothing
         // (FSFD_stairs_multipass, z=12.47).
-        const bool along_x = y1 - y0 < lw            ? true :
-                             (ps.merged && !is_fill) ? (xb - xa) >= (y1 - y0) :
-                             ps.merged               ? (pc % 2 == 0) :
-                                                       lane_along_x;
+        const bool along_x = y1 - y0 < lw || ps.block_round ? true :
+                             (ps.merged && !is_fill)        ? (xb - xa) >= (y1 - y0) :
+                             ps.merged                      ? (pc % 2 == 0) :
+                                                              lane_along_x;
         // A purge pass extrudes the volume the packer counted for it (W x band x h x density):
         // the lines lose half a width at each end and one bead to the wall, which left a strip
         // 7-13 % short. Small flow correction, never on the structure (fills).
@@ -1389,7 +1475,7 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
         // of ~4.5 mm, as designed); a few lines along X (every third spacing) tie those fins
         // together. (f: a grid that happened to run along X left 29 mm strips over a void; with
         // half the lines each way the bridges were 9.5 mm.)
-        if (ps.merged && is_fill && !ps.solid) {
+        if ((ps.merged || ps.block_round) && is_fill && !ps.solid) {
             lines(false, spacing);
             // The ends of these Y fins already meet the neighbouring purge
             // rows or the cell wall. Add ties only inside the gap, at no more
