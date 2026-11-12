@@ -74,6 +74,7 @@ catch_discover_tests(${_TEST_NAME}_tests TEST_PREFIX "${_TEST_NAME}: " EXTRA_ARG
 add_executable(ai_print_assistant_tests
     test_ai_print_assistant.cpp
     test_ai_model_tools.cpp
+    test_ai_model_features.cpp
     test_ai_generated_model.cpp
     test_ai_slice_tools.cpp
     test_ai_knowledge.cpp
