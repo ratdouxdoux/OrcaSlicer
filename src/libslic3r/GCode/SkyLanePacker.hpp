@@ -61,6 +61,7 @@ struct Params
     // depth 35 → 53 mm on bigtest-var).
     double catch_up     = 0.;
     bool   solid_base   = false; // close the whole footprint solid at the end of the first visit
+    double unpurged_base_height = 0.;    // configured bed layer when the entire first layer has no tool change
     bool   allow_over_z = false; // see Plan::over_z; pack_min_depth only enables it as a last resort
     // taper: the merged cell never gets shallower than this (0 = no taper at all).
     double taper_min = 0.;
@@ -103,6 +104,7 @@ struct Pass
     bool   ramming     = false;
     bool   ends_round  = false;
     bool   block_round = false; // strip within one material block, inside the shared external fence
+    int    lane_count  = 1;     // a solid foundation pass can support several lanes at once
 };
 
 struct Plan

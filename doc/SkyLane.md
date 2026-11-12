@@ -71,11 +71,12 @@ when regions need support before the next round. The foundation is solid and
 the brim follows its outline. Taller neighbouring lanes also reduce the width
 available for a lower pass, leaving clearance for the nozzle.
 
-On a first layer with no tool change, a shared tower can start with a thin
-grid and outline. For example, with a 0.25 mm first layer and 0.20 mm reserved
-for upcoming purges, the grid prints directly on the bed at Z = 0.05 mm. On
-the next visit the tower completes its base to 0.25 mm. The model still prints
-its first layer at the configured height.
+If the first layer has no tool change, SkyLane prints the solid base at the
+configured first-layer height in one visit. For example, a 0.25 mm first
+layer puts the tower base directly on the bed at Z = 0.25 mm. On a tower with
+separate material regions, the starting filament lays the foundation for
+each region. If there is a tool change on the first layer, SkyLane keeps room
+for the purge and completes any unfinished base on a later visit.
 
 The three wall types use the same lane-planning approach:
 

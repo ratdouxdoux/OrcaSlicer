@@ -183,6 +183,74 @@ TEST_CASE("SkyLane incremental lanes preserve volume and nozzle clearance", "[Sk
     CHECK_THROWS_AS(SkyLane::pack(demands, 20., p), std::invalid_argument);
 }
 
+TEST_CASE("SkyLane finishes an unpurged bed layer on its first visit", "[SkyLane][Geometry]")
+{
+    auto  cfg         = configuration();
+    float bed         = .25f;
+    bool  partitioned = false, first_layer_change = false, local_change = false;
+    SECTION("Cube11 first layer") {}
+    SECTION("Configured height is independent of the purge pass limit") { bed = .32f; }
+    SECTION("Both adhesion regions get a foundation")
+    {
+        partitioned                               = true;
+        cfg.filament_adhesiveness_category.values = {100, 300};
+    }
+    SECTION("A later tool change on the first layer still needs purge space") { first_layer_change = true; }
+    SECTION("A Local-Z tool change counts even with no nominal tool change") { local_change = first_layer_change = true; }
+    cfg.initial_layer_print_height.value = bed;
+    cfg.prime_volume.value               = 12.;
+    cfg.wipe_tower_wall_type.value       = WipeTowerWallType::wtwRib;
+    auto empty                           = visit(bed, bed, 0, 0);
+    empty.gcode                          = "; CP EMPTY GRID\n";
+    Layers nominal{{empty}}, local(1);
+    int    tool = 0;
+    if (first_layer_change) {
+        auto& changes = local_change ? local.front() : nominal.front();
+        if (local_change) {
+            changes.push_back(empty);
+            nominal.front().clear();
+        }
+        changes.push_back(visit(bed, bed, 0, 1));
+        tool = 1;
+    } else
+        nominal.front().push_back(empty); // another idle visit must not print the base twice
+    for (int layer = 1; layer <= 12; ++layer) {
+        nominal.push_back({visit(bed + .2f * layer, .2f, tool, 1 - tool)});
+        tool = 1 - tool;
+    }
+    SkyLaneTower tower;
+    REQUIRE(tower.plan(cfg, nominal, local, 5.f));
+    tower.begin_emission();
+    const auto        base = tower.place(empty);
+    const std::string brim = "; WIPE_TOWER_BRIM_START";
+    if (first_layer_change) {
+        CHECK(base.gcode.find(brim) == std::string::npos);
+        const auto changed = tower.place((local_change ? local : nominal).front().back());
+        CHECK(changed.gcode.find("kind=purge") != std::string::npos);
+        return;
+    }
+    REQUIRE(base.gcode.find(brim) != std::string::npos);
+    const std::string fill  = "kind=fill";
+    size_t            bands = 0;
+    for (size_t at = 0; (at = base.gcode.find(fill, at)) != std::string::npos; at += fill.size())
+        ++bands;
+    CHECK(bands == (partitioned ? 2 : 1));
+    for (const auto& e : base.extrusions)
+        if (e.width > 0.) {
+            CHECK(e.z == Approx(bed));
+            CHECK(e.height == Approx(bed));
+        }
+    const auto idle = tower.place(empty);
+    CHECK(std::none_of(idle.extrusions.begin(), idle.extrusions.end(), [](const auto& e) { return e.width > 0.; }));
+    for (size_t layer = 1; layer < nominal.size(); ++layer) {
+        const auto next = tower.place(nominal[layer].front());
+        CHECK(next.gcode.find(brim) == std::string::npos);
+        for (const auto& e : next.extrusions)
+            if (e.width > 0.)
+                CHECK(e.z > bed + 1e-4f);
+    }
+}
+
 TEST_CASE("SkyLane ramps purge before the wall and resets cleanly between exports", "[SkyLane][GCode]")
 {
     auto config                         = configuration();

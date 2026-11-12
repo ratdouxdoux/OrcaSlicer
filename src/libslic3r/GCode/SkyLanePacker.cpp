@@ -117,6 +117,44 @@ bool Lanes::place(const Demand& e, int idx, std::vector<Pass>& out)
     if (!m_have_z0) {
         m_z0      = z;
         m_have_z0 = true;
+        if (m_p.solid_base && m_p.unpurged_base_height > 0. && std::abs(z - m_p.unpurged_base_height) < 1e-4 && e.volume == 0.f &&
+            e.old_tool == e.new_tool) {
+            // The configured first layer is a bed pass, independent of the
+            // height limit and headroom used for later purge passes.
+            if (m_p.block_rounds && m_block_cells.size() != m_p.block_lane_ends.size())
+                return false;
+            auto base = [&](int first, int end, double y0, double y1) {
+                Pass ps{-1, idx, first, 0., z, y0, y1};
+                ps.tool       = e.new_tool;
+                ps.solid      = true;
+                ps.lane_count = end - first;
+                out.push_back(ps);
+                m_fill += W * (y1 - y0) * z;
+            };
+            if (m_p.block_lane_ends.empty())
+                base(0, k, m_y0, m_y0 + m_depth);
+            else {
+                int first = 0;
+                for (size_t b = 0; b < m_p.block_lane_ends.size(); ++b) {
+                    const int    end = m_p.block_lane_ends[b];
+                    const double y0  = m_p.block_rounds ? m_block_cells[b].m_y0 : first * m_d;
+                    const double y1  = m_p.block_rounds ? y0 + m_block_cells[b].m_depth : end * m_d;
+                    base(first, end, y0, y1);
+                    first = end;
+                }
+            }
+            std::fill(m_H.begin(), m_H.end(), z);
+            m_base_done = m_base_now = true;
+            // The first layer supports every material region. Start their
+            // independent round histories on that surface, not on the bed.
+            for (Lanes& cell : m_block_cells) {
+                std::fill(cell.m_H.begin(), cell.m_H.end(), z);
+                cell.m_have_z0 = cell.m_base_done = true;
+                cell.m_z0                         = z;
+            }
+            m_merged = m_p.block_lane_ends.empty() && e.active == 1;
+            return true;
+        }
     }
     if (!m_p.block_lane_ends.empty())
         return place_material_blocks(e, idx, out);

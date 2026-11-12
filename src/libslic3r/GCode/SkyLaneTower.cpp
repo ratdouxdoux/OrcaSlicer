@@ -578,9 +578,12 @@ bool SkyLaneTower::plan(const PrintConfig&                                      
 
     // ---- planned demand (sizing only), in tool_changes order ----------------------------------
     std::vector<SkyLane::Demand> demand;
+    bool                         first_layer_changes_tool = false;
     double                       xmin = std::numeric_limits<double>::max(), xmax = std::numeric_limits<double>::lowest();
     auto                         add = [&](const WipeTower::ToolChangeResult& t, int layer) {
         TcrInfo info = inspect(t, rt->area(size_t(std::max(t.new_tool, 0))));
+        if (layer == 0 && (info.is_tc || t.is_tool_change || t.initial_tool != t.new_tool))
+            first_layer_changes_tool = true;
         if (info.xmin <= info.xmax) {
             xmin = std::min(xmin, info.xmin);
             xmax = std::max(xmax, info.xmax);
@@ -605,6 +608,10 @@ bool SkyLaneTower::plan(const PrintConfig&                                      
     }
     if (demand.empty())
         return false;
+    // An empty-grid visit may precede a real change on the same layer (including
+    // Local-Z). Reserve the full bed layer only after examining all of those visits.
+    if (!first_layer_changes_tool && demand.front().layer == 0 && std::abs(demand.front().z - cfg.initial_layer_print_height.value) < 1e-4)
+        p.unpurged_base_height = cfg.initial_layer_print_height.value;
     // Use the same filament-indexed categories (and missing-entry default)
     // as WipeTower2::get_filament_category. Only tools on this plate count.
     const auto category = [&](size_t tool) {
@@ -1577,7 +1584,8 @@ WipeTower::ToolChangeResult SkyLaneTower::place(const WipeTower::ToolChangeResul
             for (double& h : rt.H)
                 h = std::max(h, top);
         else
-            rt.H[size_t(ps.lane)] = std::max(rt.H[size_t(ps.lane)], top);
+            for (int i = ps.lane; i < ps.lane + ps.lane_count; ++i)
+                rt.H[size_t(i)] = std::max(rt.H[size_t(i)], top);
         if (!ps.merged) {
             rt.on_grid[size_t(ps.lane)] = 0;
             // on a crossed fill the next pass runs along X: it crosses the Y lines every two
