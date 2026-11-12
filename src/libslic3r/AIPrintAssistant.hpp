@@ -87,6 +87,11 @@ Proposal       parse_proposal(const std::string& text);
 // live state. The GUI commits through the corresponding native configuration UI.
 DynamicPrintConfig prepare_apply(const Context& current, const Proposal& proposal, Transaction& transaction);
 DynamicPrintConfig prepare_revert(const Context& current, const Transaction& transaction);
+// A modifier's settings after applying `settings` (key: value, null removes a
+// key) to `current`. Only per-region keys; validated over the object's settings.
+DynamicPrintConfig prepare_modifier_settings(const DynamicPrintConfig& object_settings,
+                                             const DynamicPrintConfig& current,
+                                             const nlohmann::json&     settings);
 
 } // namespace AIPrintAssistant
 } // namespace Slic3r

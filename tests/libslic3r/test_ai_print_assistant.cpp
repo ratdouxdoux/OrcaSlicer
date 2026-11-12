@@ -452,9 +452,41 @@ TEST_CASE("Assistant rejects unsupported scopes instead of misreporting effectiv
     Fixture fixture;
     SECTION("Part settings") { fixture.object->volumes.front()->config.set_key_value("wall_loops", new ConfigOptionInt(5)); }
     SECTION("Multiple instances") { fixture.object->add_instance(); }
-    SECTION("Modifier") { fixture.object->add_volume(make_cube(1., 1., 1.), ModelVolumeType::PARAMETER_MODIFIER); }
     SECTION("Layer range") { fixture.object->layer_config_ranges[{1., 2.}].set_key_value("wall_loops", new ConfigOptionInt(5)); }
     CHECK_THROWS(fixture.context());
+}
+
+TEST_CASE("Assistant settings context lists modifiers and their settings", "[AIPrintAssistant][fast]")
+{
+    Fixture fixture;
+    auto*   modifier = fixture.object->add_volume(make_cube(1., 1., 1.), ModelVolumeType::PARAMETER_MODIFIER);
+    modifier->config.set_key_value("outer_wall_speed", new ConfigOptionFloats({30.}));
+    fixture.object->add_volume(make_cube(1., 1., 1.), ModelVolumeType::SUPPORT_BLOCKER);
+    const auto context = fixture.context();
+    REQUIRE(context.public_context["modifiers"].size() == 1);
+    CHECK(context.public_context["modifiers"][0]["id"] == std::to_string(modifier->id().id));
+    CHECK(context.public_context["modifiers"][0]["settings"]["outer_wall_speed"] == json::array({30.}));
+    CHECK(context.public_context["parts"].size() == 1);
+    // A modifier's settings change the context, so stale proposals are refused.
+    modifier->config.set_key_value("outer_wall_speed", new ConfigOptionFloats({20.}));
+    CHECK(fixture.context().id != context.id);
+}
+
+TEST_CASE("Assistant modifier settings accept per-region keys only", "[AIPrintAssistant][fast]")
+{
+    const auto defaults = DynamicPrintConfig::full_print_config();
+    // A single value fills a per-extruder setting.
+    const auto settings = AI::prepare_modifier_settings(defaults, {}, {{"outer_wall_speed", 25}, {"wall_loops", 4}});
+    CHECK(settings.option<ConfigOptionFloats>("outer_wall_speed")->values ==
+          std::vector<double>(defaults.option<ConfigOptionFloats>("outer_wall_speed")->size(), 25.));
+    CHECK(settings.opt_int("wall_loops") == 4);
+    CHECK_THROWS(AI::prepare_modifier_settings(defaults, {}, {{"outer_wall_speed", json::array({25, 25, 25, 25, 25, 25, 25})}}));
+    CHECK(AI::prepare_modifier_settings(defaults, settings, {{"wall_loops", nullptr}}).keys() ==
+          t_config_option_keys{"outer_wall_speed"});
+    CHECK_THROWS(AI::prepare_modifier_settings(defaults, {}, {{"layer_height", 0.1}}));
+    CHECK_THROWS(AI::prepare_modifier_settings(defaults, {}, {{"nozzle_diameter", "[0.6]"}}));
+    CHECK_THROWS(AI::prepare_modifier_settings(defaults, {}, {{"wall_loops", -1}}));
+    CHECK_THROWS(AI::prepare_modifier_settings(defaults, {}, json::object()));
 }
 
 TEST_CASE("Assistant strictly parses untrusted changes", "[AIPrintAssistant][fast]")

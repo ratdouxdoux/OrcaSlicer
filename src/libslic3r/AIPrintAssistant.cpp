@@ -268,12 +268,21 @@ Context capture_context(const DynamicPrintConfig& inherited,
         throw std::runtime_error("Select an object with solid geometry and one instance.");
     if (!object.layer_config_ranges.empty() || !object.layer_height_profile.empty())
         throw std::runtime_error("Objects with height-range overrides or variable layer height are not supported yet.");
-    json   parts     = json::array();
+    json   parts     = json::array(), modifiers = json::array();
     size_t triangles = 0;
     for (const auto* part : object.volumes) {
         const auto& volume = *part;
+        // Modifiers shadow object settings inside their volume; show them so the
+        // object's values are not mistaken for what prints there.
+        if (volume.type() == ModelVolumeType::PARAMETER_MODIFIER) {
+            json settings = json::object();
+            for (const auto& key : volume.config.keys())
+                settings[key] = setting_value(volume.config.get(), key);
+            modifiers.push_back({{"id", std::to_string(volume.id().id)}, {"name", volume.name}, {"settings", settings}});
+            continue;
+        }
         if (!volume.is_model_part() && volume.type() != ModelVolumeType::NEGATIVE_VOLUME)
-            throw std::runtime_error("Objects with settings modifiers or support volumes are not supported by the settings assistant yet.");
+            continue; // Support blockers and enforcers carry no settings.
         if (!volume.material_id().empty())
             throw std::runtime_error("Objects with material-specific overrides are not supported yet.");
         // A part's extruder assignment is read as context. Other part overrides may
@@ -309,6 +318,7 @@ Context capture_context(const DynamicPrintConfig& inherited,
          {"dimensions_mm", {size.x(), size.y(), size.z()}},
          {"triangle_count", triangles},
          {"parts", parts},
+         {"modifiers", modifiers},
          {"instance_transform", matrix_json(object.instances.front()->get_matrix())},
          {"part_extruder", volume.config.has("extruder") ? volume.config.opt_serialize("extruder") : "inherited"},
          {"edit_scope", scope_name(scope)},
@@ -317,7 +327,9 @@ Context capture_context(const DynamicPrintConfig& inherited,
           {"Only explicitly attached images are available. Use get_slice_context separately to inspect an existing slice.",
            "Dimensions do not establish the size or printability of individual features.",
            "Only settings in the selected edit scope can be changed.",
-           "Preset edits can affect all objects using the preset. Object or plate overrides may shadow them."}}};
+           "Preset edits can affect all objects using the preset. Object or plate overrides may shadow them.",
+           "Inside a modifier volume its settings override the object's; change them with the set_modifier_settings model "
+           "operation."}}};
 
     populate_settings(context);
 
@@ -584,5 +596,39 @@ DynamicPrintConfig prepare_revert(const Context& current, const Transaction& tra
     // Restoring inactive Arachne options is legitimate when returning to Classic.
     validate_candidate(current, candidate, {});
     return candidate;
+}
+
+DynamicPrintConfig prepare_modifier_settings(const DynamicPrintConfig& object_settings, const DynamicPrintConfig& current, const json& settings)
+{
+    if (!settings.is_object() || settings.empty() || settings.size() > 64)
+        throw std::runtime_error("Give a modifier 1 to 64 settings.");
+    DynamicPrintConfig   result = current;
+    t_config_option_keys keys;
+    for (auto it = settings.begin(); it != settings.end(); ++it) {
+        // The slicer applies only per-region settings inside a modifier, as
+        // the object list offers for parts.
+        if (!PrintRegionConfig::defaults().has(it.key()) || !setting_in_scope(it.key(), Scope::Object))
+            throw std::runtime_error("A modifier cannot change " + it.key() +
+                                     ". Modifiers take per-region settings such as walls, infill and speeds; object-wide settings such "
+                                     "as layer height apply to the whole object.");
+        if (it.value().is_null()) {
+            result.erase(it.key());
+            continue;
+        }
+        // Many per-region settings hold one value per extruder or nozzle. A
+        // single value applies to all of them; an array must keep their count.
+        const auto* inherited = dynamic_cast<const ConfigOptionVectorBase*>(object_settings.option(it.key()));
+        json        value     = it.value();
+        if (inherited && !value.is_array())
+            value = json(std::vector<json>(std::max<size_t>(1, inherited->size()), value));
+        else if (inherited && value.size() != inherited->size())
+            throw std::runtime_error("Give " + it.key() + " one value, or " + std::to_string(inherited->size()) + " in an array.");
+        assign_setting(result, it.key(), value);
+        keys.push_back(it.key());
+    }
+    Context context;
+    context.inherited = object_settings;
+    validate_candidate(context, result, keys);
+    return result;
 }
 } // namespace Slic3r::AIPrintAssistant
