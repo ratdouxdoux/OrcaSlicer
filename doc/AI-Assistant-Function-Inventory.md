@@ -33,7 +33,7 @@ Saving or exporting a project while a live preview is pending can include those 
 
 ### Automatic model operations
 
-The following 17 operations are exposed through `propose_model_operation` and can update the cumulative preview after validation. Work occurs on the current project, using stable IDs and fresh context.
+The following 19 operations are exposed through `propose_model_operation` and can update the cumulative preview after validation. Work occurs on the current project, using stable IDs and fresh context.
 
 | ID | Operation | Offered behavior and boundary |
 | --- | --- | --- |
@@ -54,8 +54,14 @@ The following 17 operations are exposed through `propose_model_operation` and ca
 | M15 | `cut` | Cut an object with a world-space plane and retain the upper side, lower side or both. Connectors and dovetails require the native cut editor. |
 | M16 | `create_mix` | Create a native recipe from loaded, compatible physical filaments and optionally assign it. Supports component percentages, simple/layer-cycle distribution, manual patterns and gradients. Components must be distinct and percentages total 100; three or more components require layer-cycle distribution. |
 | M17 | `match_color` | Use the native color solver to choose a recipe for a target RGB color, then create/optionally assign it. Preview color is approximate; physical color accuracy is not guaranteed. |
+| M20 | `add_feature_modifier` | Add a modifier volume around a feature from `get_model_features`, grown by a margin: a stack of prisms that follows the feature band by band (`mesh`), or its bounding box (`box`). Its settings apply only inside it. Requires a current feature report for the object. |
+| M21 | `set_modifier_settings` | Change or remove settings of an existing modifier volume. |
 
-Automatic boolean, simplify, cut, add-text and edit-text operations reject objects exceeding 500,000 triangles. Other limits and parameter types come from the operation schema. Creating a modifier does not make modifier-specific settings editing an assistant capability.
+Automatic boolean, simplify, cut, add-text and edit-text operations reject objects exceeding 500,000 triangles. Other limits and parameter types come from the operation schema. Modifier settings accept per-region keys only (walls, infill, speeds and similar), validated over the object's settings; a single value fills a per-extruder setting. Layer height and other object-wide settings cannot vary inside a modifier.
+
+### Feature detection
+
+`get_model_features` reports an active-plate object's printing features before slicing, using the object's effective settings: overhangs graded like the slicer's overhang speed bands, bridges (Orca's bridge detector, anchored at both ends), floating areas, thin walls, details finer than a line, small sections, thin plates, vertical and horizontal holes, cavities, narrow gaps, flat tops, shallow slopes, curved surfaces, sharp edges, bed contact, material boundaries, painted regions and text. Each feature has an ID, a world bounding box and measurements; the report defines every kind it returns and is capped per kind. Model parts are united and negative volumes subtracted as the slicer does. Overlapping parts are resolved to about two line widths. Thread detection and recognising lettering in imported meshes are not implemented.
 
 ### Native editor and action handoffs
 
@@ -121,8 +127,12 @@ The complete top-level tool interface is:
 | Tool | Function IDs covered |
 | --- | --- |
 | `get_model_context` | P06 |
-| `list_model_tools` | M01–M19 discovery and availability |
-| `propose_model_operation` | M01–M19 |
+| `list_model_tools` | M01–M21 discovery and availability |
+| `propose_model_operation` | M01–M21 |
+| `get_model_features` | Feature detection before slicing; feature IDs for M20 |
+| `generate_model` | Build a new model, or rebuild a generated one, from OpenSCAD code |
+| `get_model_source` | Read a generated model's OpenSCAD code |
+| `request_edit_scope` | Ask the user to switch the settings edit scope |
 | `get_print_context` | C01–C05 |
 | `search_settings` | C05 |
 | `propose_settings` | C06–C08 through the preview workflow |
@@ -133,4 +143,4 @@ The complete top-level tool interface is:
 
 S05 and conversational behavior are model behavior guided by the returned evidence, not separate tools. Provider setup, image selection and preview controls are application UI functions.
 
-Sources of truth: [tool contracts](../src/slic3r/Utils/AIPrintAssistantChat.cpp), [model-operation catalog](../src/libslic3r/AIModelTools.cpp), [native adapters and slice availability](../src/slic3r/GUI/AIModelTools.cpp), [settings validation](../src/libslic3r/AIPrintAssistant.cpp), [settings catalog filters](../src/libslic3r/AIPrintAssistantCatalog.cpp), [slice inspection](../src/libslic3r/AISliceTools.cpp), [sidebar and preview controls](../src/slic3r/GUI/AIPrintAssistantDialog.cpp), and [credential storage](../src/slic3r/Utils/AIPrintAssistantCredentials.cpp).
+Sources of truth: [tool contracts](../src/slic3r/Utils/AIPrintAssistantChat.cpp), [model-operation catalog](../src/libslic3r/AIModelTools.cpp), [native adapters and slice availability](../src/slic3r/GUI/AIModelTools.cpp), [feature detection and modifier meshes](../src/libslic3r/AIModelFeatures.cpp), [settings validation](../src/libslic3r/AIPrintAssistant.cpp), [settings catalog filters](../src/libslic3r/AIPrintAssistantCatalog.cpp), [slice inspection](../src/libslic3r/AISliceTools.cpp), [sidebar and preview controls](../src/slic3r/GUI/AIPrintAssistantDialog.cpp), and [credential storage](../src/slic3r/Utils/AIPrintAssistantCredentials.cpp).
