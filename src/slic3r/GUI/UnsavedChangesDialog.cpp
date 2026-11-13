@@ -1782,6 +1782,8 @@ void UnsavedChangesDialog::update_tree(Preset::Type type, PresetCollection* pres
 
         for (const std::string& opt_key : dirty_options) {
             const std::string pure_opt_key = get_pure_opt_key(opt_key);
+            if (const auto* def = old_config.def()->get(pure_opt_key); def && def->gui_flags == "internal")
+                continue;
             const Search::Option& option = searcher.get_option(pure_opt_key, type);
             const bool flow_variant = flow_options != nullptr && pure_opt_key != opt_key &&
                 std::find(flow_options->begin(), flow_options->end(), pure_opt_key) != flow_options->end();
@@ -2358,6 +2360,8 @@ void DiffPresetDialog::update_tree()
         }
 
         for (const std::string& opt_key : dirty_options) {
+            if (const auto* def = left_config.def()->get(get_pure_opt_key(opt_key)); def && def->gui_flags == "internal")
+                continue;
             wxString left_val = get_string_value(opt_key, left_config);
             wxString right_val = get_string_value(opt_key, right_congig);
 

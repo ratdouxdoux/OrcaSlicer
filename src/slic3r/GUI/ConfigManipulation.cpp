@@ -827,8 +827,6 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     bool have_prime_tower = config->opt_bool("enable_prime_tower");
     const bool have_skylane     = have_prime_tower && config->opt_bool("enable_skylane");
     toggle_line("enable_skylane", have_prime_tower && (!is_BBL_Printer && !bSEMM || have_skylane));
-    toggle_line("skylane_max_dip", have_skylane);
-    toggle_line("skylane_wall_height", have_skylane);
     toggle_line("skylane_profile_speeds", have_skylane);
     toggle_line("skylane_ramp_volume", have_skylane && config->opt_bool("skylane_profile_speeds"));
     for (auto el : { "prime_tower_width", "prime_tower_brim_width"})

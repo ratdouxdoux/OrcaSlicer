@@ -97,19 +97,17 @@ The main settings affect the tower as follows:
 |---|---|
 | **Width** | Sets the rectangular cell width. Depth is planned independently. |
 | **Prime volume** | The standalone pack uses this volume for every tool change, plus applicable outgoing-tool ramming. It replaces the previous adaptation's use of individual planner purge volumes. |
-| **SkyLane maximum dip** | Limits how far the lane surface may lag below the current printing height. A larger allowance can provide more room for purges, subject to pass-height and clearance limits. |
 | **SkyLane flow ramp volume** | Defaults to 4 mm³. Over this extruded volume, the new tool's volumetric flow ceiling rises from 25% to 100% of its filament limit. Zero disables the ramp. Other speed limits still apply. |
 | **Purge lines spacing** | Spreads purge rows farther apart as the percentage increases. The allocated purge volume is preserved, so wider spacing generally requires more room. |
-| **SkyLane fence height** | Maximum height of the separate fence around lanes growing from the bed. Defaults to 1000 mm; zero disables it. It needs enough brim underneath and stops at the first merged zone. |
 | **SkyLane profile speeds** | Enabled by default. Uses filament flow limits, tower speed, initial-layer speed and the ramp. Disabled: fixed limits of 15 mm³/s and 250 mm/s for purge, 30 mm/s on the first layer, without a ramp. |
 | **Brim width** | Extends the foundation around the wall outline. |
 | **Wall gap** | Omits a short part of the shared perimeter near the entry point. It does not connect or separate adjacent purge rows. |
 | **Rib length, rib width and Fillet wall** | Control the rib outline when Rib is selected. |
 | **Stabilization cone apex angle** | Controls the cone outline when Cone is selected. |
 
-**Maximum dip = 0 means automatic, not zero movement.** In this build it uses
-the largest configured Z hop, with a minimum of 75% of the smallest nozzle
-diameter. An explicit dip also limits the maximum pass height. The planner uses
+SkyLane manages the dip limit and fence height internally. By default the dip
+limit follows the largest configured Z hop, with a minimum of 75% of the
+smallest nozzle diameter. The planner uses
 a simplified nozzle-clearance envelope, including a 40° cone and at least a
 0.5 mm tip radius. This is not a model of the entire toolhead or printer.
 When a rib corner is already higher than the target lane, the nozzle lands

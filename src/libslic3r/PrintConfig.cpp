@@ -5495,14 +5495,12 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
-    def           = this->add("skylane_max_dip", coFloat);
-    def->label    = L("SkyLane maximum dip");
-    def->tooltip  = L("Maximum distance the SkyLane surface may lag below the current print layer. Zero uses the largest configured Z hop, "
-                       "with a minimum of 75% of the smallest nozzle diameter. Check nozzle clearance before increasing this value.");
-    def->sidetext = "mm";
-    def->min      = 0;
-    def->max      = 2;
-    def->mode     = comAdvanced;
+    // Internal planner limits. Keep both keys loadable from existing projects and presets.
+    def            = this->add("skylane_max_dip", coFloat);
+    def->gui_flags = "internal";
+    def->cli       = ConfigOptionDef::nocli;
+    def->min       = 0;
+    def->max       = 2;
     def->set_default_value(new ConfigOptionFloat(0.));
 
     def           = this->add("skylane_ramp_volume", coFloat);
@@ -5514,14 +5512,11 @@ void PrintConfigDef::init_fff_params()
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(4.));
 
-    def           = this->add("skylane_wall_height", coFloat);
-    def->label    = L("SkyLane fence height");
-    def->tooltip  = L("Maximum height of the separate fence around lanes growing from the bed. The fence needs a sufficiently wide brim. "
-                       "Zero disables it.");
-    def->sidetext = "mm";
-    def->min      = 0;
-    def->max      = 1000;
-    def->mode     = comAdvanced;
+    def            = this->add("skylane_wall_height", coFloat);
+    def->gui_flags = "internal";
+    def->cli       = ConfigOptionDef::nocli;
+    def->min       = 0;
+    def->max       = 1000;
     def->set_default_value(new ConfigOptionFloat(1000.));
 
     def          = this->add("skylane_profile_speeds", coBool);

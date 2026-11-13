@@ -291,9 +291,13 @@ wxDataViewItem EditGCodeDialog::add_presets_placeholders()
                     m_params_list->AppendParam(subgroup, optptr->is_scalar() ? ParamType::Scalar : ParamType::Vector, opt_key);
                 }
         }
-        for (auto opt_key : extra_keys)
+        for (const auto& opt_key : extra_keys) {
+            const auto* def = full_config.def()->get(opt_key);
+            if (def && def->gui_flags == "internal")
+                continue;
             if (const ConfigOption* optptr = full_config.optptr(opt_key))
                 m_params_list->AppendParam(parent, optptr->is_scalar() ? ParamType::Scalar : ParamType::Vector, opt_key);
+        }
     };
 
     wxDataViewItem group = m_params_list->AppendGroup(_L("Presets"), "cog");
