@@ -1,6 +1,6 @@
 {
  "version" : 1,
- "description" : "Curated knowledge for the Snapmaker Orca print assistant. Entries are original summaries of the cited sources (the Snapmaker wiki, public printing references and Snapmaker's U1 print quality corpus); see each entry's sources.",
+ "description" : "Curated knowledge for the Snapmaker Orca print assistant. Entries are original summaries of the cited sources (the Snapmaker wiki, public printing references, Snapmaker's U1 print quality corpus and its expert print-quality cases); see each entry's sources.",
  "entries" : [
   {
    "id" : "artisan-3d-printing-safety",
@@ -40870,6 +40870,759 @@
    "sources" : [
     {
      "title" : "Snapmaker U1 print quality corpus, ZZ-05",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-benchy-overhangs-short-bridges",
+   "title" : "U1 expert case: 3DBenchy overhangs and short bridges without support",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "benchy",
+    "overhang",
+    "bridge",
+    "short bridge",
+    "no support",
+    "cooling",
+    "layer time",
+    "bridge flow",
+    "bridge speed",
+    "ripples",
+    "expert case"
+   ],
+   "summary" : "Snapmaker's print experts tuned 3DBenchy on the U1 for its overhangs and short bridges. A longer minimum layer time, a higher bridge flow and a slower external bridge speed reduced the cooling ripples on the hull and gave good bridges with no support. The recorded verdict: met expectations, with a clear improvement on short bridges.",
+   "symptoms" : [
+    "Ripples or cooling marks on a Benchy's curved hull",
+    "Short bridges look rough when printed without support"
+   ],
+   "steps" : [
+    "Print bridges shorter than about 50 mm without support",
+    "Set the filament's cooling layer time to 8 s",
+    "Set the bridge flow ratio to 1.5",
+    "Set the external bridge speed to 10 mm/s"
+   ],
+   "settings" : [
+    {
+     "key" : "slow_down_layer_time",
+     "advice" : "Set to 8 s in the filament's cooling settings. Layers that would finish sooner are slowed down, so overhangs get time to cool."
+    },
+    {
+     "key" : "bridge_flow",
+     "advice" : "Set to 1.5 for fuller bridge lines."
+    },
+    {
+     "key" : "bridge_speed",
+     "advice" : "Set the external bridge speed to 10 mm/s."
+    }
+   ],
+   "facts" : [
+    "Model: 3DBenchy. Features: overhangs and short bridges",
+    "The case treats bridges shorter than about 50 mm as printable without support",
+    "Improvement noted: cooling ripples on the hull, good bridges without support",
+    "Verdict: met expectations; short bridges improved clearly"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, 3DBenchy",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-bridging-test-flow-speed",
+   "title" : "U1 expert case: bridging test with bridge flow 1.5 and 10 mm/s bridges",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "bridge",
+    "bridging",
+    "bridging test",
+    "bridge flow",
+    "bridge speed",
+    "tree support",
+    "top z distance",
+    "expert case"
+   ],
+   "summary" : "On a bridging test model, Snapmaker's print experts got the bridges they wanted on the U1 with a bridge flow ratio of 1.5 and an external bridge speed of 10 mm/s. The support type was tree(auto) in the default style, with a top Z distance of 0.16 mm, the layer height minus 0.04 mm. The recorded verdict: reached expectations.",
+   "symptoms" : [
+    "Bridges sag or have gaps between lines",
+    "User asks how to tune bridges on the U1"
+   ],
+   "settings" : [
+    {
+     "key" : "bridge_flow",
+     "advice" : "Set to 1.5."
+    },
+    {
+     "key" : "bridge_speed",
+     "advice" : "Set the external bridge speed to 10 mm/s."
+    },
+    {
+     "key" : "support_type",
+     "advice" : "Use tree(auto)."
+    },
+    {
+     "key" : "support_style",
+     "advice" : "Keep the default style."
+    },
+    {
+     "key" : "support_top_z_distance",
+     "advice" : "Set to the layer height minus 0.04 mm: 0.16 mm at 0.2 mm layers."
+    }
+   ],
+   "facts" : [
+    "Model: bridging_test. Feature: bridges",
+    "The same bridge flow and speed were used on 3DBenchy and on a snap-fit part with threaded holes",
+    "Verdict: reached expectations"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, bridging_test",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-fit-clearance-hole-compensation",
+   "title" : "U1 expert case: fit clearance test, X-Y hole compensation and Arachne for top text",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "tolerance",
+    "fit",
+    "clearance",
+    "dimensional accuracy",
+    "hole compensation",
+    "arachne",
+    "text",
+    "top surface text",
+    "expert case"
+   ],
+   "summary" : "On a fit clearance test with text on its top face, Snapmaker's print experts set the X-Y hole compensation to 0.01 mm, noting that the right value depends on the actual printed result, and used the Arachne wall generator. Text clarity and dimensional tolerance improved. The recorded verdict: met expectations.",
+   "symptoms" : [
+    "Holes or mating parts fit too tight or too loose",
+    "Text on the top face is unclear"
+   ],
+   "settings" : [
+    {
+     "key" : "xy_hole_compensation",
+     "advice" : "The experts used 0.01 mm. Treat it as a starting point and adjust to the measured fit of the printed part."
+    },
+    {
+     "key" : "wall_generator",
+     "advice" : "Use arachne."
+    }
+   ],
+   "facts" : [
+    "Model: fit clearance test. Features: dimensional tolerance, text on the top face",
+    "The hole compensation value is case-specific: the experts say to set it from the actual result",
+    "Verdict: met expectations"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, fit clearance test",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-keep-default-process-settings",
+   "title" : "U1: process settings whose defaults already print well and are not changed lightly",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "defaults",
+    "keep default",
+    "do not change",
+    "protected settings",
+    "scarf seam",
+    "precise wall",
+    "polyholes",
+    "make overhangs printable",
+    "extrusion rate smoothing",
+    "ooze prevention",
+    "wipe tower",
+    "printer settings"
+   ],
+   "summary" : "Snapmaker's print experts list 18 process settings whose default values already give good results on the U1. The assistant should not change them lightly: leave them alone when tuning print quality, and change one only if the user specifically wants that setting changed. Machine (printer) settings are never changed by the assistant. Each setting's default on the U1 profiles is listed below.",
+   "settings" : [
+    {
+     "key" : "seam_slope_type",
+     "advice" : "Scarf joint seam. Leave at its default, none."
+    },
+    {
+     "key" : "precise_outer_wall",
+     "advice" : "Precise wall. Leave at its U1 default, off."
+    },
+    {
+     "key" : "precise_z_height",
+     "advice" : "Precise Z height. Leave at its default, off."
+    },
+    {
+     "key" : "hole_to_polyhole",
+     "advice" : "Convert holes to polyholes. Leave at its default, off."
+    },
+    {
+     "key" : "small_area_infill_flow_compensation",
+     "advice" : "Small area flow compensation. Leave at its default, off."
+    },
+    {
+     "key" : "enable_extra_bridge_layer",
+     "advice" : "Extra bridge layers. Leave at its default, disabled."
+    },
+    {
+     "key" : "counterbore_hole_bridging",
+     "advice" : "Bridge counterbore holes. Leave at its default, none."
+    },
+    {
+     "key" : "detect_overhang_wall",
+     "advice" : "Detect overhang wall. Leave at its default, on."
+    },
+    {
+     "key" : "make_overhang_printable",
+     "advice" : "Make overhangs printable. Leave at its default, off."
+    },
+    {
+     "key" : "extra_perimeters_on_overhangs",
+     "advice" : "Extra perimeters on overhangs. Leave at its default, off."
+    },
+    {
+     "key" : "detect_narrow_internal_solid_infill",
+     "advice" : "Detect narrow internal solid infill. Leave at its default, on."
+    },
+    {
+     "key" : "ensure_vertical_shell_thickness",
+     "advice" : "Ensure vertical shell thickness. Leave at its default, all."
+    },
+    {
+     "key" : "accel_to_decel_enable",
+     "advice" : "Enable accel_to_decel. Leave at its default, on."
+    },
+    {
+     "key" : "max_volumetric_extrusion_rate_slope",
+     "advice" : "Extrusion rate smoothing. Leave at its default, 0."
+    },
+    {
+     "key" : "wipe_tower_no_sparse_layers",
+     "advice" : "Wipe tower: no sparse layers. Leave at its default, off."
+    },
+    {
+     "key" : "wipe_tower_wall_gap",
+     "advice" : "Wipe tower: wall gap. Leave at its default, on."
+    },
+    {
+     "key" : "single_extruder_multi_material_priming",
+     "advice" : "Prime all printing extruders. Leave at its default, off."
+    },
+    {
+     "key" : "ooze_prevention",
+     "advice" : "Ooze prevention. Leave at its U1 default, on."
+    }
+   ],
+   "facts" : [
+    "The list covers seam, precision, bridging, overhang, strength, acceleration, extrusion smoothing, wipe tower and ooze prevention options in the process settings",
+    "Rule from the experts: machine (printer) parameters are never changed by the assistant",
+    "Two U1 profile defaults differ from the slicer's built-in defaults: precise wall is off and ooze prevention is on"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, parameters the assistant does not change lightly",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-large-flat-first-layer-warping",
+   "title" : "U1 expert case: large flat part, first-layer acceleration and a tight outer brim against warping",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "large flat",
+    "flat part",
+    "warping",
+    "first layer",
+    "bed adhesion",
+    "acceleration",
+    "brim",
+    "brim gap",
+    "expert case"
+   ],
+   "summary" : "For a large flat part on the U1, Snapmaker's print experts addressed warping through the first layer: first-layer infill speed 90 mm/s, first-layer acceleration 400 mm/s2, and an outer-only brim 3 mm wide with no gap to the model. They note that lowering the first-layer acceleration improves adhesion to the heated bed. No verdict was recorded for this case.",
+   "symptoms" : [
+    "A large flat part warps or lifts at the edges"
+   ],
+   "settings" : [
+    {
+     "key" : "initial_layer_infill_speed",
+     "advice" : "The experts used 90 mm/s."
+    },
+    {
+     "key" : "initial_layer_acceleration",
+     "advice" : "The experts used 400 mm/s2; lowering it improves adhesion to the bed."
+    },
+    {
+     "key" : "brim_type",
+     "advice" : "Use outer_only."
+    },
+    {
+     "key" : "brim_width",
+     "advice" : "Set to 3 mm."
+    },
+    {
+     "key" : "brim_object_gap",
+     "advice" : "Set to 0 so the brim is attached to the part."
+    }
+   ],
+   "facts" : [
+    "Model: U1 large flat plate. Feature: large flat surface",
+    "Improvement target: warping of large flat parts",
+    "The case records the changes but no verdict"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, U1 large flat plate",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-overhang-test-cooling-tree-support",
+   "title" : "U1 expert case: 30-85 degree overhang test with more cooling and tree support",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "overhang",
+    "overhang test",
+    "cooling",
+    "layer time",
+    "auxiliary fan",
+    "tree support",
+    "top z distance",
+    "expert case"
+   ],
+   "summary" : "For a cross-shaped overhang test covering 30 to 85 degrees, Snapmaker's print experts raised cooling on the U1 and set the support type to tree(auto). They set the filament's minimum layer time to 8 s and the auxiliary part cooling fan to 80%, kept the default support style and used a top Z distance of 0.16 mm, which is the layer height minus 0.04 mm. The recorded verdict: reached expectations.",
+   "symptoms" : [
+    "Overhangs print worse as the angle gets steeper",
+    "User asks how to tune a U1 overhang test"
+   ],
+   "settings" : [
+    {
+     "key" : "slow_down_layer_time",
+     "advice" : "Set to 8 s in the filament's cooling settings so short layers are slowed and cool before the next one."
+    },
+    {
+     "key" : "additional_cooling_fan_speed",
+     "advice" : "Set the auxiliary part cooling fan to 80% in the filament's cooling settings."
+    },
+    {
+     "key" : "support_type",
+     "advice" : "Use tree(auto)."
+    },
+    {
+     "key" : "support_style",
+     "advice" : "Keep the default style."
+    },
+    {
+     "key" : "support_top_z_distance",
+     "advice" : "Set to the layer height minus 0.04 mm: 0.16 mm at 0.2 mm layers."
+    }
+   ],
+   "facts" : [
+    "Model: cross-shaped overhang test, 30 to 85 degrees. Feature: overhangs",
+    "Top Z distance rule used by the experts: layer height minus 0.04 mm",
+    "Verdict: reached expectations"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, cross overhang test 30-85 degrees",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-pokeball-mixed-material-support",
+   "title" : "U1 expert case: curved overhang with PLA/PETG support, small first-layer contact and wipe tower",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "pokeball",
+    "curved overhang",
+    "support",
+    "petg",
+    "pla",
+    "support material",
+    "wipe tower",
+    "prime tower",
+    "brim",
+    "warping",
+    "first layer",
+    "expert case"
+   ],
+   "summary" : "A pokeball model combines an overhanging curved surface, a small first-layer contact area and support printed in a different material. Snapmaker's print experts set the support parameters from the wiki guidance on using PETG and PLA as support for each other, added a brim on the outer and inner edges, and assigned a specific toolhead's filament to the wipe tower. This improved the supported curved surface, the wipe tower's stability and first-layer warping and adhesion. The recorded verdict: met expectations.",
+   "symptoms" : [
+    "Rough curved underside over supports",
+    "Wipe tower wobbles or falls over",
+    "First layer warps or does not stick on a part with a small footprint"
+   ],
+   "steps" : [
+    "Set the support parameters as the wiki describes for PETG and PLA supporting each other",
+    "Set the brim type to outer and inner",
+    "Under filament for features, choose which toolhead's filament prints the wipe tower"
+   ],
+   "settings" : [
+    {
+     "key" : "brim_type",
+     "advice" : "Use outer_and_inner for a part with a small first-layer contact area."
+    },
+    {
+     "key" : "wipe_tower_filament",
+     "advice" : "Assign a specific toolhead's filament to the wipe tower instead of leaving it to the slicer."
+    }
+   ],
+   "facts" : [
+    "Model: pokeball. Features: overhanging curved surface, small first-layer contact area, support in a different material",
+    "Improvements noted: curved-surface support result, wipe tower stability, first-layer warping and bed adhesion",
+    "Verdict: met expectations"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, pokeball",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-side-multicolor-text-avoid-crossing",
+   "title" : "U1 expert case: multi-colour text on a side wall, Arachne detail settings and avoid crossing walls",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "text",
+    "multi-color",
+    "multicolor",
+    "side wall",
+    "stringing",
+    "color contamination",
+    "color bleed",
+    "wall texture",
+    "arachne",
+    "avoid crossing walls",
+    "expert case"
+   ],
+   "summary" : "For multi-colour text on a side wall, Snapmaker's print experts used the Arachne wall generator on the U1 with the minimum wall width at 50% and the minimum feature size at 15%, and turned on avoid crossing walls. The aim was less stringing that carries one colour into another and a cleaner wall texture. The recorded verdict: reached expectations.",
+   "symptoms" : [
+    "Strings drag one colour across text of another colour",
+    "Marks or uneven texture on a wall with multi-colour text"
+   ],
+   "settings" : [
+    {
+     "key" : "wall_generator",
+     "advice" : "Use arachne."
+    },
+    {
+     "key" : "min_bead_width",
+     "advice" : "Lower to 50%."
+    },
+    {
+     "key" : "min_feature_size",
+     "advice" : "Lower to 15%."
+    },
+    {
+     "key" : "reduce_crossing_wall",
+     "advice" : "Turn on so travel moves go around walls instead of across them."
+    }
+   ],
+   "facts" : [
+    "Model: side text plate. Feature: multi-colour text",
+    "Improvement targets: stringing that mixes colours, wall surface texture",
+    "Verdict: reached expectations"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, side text",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-small-top-text-arachne",
+   "title" : "U1 expert case: small text on a top face with Arachne, 50% minimum wall width and 15% feature size",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "text",
+    "small text",
+    "lettering",
+    "top surface",
+    "fine detail",
+    "missing detail",
+    "arachne",
+    "minimum wall width",
+    "minimum feature size",
+    "expert case"
+   ],
+   "summary" : "To print small text on a flat top face completely and legibly, Snapmaker's print experts used the Arachne wall generator on the U1 with the minimum wall width lowered to 50% and the minimum feature size lowered to 15%. Thin strokes that would otherwise be dropped are then printed. The recorded verdict: met expectations.",
+   "symptoms" : [
+    "Small letters on the top face are incomplete",
+    "Thin strokes of text are missing or blurred"
+   ],
+   "settings" : [
+    {
+     "key" : "wall_generator",
+     "advice" : "Use arachne; the two settings below only apply to it."
+    },
+    {
+     "key" : "min_bead_width",
+     "advice" : "Lower to 50% so thin strokes get a narrower wall instead of being skipped."
+    },
+    {
+     "key" : "min_feature_size",
+     "advice" : "Lower to 15% so features thinner than the default limit are still printed."
+    }
+   ],
+   "facts" : [
+    "Model: flat text plate. Feature: small text on the top face",
+    "Improvement noted: completeness and clarity of small text",
+    "Verdict: met expectations"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, flat text",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-snap-fit-threads-line-width-bridges",
+   "title" : "U1 expert case: snap-fit part with threaded holes, wider walls, slow bridges and tree support",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "snap fit",
+    "clip",
+    "thread",
+    "threaded hole",
+    "assembly",
+    "tolerance",
+    "line width",
+    "bridge",
+    "tree support",
+    "max bridge length",
+    "brim",
+    "expert case"
+   ],
+   "summary" : "For a snap-fit part with threaded holes, tight assembly tolerances and a small first-layer contact area, Snapmaker's print experts widened the outer and inner wall lines to 0.5 mm, printed external bridges at 10 mm/s with a bridge flow ratio of 1.5, enabled tree support with a max bridge length of 10 mm, and added a brim only to the objects with a small contact area. Assembly fit and thread quality improved. The recorded verdict: met expectations.",
+   "symptoms" : [
+    "Printed threads are rough or do not engage",
+    "Snap-fit parts do not assemble",
+    "Small parts come loose from the bed"
+   ],
+   "steps" : [
+    "Globally: set outer and inner wall line width to 0.5 mm, external bridge speed to 10 mm/s and bridge flow ratio to 1.5",
+    "Enable tree support and set max bridge length to 10 mm",
+    "Per object: turn on a brim for the objects that touch the bed over a small area"
+   ],
+   "settings" : [
+    {
+     "key" : "outer_wall_line_width",
+     "advice" : "Set to 0.5 mm."
+    },
+    {
+     "key" : "inner_wall_line_width",
+     "advice" : "Set to 0.5 mm."
+    },
+    {
+     "key" : "bridge_speed",
+     "advice" : "Set the external bridge speed to 10 mm/s."
+    },
+    {
+     "key" : "bridge_flow",
+     "advice" : "Set to 1.5."
+    },
+    {
+     "key" : "enable_support",
+     "advice" : "Turn on, with a tree support type."
+    },
+    {
+     "key" : "max_bridge_length",
+     "advice" : "Set to 10 mm, so bridges up to that length print without support and longer ones are supported."
+    },
+    {
+     "key" : "brim_type",
+     "advice" : "Turn a brim on as an object override for the objects with a small contact area, not for the whole plate."
+    }
+   ],
+   "facts" : [
+    "Model: snap-fit part. Features: small first-layer contact area, assembly tolerance, threaded holes",
+    "The brim was set per object, the other values globally",
+    "Verdict: met expectations"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, snap-fit part",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-tall-thin-cylinder-seam-brim",
+   "title" : "U1 expert case: tall thin cylinder, seam at the back, wide brim and cross hatch infill",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "tall",
+    "thin",
+    "cylinder",
+    "seam",
+    "z seam",
+    "stability",
+    "vibration",
+    "ringing",
+    "brim",
+    "cross hatch",
+    "wipe on loops",
+    "expert case"
+   ],
+   "summary" : "For a tall, thin cylinder, Snapmaker's print experts worked on stability and vibration marks on the U1. They aligned the seam at the back, turned on wipe on loops, used cross hatch sparse infill and added a 10 mm brim on both the outer and inner edges. The recorded verdict: met expectations.",
+   "symptoms" : [
+    "A tall thin part wobbles or shows vibration marks",
+    "A visible Z seam on a cylinder"
+   ],
+   "settings" : [
+    {
+     "key" : "seam_position",
+     "advice" : "Set to back (aligned back) so the seam runs in one line at the rear."
+    },
+    {
+     "key" : "wipe_on_loops",
+     "advice" : "Turn on."
+    },
+    {
+     "key" : "sparse_infill_pattern",
+     "advice" : "Use crosshatch."
+    },
+    {
+     "key" : "brim_type",
+     "advice" : "Use outer_and_inner."
+    },
+    {
+     "key" : "brim_width",
+     "advice" : "Set to 10 mm for a tall, narrow part."
+    }
+   ],
+   "facts" : [
+    "Model: tall thin cylinder. Features: tall thin part, Z seam",
+    "Improvement targets: stability and vibration marks",
+    "Verdict: met expectations"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, tall thin cylinder",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    }
+   ]
+  },
+  {
+   "id" : "u1x-tree-support-interface-islands",
+   "title" : "U1 expert case: tree support with a dense interface for islands and overhanging parts",
+   "category" : "setting",
+   "machines" : [
+    "u1"
+   ],
+   "tags" : [
+    "support",
+    "tree support",
+    "support interface",
+    "islands",
+    "floating",
+    "overhang",
+    "support removal",
+    "top z distance",
+    "interface layers",
+    "tall model",
+    "multi-color",
+    "expert case"
+   ],
+   "summary" : "For models with islands and overhanging structures, Snapmaker's print experts used one support recipe on the U1: tree(auto) support in the default style, a top Z distance of the layer height minus 0.04 mm, four top interface layers in the rectilinear interlaced pattern with zero spacing, and 0.5 mm between support and model in XY and at the first layer. The support interface came out better and was relatively easy to remove. Both recorded cases met or reached expectations.",
+   "symptoms" : [
+    "Islands or overhanging parts need support",
+    "Rough surface where the support touched the model",
+    "Supports are hard to remove"
+   ],
+   "settings" : [
+    {
+     "key" : "enable_support",
+     "advice" : "Turn on."
+    },
+    {
+     "key" : "support_type",
+     "advice" : "Use tree(auto)."
+    },
+    {
+     "key" : "support_style",
+     "advice" : "Keep the default style."
+    },
+    {
+     "key" : "support_top_z_distance",
+     "advice" : "Set to the layer height minus 0.04 mm: 0.16 mm at 0.2 mm layers."
+    },
+    {
+     "key" : "support_interface_top_layers",
+     "advice" : "Set to 4."
+    },
+    {
+     "key" : "support_interface_pattern",
+     "advice" : "Use rectilinear interlaced."
+    },
+    {
+     "key" : "support_interface_spacing",
+     "advice" : "Set the top interface spacing to 0 for a solid interface."
+    },
+    {
+     "key" : "support_object_xy_distance",
+     "advice" : "Set to 0.5 mm."
+    },
+    {
+     "key" : "support_object_first_layer_gap",
+     "advice" : "Set to 0.5 mm."
+    }
+   ],
+   "facts" : [
+    "Case 1: tails model, with supports and islands. Verdict: met expectations",
+    "Case 2: a tall multi-colour Tang-style horse figurine with islands and overhanging structures. Verdict: reached expectations",
+    "Improvement noted in both: better support interface, relatively easy to remove"
+   ],
+   "sources" : [
+    {
+     "title" : "Snapmaker expert print-quality cases, tails",
+     "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
+    },
+    {
+     "title" : "Snapmaker expert print-quality cases, Tang tri-colour horse",
      "url" : "https://wiki.snapmaker.com/en/snapmaker_u1"
     }
    ]

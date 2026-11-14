@@ -126,7 +126,8 @@ my $out = JSON::PP->new->utf8->pretty->indent_length(1)->sort_by(sub {
 my $doc = {
     version     => 1,
     description => 'Curated knowledge for the Snapmaker Orca print assistant. Entries are original summaries of the cited sources '
-                 . '(the Snapmaker wiki, public printing references and Snapmaker\'s U1 print quality corpus); see each entry\'s sources.',
+                 . '(the Snapmaker wiki, public printing references, Snapmaker\'s U1 print quality corpus and its expert '
+                 . 'print-quality cases); see each entry\'s sources.',
     entries     => [ sort { $a->{id} cmp $b->{id} } @entries ],
 };
 open my $o, '>:raw', $output or die $!;
