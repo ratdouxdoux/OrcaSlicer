@@ -836,6 +836,18 @@ TEST_CASE("Assistant Anthropic streams tool arguments and preserves content bloc
     CHECK(request["messages"].back()["content"].size() == 2);
 }
 
+TEST_CASE("Assistant chat-completions tool calls without arguments get an empty object", "[AIPrintAssistant][fast]")
+{
+    AI::ChatStream stream(AI::Provider::OpenRouter);
+    stream.feed(router_delta(
+        {{"tool_calls", {{{"index", 0}, {"id", "call_1"}, {"function", {{"name", "get_model_context"}, {"arguments", ""}}}}}}}));
+    stream.feed(router_delta(json::object(), "tool_calls") + "data: [DONE]\n\n");
+    const auto calls = stream.tool_calls();
+    REQUIRE(calls.size() == 1);
+    CHECK(calls[0].arguments == json::object());
+    CHECK(stream.assistant_message()["tool_calls"][0]["function"]["arguments"] == "{}");
+}
+
 TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter parameters", "[AIPrintAssistant][fast]")
 {
     CHECK(std::string(AI::provider_info(AI::Provider::BigModel).endpoint) == "https://open.bigmodel.cn/api/paas/v4/chat/completions");
@@ -1020,6 +1032,14 @@ TEST_CASE("Assistant read tools use the actual catalog and never mutate settings
     CHECK(results["settings"][0]["key"] == "wall_generator");
     const auto all = AI::run_read_tool(context, {"c", "search_settings", {{"query", ""}}});
     CHECK(all["settings"].size() == context.editable_keys.size());
+    // A search matches what a setting is called and does, not the catalog's own field names and metadata.
+    for (const char* word : {"nullable", "current_value", "value_source", "inherited"}) {
+        INFO(word);
+        CHECK(AI::run_read_tool(context, {"d", "search_settings", {{"query", word}}})["settings"].empty());
+    }
+    const auto minimum = AI::run_read_tool(context, {"e", "search_settings", {{"query", "minimum"}}})["settings"];
+    CHECK_FALSE(minimum.empty());
+    CHECK(minimum.size() < all["settings"].size() / 4);
     CHECK_THROWS(AI::run_read_tool(context, {"x", "run_shell", json::object()}));
     CHECK_THROWS(AI::run_read_tool(context, {"x", "search_settings", {{"query", 1}}}));
     CHECK_THROWS(AI::run_read_tool(context, {"x", "get_print_context", {{"extra", true}}}));

@@ -371,9 +371,16 @@ json run_read_tool(const Context& context, const ChatToolCall& call)
         const auto query = lower(call.arguments["query"].get<std::string>());
         if (query.size() > 200)
             throw std::runtime_error("Search query is too long.");
+        // Match what a setting is called and does, not the names of the catalog's own fields.
+        auto text = [](const json& entry) {
+            std::string all;
+            for (const char* field : {"key", "label", "category", "description"})
+                all += entry.value(field, "") + "\n";
+            return lower(all);
+        };
         json matches = json::array();
         for (const auto& entry : context.public_context["settings"])
-            if (query.empty() || lower(entry.dump()).find(query) != std::string::npos)
+            if (query.empty() || text(entry).find(query) != std::string::npos)
                 matches.push_back(entry);
         return {{"context_id", context.id},
                 {"object_id", context.public_context["object_id"]},
@@ -571,8 +578,10 @@ std::vector<ChatToolCall> ChatStream::tool_calls() const
         if (call.id.empty() || call.id.size() > 200 || call.name.empty() || call.name.size() > 80 || !ids.insert(call.id).second ||
             calls.size() >= 8)
             throw std::runtime_error("Invalid tool identity.");
+        // No streamed arguments: Anthropic's block carries the input, and some
+        // chat-completions providers send "" for a tool that takes none.
         const auto args = block.value("arguments", "");
-        call.arguments  = args.empty() && m_provider == Provider::Anthropic ? block.at("input") : parse_json(args);
+        call.arguments  = !args.empty() ? parse_json(args) : m_provider == Provider::Anthropic ? block.at("input") : json::object();
         if (!call.arguments.is_object())
             throw std::runtime_error("Invalid tool arguments.");
         calls.push_back(std::move(call));
@@ -603,6 +612,9 @@ json ChatStream::assistant_message() const
     json content = json::array();
     for (const auto& [index, item] : m_blocks) {
         auto block = item;
+        // Anthropic rejects a replayed text block that is empty.
+        if (block.value("type", "") == "text" && block.value("text", "").empty())
+            continue;
         if (block.value("type", "") == "tool_use") {
             for (const auto& call : calls)
                 if (call.id == block["id"])
