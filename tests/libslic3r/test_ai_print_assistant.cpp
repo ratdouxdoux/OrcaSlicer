@@ -848,6 +848,43 @@ TEST_CASE("Assistant chat-completions tool calls without arguments get an empty 
     CHECK(stream.assistant_message()["tool_calls"][0]["function"]["arguments"] == "{}");
 }
 
+TEST_CASE("Assistant Anthropic requests replay no empty text and mark the cacheable prefix", "[AIPrintAssistant][fast]")
+{
+    AI::ChatStream stream(AI::Provider::Anthropic);
+    stream.feed(anthropic_start() + sse({{"type", "content_block_start"}, {"index", 0}, {"content_block", {{"type", "text"}, {"text", ""}}}}) +
+                sse({{"type", "content_block_stop"}, {"index", 0}}) +
+                sse({{"type", "content_block_start"},
+                     {"index", 1},
+                     {"content_block", {{"type", "tool_use"}, {"id", "tool_1"}, {"name", "get_model_context"}, {"input", json::object()}}}}) +
+                sse({{"type", "content_block_stop"}, {"index", 1}}) + sse({{"type", "message_delta"}, {"delta", {{"stop_reason", "tool_use"}}}}) +
+                sse({{"type", "message_stop"}}));
+    // The API rejects a text block with no text when it is sent back.
+    const auto message = stream.assistant_message();
+    REQUIRE(message["content"].size() == 1);
+    CHECK(message["content"][0]["type"] == "tool_use");
+    CHECK(message["content"][0]["input"] == json::object());
+
+    const auto history = json::array({AI::chat_user_message(AI::Provider::Anthropic, "Help"), message,
+                                      AI::chat_tool_result(AI::Provider::Anthropic, stream.tool_calls()[0], {{"ok", true}})});
+    const auto request = json::parse(AI::make_chat_request(AI::Provider::Anthropic, "claude-sonnet-5-5", history));
+    // Tools and the system prompt never change: one marker caches both. The
+    // request-level marker caches the conversation up to its last block.
+    REQUIRE(request["system"].size() == 1);
+    CHECK(request["system"][0]["cache_control"] == json({{"type", "ephemeral"}}));
+    CHECK(request["cache_control"] == json({{"type", "ephemeral"}}));
+    // No marker inside the history, which must stay identical from one request to the next.
+    CHECK(request["messages"].dump().find("cache_control") == std::string::npos);
+    CHECK(request["tools"].dump().find("cache_control") == std::string::npos);
+    // The same history and model give the same prefix bytes.
+    const auto again = json::parse(AI::make_chat_request(AI::Provider::Anthropic, "claude-sonnet-5-5", history));
+    CHECK(again["system"].dump() == request["system"].dump());
+    CHECK(again["tools"].dump() == request["tools"].dump());
+    // Chat-completions providers cache on their own and get no markers.
+    const auto other = AI::make_chat_request(AI::Provider::DeepSeek, "deepseek-flash",
+                                             json::array({AI::chat_user_message(AI::Provider::DeepSeek, "Help")}));
+    CHECK(other.find("cache_control") == std::string::npos);
+}
+
 TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter parameters", "[AIPrintAssistant][fast]")
 {
     CHECK(std::string(AI::provider_info(AI::Provider::BigModel).endpoint) == "https://open.bigmodel.cn/api/paas/v4/chat/completions");
@@ -1421,7 +1458,7 @@ TEST_CASE("Assistant asks the user before switching the edit scope", "[AIPrintAs
         }
         CHECK(found == 1);
         const std::string system = AI::uses_chat_completions(provider) ? request["messages"][0]["content"].get<std::string>() :
-                                                                         request["system"].get<std::string>();
+                                                                         request["system"][0]["text"].get<std::string>();
         CHECK(system.find("call request_edit_scope") != std::string::npos);
         CHECK(system.find("do not ask again") != std::string::npos);
     }

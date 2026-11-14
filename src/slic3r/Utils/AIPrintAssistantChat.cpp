@@ -285,7 +285,12 @@ std::string make_chat_request(Provider provider, const std::string& model, const
             request["thinking"] = {{"type", "enabled"}};
         request["tool_choice"] = "auto";
     } else {
-        request["system"] = system;
+        // Prompt caching: the marker on the system block caches the tool definitions and
+        // the system prompt, which never change, and the request-level marker caches the
+        // conversation up to its last block, so each tool round re-reads what the previous
+        // one sent. Both must stay byte-identical between requests to be read back.
+        request["system"]        = json::array({{{"type", "text"}, {"text", system}, {"cache_control", {{"type", "ephemeral"}}}}});
+        request["cache_control"] = {{"type", "ephemeral"}};
         // Anthropic tool results from one response must share a user message.
         json merged = json::array();
         for (const auto& message : messages) {

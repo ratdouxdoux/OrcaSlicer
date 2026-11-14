@@ -185,7 +185,7 @@ TEST_CASE("Assistant slice tools are exposed on both providers with evidence-awa
         }
         CHECK(slice_tools == 2);
         const std::string system = provider == AI::Provider::OpenRouter ? request["messages"][0]["content"].get<std::string>() :
-                                                                          request["system"].get<std::string>();
+                                                                          request["system"][0]["text"].get<std::string>();
         CHECK(system.find("Use get_slice_context before diagnosing") != std::string::npos);
         CHECK(system.find("No mesh, live slice analysis") == std::string::npos);
         CHECK(system.find("old slice is obsolete") != std::string::npos);
@@ -269,7 +269,7 @@ TEST_CASE("Assistant can slice the plate and is told about native checks", "[AIP
         }
         CHECK(found == 1);
         const std::string system = provider == AI::Provider::OpenRouter ? request["messages"][0]["content"].get<std::string>() :
-                                                                          request["system"].get<std::string>();
+                                                                          request["system"][0]["text"].get<std::string>();
         CHECK(system.find("pre_slice_checks") != std::string::npos);
         CHECK(system.find("only slice_plate starts slicing") != std::string::npos);
         CHECK(system.find("does not Apply") != std::string::npos);

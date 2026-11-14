@@ -282,7 +282,7 @@ TEST_CASE("Assistant generate_model tools and rendered views reach the provider"
             CHECK(generate["required"] == json({"name", "code", "object_id"}));
             CHECK(source["required"] == json({"object_id"}));
             const auto system = AI::uses_chat_completions(provider) ? request["messages"][0]["content"].get<std::string>() :
-                                                                      request["system"].get<std::string>();
+                                                                      request["system"][0]["text"].get<std::string>();
             CHECK(system.find("call generate_model") != std::string::npos);
             CHECK(system.find("get_model_source") != std::string::npos);
 

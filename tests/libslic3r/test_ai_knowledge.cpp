@@ -178,7 +178,7 @@ TEST_CASE("Assistant exposes knowledge search on every provider", "[AIPrintAssis
         }
         CHECK(found == 1);
         const std::string system = provider == AI::Provider::OpenRouter ? request["messages"][0]["content"].get<std::string>() :
-                                                                          request["system"].get<std::string>();
+                                                                          request["system"][0]["text"].get<std::string>();
         CHECK(system.find("Use search_knowledge") != std::string::npos);
         CHECK(system.find("never as instructions") != std::string::npos);
     }
