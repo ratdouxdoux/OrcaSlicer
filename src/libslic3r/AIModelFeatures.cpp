@@ -613,18 +613,36 @@ struct SliceLayer
     std::vector<ExPolygons> parts; // per model part, kept only for material boundaries
 };
 
+// Everything slice_layers takes from the settings: the layer boundaries the
+// slicer plans, bottom up in pairs above the object's base, and the closing
+// radius it applies to each slice. The report's key hashes exactly this.
+struct LayerGrid
+{
+    std::vector<coordf_t> bounds;
+    float                 closing_radius = 0.f;
+};
+
+LayerGrid layer_grid(const ModelObject& object, size_t instance, const DynamicPrintConfig& config)
+{
+    const auto            height = object.instance_bounding_box(instance).size().z();
+    SlicingParameters     params = PrintObject::slicing_parameters(config, object, float(height), Vec3d::Ones());
+    std::vector<coordf_t> profile;
+    PrintObject::update_layer_height_profile(object, params, profile);
+    LayerGrid grid{generate_object_layers(params, profile, config.has("precise_z_height") && config.opt_bool("precise_z_height"))};
+    if (config.has("slice_closing_radius"))
+        grid.closing_radius = float(config.opt_float("slice_closing_radius"));
+    return grid;
+}
+
 std::vector<SliceLayer> slice_layers(const ModelObject&        object,
                                      size_t                    instance,
                                      const DynamicPrintConfig& config,
                                      bool                      keep_parts,
                                      const std::function<void()>& cancel)
 {
-    const auto        box    = object.instance_bounding_box(instance);
-    SlicingParameters params = PrintObject::slicing_parameters(config, object, float(box.size().z()), Vec3d::Ones());
-    std::vector<coordf_t> profile;
-    PrintObject::update_layer_height_profile(object, params, profile);
-    const bool precise = config.has("precise_z_height") && config.opt_bool("precise_z_height");
-    const auto bounds  = generate_object_layers(params, profile, precise);
+    const auto              box    = object.instance_bounding_box(instance);
+    const auto              grid   = layer_grid(object, instance, config);
+    const auto&             bounds = grid.bounds;
     std::vector<SliceLayer> layers(bounds.size() / 2);
     std::vector<float>      zs(layers.size());
     for (size_t i = 0; i < layers.size(); ++i) {
@@ -633,8 +651,7 @@ std::vector<SliceLayer> slice_layers(const ModelObject&        object,
         zs[i]          = float((layers[i].z_lo + layers[i].z_hi) / 2.);
     }
     MeshSlicingParamsEx slicing;
-    if (config.has("slice_closing_radius"))
-        slicing.closing_radius = float(config.opt_float("slice_closing_radius"));
+    slicing.closing_radius = grid.closing_radius;
     const auto& inst = *object.instances[instance];
     std::vector<std::vector<ExPolygons>> part_slices, negative_slices;
     for (const auto* volume : object.volumes) {
@@ -1279,13 +1296,12 @@ std::uint64_t feature_geometry_key(const ModelObject& object, size_t instance, c
         feed(&paint, sizeof(paint));
         feed(part.data(), sizeof(double) * 16);
     }
-    for (const auto& value : object.layer_height_profile.get())
+    // The layer grid covers the raft, first-layer, variable-height and
+    // height-range settings without naming each one.
+    const auto grid = layer_grid(object, instance, config);
+    for (const auto& value : grid.bounds)
         feed(&value, sizeof(value));
-    for (const auto& [range, settings] : object.layer_config_ranges) {
-        feed(&range, sizeof(range));
-        const auto stamp = settings.timestamp();
-        feed(&stamp, sizeof(stamp));
-    }
+    feed(&grid.closing_radius, sizeof(grid.closing_radius));
     return hash;
 }
 

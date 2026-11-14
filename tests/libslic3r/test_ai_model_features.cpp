@@ -365,6 +365,13 @@ TEST_CASE("Assistant feature reports are compact, filtered and stable", "[AIPrin
     CHECK_THROWS(AI::feature_report_json(report, {"invented"}));
     // Detection depends on the settings it grades with.
     CHECK(AI::feature_geometry_key(*f.object, 0, settings(0.3)) != report.geometry_key);
+    // It also depends on the layer grid and on how slices are closed, whichever setting moves them.
+    auto raft = settings();
+    raft.set_key_value("raft_layers", new ConfigOptionInt(2));
+    CHECK(AI::feature_geometry_key(*f.object, 0, raft) != report.geometry_key);
+    auto closing = settings();
+    closing.set_key_value("slice_closing_radius", new ConfigOptionFloat(0.2));
+    CHECK(AI::feature_geometry_key(*f.object, 0, closing) != report.geometry_key);
     // A modifier does not change the detected geometry.
     f.add(box(1, 1, 1), ModelVolumeType::PARAMETER_MODIFIER);
     CHECK(AI::feature_geometry_key(*f.object, 0, settings()) == report.geometry_key);
