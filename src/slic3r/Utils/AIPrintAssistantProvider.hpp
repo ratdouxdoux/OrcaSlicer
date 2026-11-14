@@ -27,6 +27,8 @@ struct ProviderInfo
 ProviderInfo provider_info(Provider provider);
 // Stable storage identifier, independent of display name and dropdown ordering.
 const char* provider_id(Provider provider);
+// Throws unless the model ID is well formed for the provider.
+void validate_model_id(Provider provider, const std::string& model);
 // Only display bounded provider/transport diagnostics, never the full response or credentials.
 std::string provider_error(
     Provider provider, unsigned status, const std::string& body, const std::string& api_key = {}, const std::string& transport_error = {});
@@ -53,23 +55,5 @@ inline constexpr size_t MAX_IMAGE_BASE64_BYTES = 4 * 1024 * 1024;
 nlohmann::json          image_context(const std::vector<ImageInput>& images);
 // Check image headers before allocating decoded pixels. Only PNG/JPEG, <=40 MP.
 void validate_image_file(const std::string& bytes);
-
-// Pure protocol adapter. API keys belong only in the transport header.
-std::string make_request(Provider                       provider,
-                         const Context&                 context,
-                         const std::string&             prompt,
-                         const std::string&             model,
-                         const std::vector<ImageInput>& images = {});
-Proposal    parse_response(Provider provider, const std::string& body);
-std::string make_openrouter_request(const Context&                 context,
-                                    const std::string&             prompt,
-                                    const std::string&             model,
-                                    const std::vector<ImageInput>& images = {});
-Proposal    parse_openrouter_response(const std::string& body);
-std::string make_anthropic_request(const Context&                 context,
-                                   const std::string&             prompt,
-                                   const std::string&             model,
-                                   const std::vector<ImageInput>& images = {});
-Proposal    parse_anthropic_response(const std::string& body);
 
 } // namespace Slic3r::AIPrintAssistant

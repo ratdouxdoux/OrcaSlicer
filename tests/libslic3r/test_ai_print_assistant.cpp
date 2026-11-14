@@ -215,20 +215,15 @@ TEST_CASE("Assistant images use each provider's multimodal protocol and bind to 
     CHECK(context.public_context.dump().find(images[0].base64) == std::string::npos);
     CHECK(metadata[0]["sha256"].get<std::string>().size() == 64);
     for (const auto provider : AI::PROVIDERS) {
-        const auto model   = AI::provider_info(provider).default_model;
-        const auto request = json::parse(AI::make_request(provider, context, "Diagnose the print", model, images));
-        const auto content = request["messages"][AI::uses_chat_completions(provider) ? 1 : 0]["content"];
+        const auto content = AI::chat_user_message(provider, "Diagnose the print", images)["content"];
         REQUIRE(content.size() == 2);
         CHECK(content[0]["type"] == "text");
-        CHECK(json::parse(content[0]["text"].get<std::string>())["context"] == context.public_context);
         if (AI::uses_chat_completions(provider))
             CHECK(content[1]["image_url"]["url"] == "data:image/png;base64," + images[0].base64);
         else {
             CHECK(content[1]["source"]["data"] == images[0].base64);
             CHECK(content[1]["source"]["media_type"] == "image/png");
         }
-        CHECK_THROWS(AI::make_request(provider, context, "Help", model));
-        CHECK_THROWS(AI::make_request(provider, fixture.context(), "Help", model, images));
     }
 }
 
@@ -537,133 +532,24 @@ TEST_CASE("Assistant advice and questions never become applicable changes", "[AI
     }
 }
 
-TEST_CASE("Assistant provider adapter handles completed structured replies only", "[AIPrintAssistant][fast]")
-{
-    Fixture    fixture;
-    const auto context  = fixture.context();
-    const auto proposal = proposal_json(context, {{{"key", "min_feature_size"}, {"value", 15}}});
-    json       response = {{"type", "message"}, {"stop_reason", "end_turn"}, {"content", {{{"type", "text"}, {"text", proposal.dump()}}}}};
-    CHECK(AI::parse_anthropic_response(response.dump()).context_id == context.id);
-    SECTION("Truncated") { response["stop_reason"] = "max_tokens"; }
-    SECTION("Refusal") { response["stop_reason"] = "refusal"; }
-    SECTION("Unexpected tool") { response["content"].push_back({{"type", "tool_use"}, {"name", "run_code"}}); }
-    SECTION("Ambiguous text") { response["content"].push_back(response["content"][0]); }
-    SECTION("Empty text before the proposal") { response["content"].insert(response["content"].begin(), {{"type", "text"}, {"text", ""}}); }
-    SECTION("Empty text after the proposal") { response["content"].push_back({{"type", "text"}, {"text", ""}}); }
-    CHECK_THROWS(AI::parse_anthropic_response(response.dump()));
-}
-
-TEST_CASE("Assistant provider request contains only exported context and an explicit schema", "[AIPrintAssistant][fast]")
-{
-    Fixture fixture;
-    fixture.inherited.set_key_value("printhost_apikey", new ConfigOptionString("secret-key-sentinel"));
-    const auto request = AI::make_anthropic_request(fixture.context(), "Help preserve lettering", "claude-sonnet-5-5");
-    CHECK(request.find("secret-key-sentinel") == std::string::npos);
-    const auto parsed = json::parse(request);
-    CHECK(parsed["output_config"]["format"]["schema"] == AI::proposal_schema());
-    CHECK_THROWS(AI::make_anthropic_request(fixture.context(), "", "claude-sonnet-5-5"));
-    CHECK_THROWS(AI::make_anthropic_request(fixture.context(), "Help", "model\r\nInjected: header"));
-}
-
 TEST_CASE("Assistant defaults to OpenRouter and keeps provider protocols separate", "[AIPrintAssistant][fast]")
 {
-    Fixture    fixture;
-    const auto context = fixture.context();
     CHECK(AI::DEFAULT_PROVIDER == AI::Provider::OpenRouter);
     CHECK(std::string(AI::provider_info(AI::DEFAULT_PROVIDER).endpoint) == "https://openrouter.ai/api/v1/chat/completions");
     CHECK(std::string(AI::provider_info(AI::Provider::Anthropic).endpoint) == "https://api.anthropic.com/v1/messages");
     for (const auto provider : AI::PROVIDERS) {
-        const auto info    = AI::provider_info(provider);
-        const auto request = json::parse(AI::make_request(provider, context, "Help preserve lettering", info.default_model));
-        CHECK(request["model"] == info.default_model);
-        CHECK(request.contains("response_format") == (AI::uses_chat_completions(provider)));
-        CHECK(request.contains("output_config") == (provider == AI::Provider::Anthropic));
-        CHECK_THROWS(AI::make_request(provider, context, "", info.default_model));
-        CHECK_THROWS(AI::make_request(provider, context, std::string(8001, 'x'), info.default_model));
-        CHECK_THROWS(AI::make_request(provider, context, "Help", "model\r\nInjected: header"));
+        INFO(AI::provider_id(provider));
+        CHECK_NOTHROW(AI::validate_model_id(provider, AI::provider_info(provider).default_model));
+        CHECK_THROWS(AI::validate_model_id(provider, ""));
+        CHECK_THROWS(AI::validate_model_id(provider, std::string(129, 'm')));
+        CHECK_THROWS(AI::validate_model_id(provider, "model\r\nInjected: header"));
     }
-}
-
-TEST_CASE("Assistant OpenRouter requests require structured outputs and export only bounded context", "[AIPrintAssistant][fast]")
-{
-    Fixture fixture;
-    fixture.inherited.set_key_value("printhost_apikey", new ConfigOptionString("secret-key-sentinel"));
-    const auto context = fixture.context();
-    const auto body    = AI::make_openrouter_request(context, "Help preserve lettering", "deepseek/deepseek-v4.1-flash-1017");
-    CHECK(body.find("secret-key-sentinel") == std::string::npos);
-    const auto request = json::parse(body);
-    CHECK(request["response_format"]["type"] == "json_schema");
-    CHECK(request["response_format"]["json_schema"]["strict"] == true);
-    CHECK(request["response_format"]["json_schema"]["schema"] == AI::proposal_schema());
-    CHECK(request["provider"]["require_parameters"] == true);
-    CHECK(request["stream"] == false);
-    CHECK(request["max_tokens"] == 4096);
-    REQUIRE(request["messages"].size() == 2);
-    CHECK(request["messages"][0]["role"] == "system");
-    CHECK(request["messages"][1]["role"] == "user");
-    const auto content = json::parse(request["messages"][1]["content"].get<std::string>());
-    CHECK(content == json({{"request", "Help preserve lettering"}, {"context", context.public_context}}));
-    CHECK_FALSE(request.contains("tools"));
-    CHECK_FALSE(request.contains("api_key"));
-    CHECK_NOTHROW(AI::make_openrouter_request(context, "Help", "vendor/model-v1.2:free"));
-    CHECK_THROWS(AI::make_openrouter_request(context, "Help", "no-provider-prefix"));
-    CHECK_THROWS(AI::make_openrouter_request(context, "Help", "/model"));
-    CHECK_THROWS(AI::make_openrouter_request(context, "Help", "vendor/"));
-    CHECK_THROWS(AI::make_anthropic_request(context, "Help", "anthropic/claude-sonnet-5.5"));
-}
-
-TEST_CASE("Assistant OpenRouter proposals use the existing validation and transaction flow", "[AIPrintAssistant][fast]")
-{
-    Fixture         fixture;
-    const auto      context  = fixture.context();
-    const auto      document = proposal_json(context, {{{"key", "min_feature_size"}, {"value", 15}}});
-    const json      response = {{"object", "chat.completion"},
-                                {"choices",
-                                 {{{"finish_reason", "stop"},
-                                   {"message",
-                                    {{"role", "assistant"},
-                                     {"content", document.dump()},
-                                     {"refusal", nullptr},
-                                     {"tool_calls", json::array()},
-                                     {"reasoning", "Provider-specific reasoning stays out of the proposal."}}}}}}};
-    const auto      proposal = AI::parse_response(AI::Provider::OpenRouter, response.dump());
-    AI::Transaction transaction;
-    fixture.object->config.assign_config(AI::prepare_apply(context, proposal, transaction));
-    CHECK(fixture.object->config.get().opt_float("min_feature_size") == 15);
-    CHECK(transaction.changed_keys == std::vector<std::string>{"min_feature_size"});
-    CHECK(AI::prepare_revert(fixture.context(), transaction).empty());
-    CHECK_THROWS(AI::parse_response(AI::Provider::Anthropic, response.dump()));
-}
-
-TEST_CASE("Assistant OpenRouter rejects errors truncation refusals and ambiguous responses", "[AIPrintAssistant][fast]")
-{
-    Fixture fixture;
-    auto    document = proposal_json(fixture.context(), {{{"key", "min_feature_size"}, {"value", 15}}});
-    json    response = {{"choices", {{{"finish_reason", "stop"}, {"message", {{"role", "assistant"}, {"content", document.dump()}}}}}}};
-    SECTION("Truncated") { response["choices"][0]["finish_reason"] = "length"; }
-    SECTION("Filtered") { response["choices"][0]["finish_reason"] = "content_filter"; }
-    SECTION("Incomplete") { response["choices"][0]["finish_reason"] = nullptr; }
-    SECTION("Error after HTTP 200") { response["error"] = {{"code", 502}, {"message", "Provider failed"}}; }
-    SECTION("Choice error after HTTP 200") { response["choices"][0]["error"] = {{"code", 502}, {"message", "Provider failed"}}; }
-    SECTION("Refusal") { response["choices"][0]["message"]["refusal"] = "I cannot help"; }
-    SECTION("Unexpected tool") { response["choices"][0]["message"]["tool_calls"] = {{{"id", "call_1"}}}; }
-    SECTION("Legacy function call") { response["choices"][0]["message"]["function_call"] = {{"name", "run_code"}}; }
-    SECTION("Wrong role") { response["choices"][0]["message"]["role"] = "tool"; }
-    SECTION("Missing text") { response["choices"][0]["message"]["content"] = nullptr; }
-    SECTION("Non-text content") { response["choices"][0]["message"]["content"] = {{{"type", "text"}, {"text", document.dump()}}}; }
-    SECTION("Streaming response") { response["choices"][0].erase("message"); }
-    SECTION("Multiple choices") { response["choices"].push_back(response["choices"][0]); }
-    SECTION("Empty choices") { response["choices"] = json::array(); }
-    SECTION("Non-array choices") { response["choices"] = json::object(); }
-    SECTION("Malformed choice") { response["choices"][0] = nullptr; }
-    SECTION("Invalid proposal")
-    {
-        document["changes"][0]["key"]                = "nozzle_diameter";
-        response["choices"][0]["message"]["content"] = document.dump();
-    }
-    SECTION("Duplicate fields") { response["choices"][0]["message"]["content"] = "{\"schema_version\":1,\"schema_version\":1}"; }
-    CHECK_THROWS(AI::parse_openrouter_response(response.dump()));
-    CHECK(fixture.object->config.empty());
+    // OpenRouter model IDs carry a vendor prefix; the other providers' do not.
+    CHECK_NOTHROW(AI::validate_model_id(AI::Provider::OpenRouter, "vendor/model-v1.2:free"));
+    CHECK_THROWS(AI::validate_model_id(AI::Provider::OpenRouter, "no-provider-prefix"));
+    CHECK_THROWS(AI::validate_model_id(AI::Provider::OpenRouter, "/model"));
+    CHECK_THROWS(AI::validate_model_id(AI::Provider::OpenRouter, "vendor/"));
+    CHECK_THROWS(AI::validate_model_id(AI::Provider::Anthropic, "anthropic/claude-sonnet-5.5"));
 }
 
 namespace {
@@ -1002,26 +888,6 @@ TEST_CASE("Assistant BigModel rejects truncated tools and reports redacted provi
     }
 }
 
-TEST_CASE("Assistant BigModel proposal adapters validate JSON mode output", "[AIPrintAssistant][fast]")
-{
-    Fixture    fixture;
-    const auto context  = fixture.context();
-    const auto document = proposal_json(context, {{{"key", "min_feature_size"}, {"value", 15}}});
-    for (const auto provider : {AI::Provider::BigModel, AI::Provider::BigModelCodingPlan}) {
-        const auto request = json::parse(AI::make_request(provider, context, "Help", "glm-5.3-flash"));
-        CHECK(request["response_format"] == json({{"type", "json_object"}}));
-        CHECK(request["messages"][0]["content"].get<std::string>().find(AI::proposal_schema().dump()) != std::string::npos);
-        CHECK_FALSE(request.contains("provider"));
-        json response = {
-            {"choices",
-             {{{"finish_reason", "stop"},
-               {"message", {{"role", "assistant"}, {"content", document.dump()}, {"reasoning_content", "Separate reasoning"}}}}}}};
-        CHECK(AI::parse_response(provider, response.dump()).context_id == context.id);
-        response["choices"][0]["finish_reason"] = "length";
-        CHECK_THROWS(AI::parse_response(provider, response.dump()));
-    }
-}
-
 TEST_CASE("Assistant chat rejects incomplete errored and malformed streams", "[AIPrintAssistant][fast]")
 {
     AI::ChatStream stream(AI::Provider::OpenRouter);
@@ -1343,7 +1209,7 @@ TEST_CASE("Assistant attaches plate inventory to each turn and exposes object se
     }
 }
 
-TEST_CASE("Assistant DeepSeek uses the official protocol for chat and JSON proposals", "[AIPrintAssistant][fast]")
+TEST_CASE("Assistant DeepSeek uses the official protocol for chat", "[AIPrintAssistant][fast]")
 {
     const auto provider = AI::Provider::DeepSeek;
     CHECK(std::string(AI::provider_info(provider).endpoint) == "https://api.deepseek.com/chat/completions");
@@ -1363,19 +1229,6 @@ TEST_CASE("Assistant DeepSeek uses the official protocol for chat and JSON propo
         CHECK_FALSE(request.contains("response_format"));
     }
     CHECK_THROWS(AI::make_chat_request(provider, "deepseek/deepseek-flash", history));
-    Fixture    fixture;
-    const auto context = fixture.context();
-    const auto request = json::parse(AI::make_request(provider, context, "Help", "deepseek-flash"));
-    CHECK(request["response_format"] == json({{"type", "json_object"}}));
-    CHECK(request["thinking"] == json({{"type", "disabled"}}));
-    CHECK_FALSE(request.contains("provider"));
-    CHECK(request["messages"][0]["content"].get<std::string>().find(AI::proposal_schema().dump()) != std::string::npos);
-    json response = {{"choices",
-                      {{{"finish_reason", "stop"},
-                        {"message", {{"role", "assistant"}, {"content", proposal_json(context, json::array(), "no_change").dump()}}}}}}};
-    CHECK(AI::parse_response(provider, response.dump()).context_id == context.id);
-    response["choices"][0]["finish_reason"] = "length";
-    CHECK_THROWS(AI::parse_response(provider, response.dump()));
     AI::ChatStream truncated(provider);
     truncated.feed(router_delta({{"content", "Partial"}}, "length") + "data: [DONE]\n\n");
     CHECK_THROWS(truncated.finish());

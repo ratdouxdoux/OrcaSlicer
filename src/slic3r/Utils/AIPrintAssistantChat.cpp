@@ -176,10 +176,7 @@ json chat_turn_message(
 
 std::string make_chat_request(Provider provider, const std::string& model, const json& history)
 {
-    // Reuse model-ID validation from the non-streaming adapter.
-    Context empty;
-    empty.public_context = {{"images", json::array()}};
-    make_request(provider, empty, "validate", model);
+    validate_model_id(provider, model);
     if (!history.is_array() || history.empty() || history.size() > 512)
         throw std::runtime_error("This conversation is full. Start a new chat to continue.");
     const std::string system =
