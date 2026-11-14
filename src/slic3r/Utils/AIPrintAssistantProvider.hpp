@@ -1,5 +1,4 @@
-#ifndef slic3r_AIPrintAssistantProvider_hpp_
-#define slic3r_AIPrintAssistantProvider_hpp_
+#pragma once
 
 #include <array>
 #include <string>
@@ -74,4 +73,3 @@ std::string make_anthropic_request(const Context&                 context,
 Proposal    parse_anthropic_response(const std::string& body);
 
 } // namespace Slic3r::AIPrintAssistant
-#endif

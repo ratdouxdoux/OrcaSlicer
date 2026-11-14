@@ -1,5 +1,4 @@
-#ifndef slic3r_AIGeneratedModel_hpp_
-#define slic3r_AIGeneratedModel_hpp_
+#pragma once
 
 #include "AIModelTools.hpp"
 #include <cstdint>
@@ -61,4 +60,3 @@ private:
 };
 
 } // namespace Slic3r::AIPrintAssistant
-#endif

@@ -1,5 +1,4 @@
-#ifndef slic3r_AIChatMarkdown_hpp_
-#define slic3r_AIChatMarkdown_hpp_
+#pragma once
 
 #include <string>
 #include <string_view>
@@ -20,4 +19,3 @@ struct ChatMarkdownStyle
 std::string chat_markdown_html(std::string_view text, const ChatMarkdownStyle& style = {});
 bool        chat_markdown_web_link(std::string_view url);
 } // namespace Slic3r::AIPrintAssistant
-#endif

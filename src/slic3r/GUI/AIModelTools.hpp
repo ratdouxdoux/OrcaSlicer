@@ -1,5 +1,4 @@
-#ifndef slic3r_GUI_AIModelTools_hpp_
-#define slic3r_GUI_AIModelTools_hpp_
+#pragma once
 
 #include "libslic3r/AIGeneratedModel.hpp"
 
@@ -28,4 +27,3 @@ nlohmann::json     ai_model_source(Plater& plater, const nlohmann::json& argumen
 // cached for add_feature_modifier until the object's geometry or settings change.
 nlohmann::json ai_model_features(Plater& plater, const nlohmann::json& arguments);
 } // namespace Slic3r::GUI
-#endif

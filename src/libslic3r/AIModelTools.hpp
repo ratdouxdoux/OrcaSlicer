@@ -1,5 +1,4 @@
-#ifndef slic3r_AIModelTools_hpp_
-#define slic3r_AIModelTools_hpp_
+#pragma once
 
 #include "Model.hpp"
 #include "MixedFilament.hpp"
@@ -87,4 +86,3 @@ PreparedModelEdit prepare_model_edit(const Model&                    model,
                                      const FeatureReport*            features                = nullptr);
 
 } // namespace Slic3r::AIPrintAssistant
-#endif

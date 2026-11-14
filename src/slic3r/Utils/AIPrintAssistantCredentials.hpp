@@ -1,5 +1,4 @@
-#ifndef slic3r_AIPrintAssistantCredentials_hpp_
-#define slic3r_AIPrintAssistantCredentials_hpp_
+#pragma once
 
 #include <string>
 #include "AIPrintAssistantProvider.hpp"
@@ -12,4 +11,3 @@ std::string load_api_key(Provider provider, const std::string& profile);
 void        save_api_key(Provider provider, const std::string& profile, const std::string& key);
 
 } // namespace Slic3r::AIPrintAssistant
-#endif

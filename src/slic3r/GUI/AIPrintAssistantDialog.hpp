@@ -1,5 +1,4 @@
-#ifndef slic3r_GUI_AIPrintAssistantDialog_hpp_
-#define slic3r_GUI_AIPrintAssistantDialog_hpp_
+#pragma once
 
 #include <functional>
 class wxWindow;
@@ -10,5 +9,3 @@ wxWindow* create_ai_print_assistant(wxWindow* parent, Plater* plater, std::funct
 void      suspend_ai_print_assistant(wxWindow* panel);
 void      update_ai_print_assistant_theme(wxWindow* panel);
 } // namespace Slic3r::GUI
-
-#endif

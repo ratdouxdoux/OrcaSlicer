@@ -1,5 +1,4 @@
-#ifndef slic3r_AIOpenSCAD_hpp_
-#define slic3r_AIOpenSCAD_hpp_
+#pragma once
 
 #include <atomic>
 #include <string>
@@ -49,4 +48,3 @@ private:
 };
 
 } // namespace Slic3r::AIPrintAssistant
-#endif

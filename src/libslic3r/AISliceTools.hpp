@@ -1,5 +1,4 @@
-#ifndef slic3r_AISliceTools_hpp_
-#define slic3r_AISliceTools_hpp_
+#pragma once
 
 #include <cstddef>
 #include <iosfwd>
@@ -34,4 +33,3 @@ nlohmann::json gcode_issues(const GCodeProcessorResult& result, size_t limit = 5
 
 } // namespace AIPrintAssistant
 } // namespace Slic3r
-#endif

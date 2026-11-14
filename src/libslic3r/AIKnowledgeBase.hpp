@@ -1,5 +1,4 @@
-#ifndef slic3r_AIKnowledgeBase_hpp_
-#define slic3r_AIKnowledgeBase_hpp_
+#pragma once
 
 #include <cstddef>
 #include <string>
@@ -43,4 +42,3 @@ private:
 };
 
 } // namespace Slic3r::AIPrintAssistant
-#endif

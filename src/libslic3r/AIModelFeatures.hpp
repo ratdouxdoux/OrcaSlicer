@@ -1,5 +1,4 @@
-#ifndef slic3r_AIModelFeatures_hpp_
-#define slic3r_AIModelFeatures_hpp_
+#pragma once
 
 #include "BoundingBox.hpp"
 #include "ExPolygon.hpp"
@@ -77,4 +76,3 @@ indexed_triangle_set feature_modifier_mesh(const ModelFeature& feature, bool fol
 
 } // namespace AIPrintAssistant
 } // namespace Slic3r
-#endif

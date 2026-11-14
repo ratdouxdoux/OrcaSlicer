@@ -1,5 +1,4 @@
-#ifndef slic3r_AIPrintAssistant_hpp_
-#define slic3r_AIPrintAssistant_hpp_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -95,5 +94,3 @@ DynamicPrintConfig prepare_modifier_settings(const DynamicPrintConfig& object_se
 
 } // namespace AIPrintAssistant
 } // namespace Slic3r
-
-#endif

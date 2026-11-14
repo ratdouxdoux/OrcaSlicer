@@ -1,5 +1,4 @@
-#ifndef slic3r_AIPrintAssistantChat_hpp_
-#define slic3r_AIPrintAssistantChat_hpp_
+#pragma once
 
 #include <map>
 #include <set>
@@ -80,4 +79,3 @@ private:
     std::string                   m_reasoning_content;
 };
 } // namespace Slic3r::AIPrintAssistant
-#endif
