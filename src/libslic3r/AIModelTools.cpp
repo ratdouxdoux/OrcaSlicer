@@ -903,7 +903,8 @@ PreparedModelEdit prepare_model_edit(const Model&                    original,
         Vec3d normal = vector_value(p, "normal");
         if (normal.norm() < 1e-6)
             throw std::runtime_error("The cut normal cannot be zero.");
-        Transform3d              plane = Emboss::create_transformation_onto_surface(vector_value(p, "position_mm"), normal.normalized());
+        // Cut places its plane relative to the instance's offset, as the cut gizmo does.
+        Transform3d plane = Emboss::create_transformation_onto_surface(vector_value(p, "position_mm") - inst.get_offset(), normal.normalized());
         ModelObjectCutAttributes flags;
         const auto               keep = p.at("keep").get<std::string>();
         if (keep != "lower")

@@ -375,6 +375,20 @@ TEST_CASE("Assistant cuts and booleans produce geometry without touching the sou
         for (const auto* volume : object->volumes)
             sum += TriangleMesh(volume->mesh()).volume();
     CHECK(std::abs(sum - 27. * 27. * 27.) < 0.1);
+    // The plane is given in world coordinates, wherever the object sits on the plate.
+    f.cube->instances[0]->set_offset(Vec3d(100, 50, 0));
+    f.cube->invalidate_bounding_box();
+    auto moved = f.prepare("cut", {{"position_mm", {105, 60, 5}}, {"normal", {1, 0, 0}}, {"keep", "both"}});
+    REQUIRE(moved.model.objects.size() == 2);
+    std::vector<double> halves;
+    for (const auto* object : moved.model.objects) {
+        halves.push_back(0.);
+        for (const auto* volume : object->volumes)
+            halves.back() += TriangleMesh(volume->mesh()).volume();
+    }
+    std::sort(halves.begin(), halves.end());
+    CHECK(std::abs(halves[0] - 5. * 27. * 27.) < 0.1);
+    CHECK(std::abs(halves[1] - 22. * 27. * 27.) < 0.1);
     auto* other = f.cube->add_volume(make_cube(10, 10, 10), ModelVolumeType::MODEL_PART, false);
     other->set_offset(Vec3d(8, 8, 20));
     auto difference = f.prepare("boolean", {{"mode", "difference"}, {"other_volume_id", std::to_string(other->id().id)}}, true);
