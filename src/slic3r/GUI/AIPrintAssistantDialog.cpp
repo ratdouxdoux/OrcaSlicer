@@ -22,6 +22,7 @@
 #include <wx/file.h>
 #include <wx/filedlg.h>
 #include <wx/filename.h>
+#include <wx/fontenum.h>
 #include <wx/image.h>
 #include <wx/html/htmlwin.h>
 #include <wx/html/htmlcell.h>
@@ -148,13 +149,22 @@ Button* activity_button(wxWindow* parent, const wxString& text)
 
 wxString disclosure_label(const wxString& text, bool expanded) { return wxString(expanded ? L"\u25BE  " : L"\u25B8  ") + text; }
 
-// Edit scopes in the order of the scope combo box.
+// The fixed-width font for code and tables: Consolas where it is installed
+// (Windows), otherwise the platform's own teletype face.
+wxFont code_font()
+{
+    static const bool consolas = wxFontEnumerator::IsValidFacename("Consolas");
+    auto              info     = wxFontInfo(Label::Body_14.GetPointSize()).Family(wxFONTFAMILY_TELETYPE);
+    return wxFont(consolas ? info.FaceName("Consolas") : info);
+}
+
+// Edit scopes in the order of the scope combo box. Printer settings have no
+// edit scope: the assistant never changes them.
 wxString scope_label(AI::Scope scope)
 {
     switch (scope) {
     case AI::Scope::Process: return _L("Global process");
     case AI::Scope::Filament: return _L("Global filament");
-    case AI::Scope::Printer: return _L("Global printer");
     default: return _L("Object");
     }
 }
@@ -254,16 +264,27 @@ private:
         std::chrono::steady_clock::time_point since;
     };
     std::optional<SliceWait> m_slice;
-    // request_edit_scope pauses the queue until the user answers its confirmation card.
-    struct ScopeWait
+    // A tool call paused on a question to the user: request_edit_scope, and
+    // propose_settings when it would change settings that normally keep their
+    // defaults. The queue resumes when they answer on the card.
+    struct Confirmation
     {
-        AI::ChatToolCall  call;
-        AI::Scope         from = AI::Scope::Object, to = AI::Scope::Object;
-        std::string       preset;
-        wxWeakRef<Button> confirm, keep;
-        wxWeakRef<Label>  outcome;
+        AI::ChatToolCall call;
+        // Carries out the user's choice and returns the tool result; note is shown on the card.
+        std::function<json(bool accepted, wxString& note)> answer;
+        json                                               stopped; // The result if the user stops the assistant instead.
+        wxWeakRef<Button>                                  accept, decline;
+        wxWeakRef<Label>                                   outcome;
     };
-    std::optional<ScopeWait> m_scope_wait;
+    std::optional<Confirmation> m_confirmation;
+    // get_model_features pauses the queue while detection runs on a worker thread.
+    struct FeaturesWait
+    {
+        AI::ChatToolCall                      call;
+        std::unique_ptr<AIFeatureDetection>   run;
+        std::chrono::steady_clock::time_point since;
+    };
+    std::optional<FeaturesWait> m_features;
     // generate_model pauses the queue while OpenSCAD runs on a worker thread.
     struct GenerationWait
     {
@@ -325,12 +346,23 @@ private:
     void          poll_request();
     bool          schedule_retry(bool retryable, const std::string& headers, const wxString& reason);
     void          poll_retry();
-    bool          busy() const { return m_result || m_slice || m_scope_wait || m_generation || m_retry_at; }
+    bool          busy() const { return m_result || m_slice || m_confirmation || m_features || m_generation || m_retry_at; }
     void          run_tools();
+    void          record_tool_result(const AI::ChatToolCall& call, json result, bool failed, const std::vector<AI::ImageInput>& images = {});
     bool          start_slice(const AI::ChatToolCall& call);
     void          poll_slice();
+    void          ask(Confirmation                 confirmation,
+                      const wxString&              title,
+                      const std::vector<wxString>& texts,
+                      const wxString&              accept,
+                      const wxString&              decline,
+                      const wxString&              status);
+    void          answer_confirmation(bool accepted);
     bool          request_scope(const AI::ChatToolCall& call);
-    void          answer_scope_request(bool confirmed);
+    bool          request_defaults(const AI::ChatToolCall& call, const AI::Proposal& proposal);
+    bool          start_features(const AI::ChatToolCall& call);
+    json          features_result(AIFeatureDetection& detection);
+    void          poll_features();
     void          start_generation(const AI::ChatToolCall& call);
     void          poll_generation();
     json          import_generated(const GenerationWait& wait, AI::OpenSCADRun::Result&& outcome, std::vector<AI::ImageInput>& images);
@@ -345,7 +377,7 @@ private:
     void          add_images();
     void          remove_image();
     void          preview_image();
-    void          display_proposal(AI::Proposal proposal);
+    void          display_proposal(AI::Proposal proposal, const t_config_option_keys& confirmed_defaults = {});
     void          begin_preview();
     void          end_preview_if_edited();
     void          record_preview();
@@ -548,7 +580,7 @@ AIPrintAssistantPanel::AIPrintAssistantPanel(wxWindow* parent, Plater* plater, s
     m_scope->SetFont(Label::Body_12);
     m_scope->SetCornerRadius(FromDIP(4));
     m_scope->SetMinSize(FromDIP(wxSize(100, 30)));
-    for (const auto& label : {_L("Object"), _L("Global process"), _L("Global filament"), _L("Global printer")})
+    for (const auto& label : {_L("Object"), _L("Global process"), _L("Global filament")})
         m_scope->Append(label);
     m_scope->SetSelection(0);
     m_scope->SetToolTip(_L("Choose Object for individual overrides, or a Global scope to edit the shared preset."));
@@ -591,6 +623,8 @@ AIPrintAssistantPanel::AIPrintAssistantPanel(wxWindow* parent, Plater* plater, s
             poll_slice();
         else if (m_generation)
             poll_generation();
+        else if (m_features)
+            poll_features();
         else if (m_retry_at)
             poll_retry();
         else
@@ -670,7 +704,7 @@ wxHtmlWindow* AIPrintAssistantPanel::add_text(wxWindow* parent, const wxString& 
     label->SetBackgroundColour(parent->GetBackgroundColour());
     const int fs      = Label::Body_14.GetPointSize();
     const int sizes[] = {fs, fs, fs, fs + 1, fs + 2, fs + 3, fs + 4};
-    label->SetFonts(Label::Body_14.GetFaceName(), "Consolas", sizes);
+    label->SetFonts(Label::Body_14.GetFaceName(), code_font().GetFaceName(), sizes);
     parent->GetSizer()->Add(label, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
     m_texts.push_back({label, text});
     return label;
@@ -716,9 +750,9 @@ void AIPrintAssistantPanel::layout_chat(bool scroll)
         // The theme's accent is a button fill, too dark for link text on dark backgrounds.
         markdown.link           = background.GetLuminance() < 0.5 ? "#5ACABB" : "#00796B";
         markdown.compact_tables = width < FromDIP(420);
-        const wxFont code_font(wxFontInfo(Label::Body_14.GetPointSize()).FaceName("Consolas"));
+        const wxFont mono       = code_font();
         wxCoord      code_width = 0;
-        block.label->GetTextExtent("0000000000", &code_width, nullptr, nullptr, nullptr, &code_font);
+        block.label->GetTextExtent("0000000000", &code_width, nullptr, nullptr, nullptr, &mono);
         markdown.code_columns = unsigned(std::max(16, (width - FromDIP(24)) * 10 / std::max(1, code_width)));
         block.label->SetPage(from_utf8(AI::chat_markdown_html(to_utf8(block.text), markdown)));
         // SetPage resets the HTML window background; restore it after parsing too.
@@ -1280,13 +1314,16 @@ void AIPrintAssistantPanel::poll_request()
         const auto calls    = m_stream->tool_calls();
         const auto response = m_stream->assistant_message();
         render_stream();
-        if (calls.empty() && m_stream->text().empty())
+        const bool empty = calls.empty() && m_stream->text().empty();
+        if (empty)
             add_message(_L("Assistant"), _L("No answer was returned."));
         m_timer.Stop();
         m_result.reset();
         m_request.reset();
         m_stream.reset();
-        m_history.push_back(response);
+        // Providers reject a replayed assistant message that has no content.
+        if (!empty)
+            m_history.push_back(response);
         if (!calls.empty()) {
             m_tool_queue.assign(calls.begin(), calls.end());
             run_tools();
@@ -1366,7 +1403,7 @@ void AIPrintAssistantPanel::run_tools()
                     return;
                 result = m_last_tool_result;
             } else if (call.name == "request_edit_scope") {
-                // answer_scope_request records this result and resumes the queue.
+                // answer_confirmation records this result and resumes the queue.
                 if (request_scope(call))
                     return;
                 result = m_last_tool_result;
@@ -1378,12 +1415,9 @@ void AIPrintAssistantPanel::run_tools()
                 result         = ai_model_source(*m_plater, call.arguments);
                 m_tool_summary = from_utf8(result["name"].get<std::string>());
             } else if (call.name == "get_model_features") {
-                result = ai_model_features(*m_plater, call.arguments);
-                for (const auto& [kind, count] : result["counts"].items()) {
-                    auto name = from_utf8(kind);
-                    name.Replace("_", " ");
-                    m_tool_summary += wxString::Format("%s%d %s", m_tool_summary.empty() ? "" : ", ", count.get<int>(), name);
-                }
+                if (start_features(call))
+                    return;
+                result = m_last_tool_result;
             } else if (call.name == "get_model_context" || call.name == "list_model_tools") {
                 if (!call.arguments.is_object() || !call.arguments.empty())
                     throw std::runtime_error("This tool takes no arguments.");
@@ -1402,6 +1436,9 @@ void AIPrintAssistantPanel::run_tools()
                     auto proposal = AI::parse_proposal(call.arguments.dump());
                     if (proposal.outcome != "propose_changes")
                         throw std::runtime_error("Use normal chat for advice or questions; this tool requires proposed changes.");
+                    // answer_confirmation records this result and resumes the queue.
+                    if (request_defaults(call, proposal))
+                        return;
                     display_proposal(std::move(proposal));
                     result = m_last_tool_result;
                 } else {
@@ -1413,13 +1450,7 @@ void AIPrintAssistantPanel::run_tools()
             failed = true;
             result = {{"message", error.what()}};
         }
-        // A user message cannot sit between tool calls and their results.
-        if (m_project_edited && result.is_object()) {
-            result["application_event"] = PROJECT_EDITED_EVENT;
-            m_project_edited            = false;
-        }
-        add_tool_card(call, result, failed);
-        m_history.push_back(AI::chat_tool_result(m_provider, call, result, failed));
+        record_tool_result(call, std::move(result), failed);
     }
     start_request();
 }
@@ -1448,6 +1479,73 @@ bool AIPrintAssistantPanel::start_slice(const AI::ChatToolCall& call)
     return true;
 }
 
+// Shows a question on a card that stays in the transcript, so the user sees what
+// was asked and answered, and pauses the tool queue until they choose.
+void AIPrintAssistantPanel::ask(Confirmation                 confirmation,
+                                const wxString&              title,
+                                const std::vector<wxString>& texts,
+                                const wxString&              accept,
+                                const wxString&              decline,
+                                const wxString&              status)
+{
+    auto* card = add_card(title);
+    for (const auto& text : texts)
+        add_text(card, text);
+    auto* yes     = assistant_button(card, accept, true);
+    auto* no      = assistant_button(card, decline);
+    auto* actions = new wxBoxSizer(wxHORIZONTAL);
+    actions->Add(yes, 0, wxRIGHT, FromDIP(6));
+    actions->Add(no);
+    card->GetSizer()->Add(actions, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+    auto* outcome = add_label(card, wxEmptyString, Label::Body_12, true);
+    outcome->Hide();
+    card->GetSizer()->Add(outcome, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
+    yes->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { answer_confirmation(true); });
+    no->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { answer_confirmation(false); });
+    confirmation.accept  = yes;
+    confirmation.decline = no;
+    confirmation.outcome = outcome;
+    m_confirmation       = std::move(confirmation);
+    update_activity(_L("Waiting for your answer..."));
+    set_busy(true);
+    m_status->SetLabel(status);
+    layout_chat();
+}
+
+void AIPrintAssistantPanel::answer_confirmation(bool accepted)
+{
+    if (!m_confirmation)
+        return;
+    try {
+        auto confirmation = std::move(*m_confirmation);
+        m_confirmation.reset();
+        for (auto* button : {confirmation.accept.get(), confirmation.decline.get()})
+            if (button)
+                button->Disable();
+        m_tool_summary.clear();
+        json     result;
+        bool     failed = false;
+        wxString note;
+        try {
+            result = confirmation.answer(accepted, note);
+        } catch (const std::exception& error) {
+            failed = true;
+            result = {{"message", error.what()}};
+            note   = from_utf8(error.what());
+        }
+        if (confirmation.outcome) {
+            confirmation.outcome->SetLabel(note);
+            confirmation.outcome->Show();
+        }
+        record_tool_result(confirmation.call, std::move(result), failed);
+        update_activity(_L("Thinking..."));
+        run_tools();
+    } catch (const std::exception& error) {
+        cancel_request(_L("Interrupted"));
+        show_error(error);
+    }
+}
+
 bool AIPrintAssistantPanel::request_scope(const AI::ChatToolCall& call)
 {
     const auto request = AI::parse_scope_request(call.arguments);
@@ -1457,81 +1555,162 @@ bool AIPrintAssistantPanel::request_scope(const AI::ChatToolCall& call)
         m_tool_summary     = wxString::Format(_L("The edit scope is already %s."), scope_label(current));
         return false;
     }
-    ScopeWait wait{call, current, request.scope};
+    std::string preset;
     if (request.scope != AI::Scope::Object) {
-        auto* tab = wxGetApp().get_tab(request.scope == AI::Scope::Process  ? Preset::TYPE_PRINT :
-                                       request.scope == AI::Scope::Filament ? Preset::TYPE_FILAMENT :
-                                                                              Preset::TYPE_PRINTER);
+        auto* tab = wxGetApp().get_tab(request.scope == AI::Scope::Process ? Preset::TYPE_PRINT : Preset::TYPE_FILAMENT);
         if (!tab || !tab->get_config())
             throw std::runtime_error("The requested preset is unavailable.");
-        wait.preset = tab->m_presets->get_edited_preset().name;
+        preset = tab->m_presets->get_edited_preset().name;
     }
-    // The card stays in the transcript, so the user sees what was asked and answered.
-    auto* card = add_card(_L("Change the edit scope?"));
-    add_text(card, wxString::Format(_L("The assistant wants to switch from **%s** to **%s**."), scope_label(current),
-                                    scope_label(request.scope)));
-    add_text(card, from_utf8(request.reason));
-    add_text(card, request.scope == AI::Scope::Object ?
-                       _L("Edits will be stored as overrides on individual objects; the shared presets stay unchanged.") :
-                       wxString::Format(_L("Edits will change the shared preset \"%s\" and every object that uses it."),
-                                        from_utf8(wait.preset)));
-    auto* confirm = assistant_button(card, wxString::Format(_L("Switch to %s"), scope_label(request.scope)), true);
-    auto* keep    = assistant_button(card, wxString::Format(_L("Keep %s"), scope_label(current)));
-    auto* actions = new wxBoxSizer(wxHORIZONTAL);
-    actions->Add(confirm, 0, wxRIGHT, FromDIP(6));
-    actions->Add(keep);
-    card->GetSizer()->Add(actions, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
-    auto* outcome = add_label(card, wxEmptyString, Label::Body_12, true);
-    outcome->Hide();
-    card->GetSizer()->Add(outcome, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(10));
-    confirm->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { answer_scope_request(true); });
-    keep->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { answer_scope_request(false); });
-    wait.confirm = confirm;
-    wait.keep    = keep;
-    wait.outcome = outcome;
-    m_scope_wait = std::move(wait);
-    update_activity(_L("Waiting for your answer..."));
-    set_busy(true);
-    m_status->SetLabel(_L("The assistant is waiting for you to confirm or keep the edit scope."));
-    layout_chat();
+    Confirmation confirmation;
+    confirmation.call    = call;
+    confirmation.stopped = {{"status", "stopped"},
+                            {"edit_scope", AI::scope_name(current)},
+                            {"message", "The user stopped the assistant without answering. The edit scope did not change."}};
+    confirmation.answer  = [this, current, to = request.scope, preset](bool accepted, wxString& note) -> json {
+        if (!accepted) {
+            note = m_tool_summary = wxString::Format(_L("Kept the edit scope %s."), scope_label(current));
+            return {{"status", "declined"},
+                    {"edit_scope", AI::scope_name(current)},
+                    {"message", "The user kept the current edit scope. Do not ask again for this change; explain what they can do "
+                                "instead."}};
+        }
+        // Matches selected_scope(): the combo lists the scopes in enum order.
+        m_scope->SetSelection(int(to));
+        invalidate_proposal();
+        note = m_tool_summary = wxString::Format(_L("Switched the edit scope to %s."), scope_label(to));
+        json result           = {{"status", "switched"},
+                                 {"previous_scope", AI::scope_name(current)},
+                                 {"edit_scope", AI::scope_name(to)},
+                                 {"message", "Read get_print_context again before proposing settings; earlier context IDs are stale."}};
+        if (!preset.empty())
+            result["preset"] = preset;
+        return result;
+    };
+    ask(std::move(confirmation), _L("Change the edit scope?"),
+        {wxString::Format(_L("The assistant wants to switch from **%s** to **%s**."), scope_label(current), scope_label(request.scope)),
+         from_utf8(request.reason),
+         request.scope == AI::Scope::Object ?
+             _L("Edits will be stored as overrides on individual objects; the shared presets stay unchanged.") :
+             wxString::Format(_L("Edits will change the shared preset \"%s\" and every object that uses it."), from_utf8(preset))},
+        wxString::Format(_L("Switch to %s"), scope_label(request.scope)), wxString::Format(_L("Keep %s"), scope_label(current)),
+        _L("The assistant is waiting for you to confirm or keep the edit scope."));
     return true;
 }
 
-void AIPrintAssistantPanel::answer_scope_request(bool confirmed)
+bool AIPrintAssistantPanel::request_defaults(const AI::ChatToolCall& call, const AI::Proposal& proposal)
 {
-    if (!m_scope_wait)
+    const auto context = current_context(nullptr, proposal.object_id);
+    // display_proposal reports a stale proposal with its own message.
+    if (proposal.context_id != context.id)
+        return false;
+    const auto keys = AI::keep_default_changes(context, proposal);
+    if (keys.empty())
+        return false;
+    // Ask only about a proposal that would otherwise go through.
+    AI::Transaction checked;
+    AI::prepare_apply(context, proposal, checked, keys);
+    wxString changes;
+    for (const auto& key : keys)
+        changes += from_utf8("- **" + print_config_def.get(key)->label + "** (" + key + "): " + AI::setting_value(context.effective, key).dump() +
+                             "  ->  " + AI::setting_value(proposal.changes, key).dump() + "\n");
+    Confirmation confirmation;
+    confirmation.call    = call;
+    confirmation.stopped = {{"status", "stopped"}, {"message", "The user stopped the assistant without answering. No settings changed."}};
+    confirmation.answer  = [this, proposal, keys](bool accepted, wxString& note) -> json {
+        if (!accepted) {
+            note           = _L("You kept the defaults.");
+            m_tool_summary = _L("Kept the defaults; nothing was changed.");
+            return {{"status", "declined"},
+                    {"kept_default", keys},
+                    {"message", "The user kept these settings at their defaults, so this proposal changed nothing. Propose the other "
+                                "changes again without them, and do not propose these settings again."}};
+        }
+        note = _L("You allowed the change.");
+        end_preview_if_edited();
+        display_proposal(proposal, keys);
+        return m_last_tool_result;
+    };
+    ask(std::move(confirmation), _L("Change settings that normally keep their defaults?"),
+        {_L("The defaults of these settings already print well, so the assistant changes them only with your approval:"), changes,
+         from_utf8(proposal.explanation)},
+        _L("Allow the change"), _L("Keep the defaults"), _L("The assistant is waiting for you to allow the change or keep the defaults."));
+    return true;
+}
+
+// Records a finished tool call. The history entry comes first: every tool call
+// in it needs a result, whatever happens to the card.
+void AIPrintAssistantPanel::record_tool_result(const AI::ChatToolCall& call, json result, bool failed, const std::vector<AI::ImageInput>& images)
+{
+    // A user message cannot sit between tool calls and their results.
+    if (m_project_edited && result.is_object()) {
+        result["application_event"] = PROJECT_EDITED_EVENT;
+        m_project_edited            = false;
+    }
+    json message;
+    try {
+        message = AI::chat_tool_result(m_provider, call, result, failed, images);
+    } catch (const std::exception&) {
+        // Text that is not valid UTF-8 cannot be sent to the provider.
+        failed  = true;
+        result  = {{"message", "The tool result could not be encoded for the assistant."}};
+        message = AI::chat_tool_result(m_provider, call, result, failed);
+    }
+    m_history.push_back(std::move(message));
+    add_tool_card(call, result, failed);
+}
+
+// A cached feature report answers at once; otherwise poll_features records the
+// result and resumes the queue.
+bool AIPrintAssistantPanel::start_features(const AI::ChatToolCall& call)
+{
+    auto detection = std::make_unique<AIFeatureDetection>(*m_plater, call.arguments);
+    if (detection->done()) {
+        m_last_tool_result = features_result(*detection);
+        return false;
+    }
+    m_features = FeaturesWait{call, std::move(detection), std::chrono::steady_clock::now()};
+    update_activity(_L("Analysing the model..."));
+    set_busy(true);
+    m_timer.Start(100);
+    return true;
+}
+
+json AIPrintAssistantPanel::features_result(AIFeatureDetection& detection)
+{
+    auto result = detection.take();
+    for (const auto& [kind, count] : result["counts"].items()) {
+        auto name = from_utf8(kind);
+        name.Replace("_", " ");
+        m_tool_summary += wxString::Format("%s%d %s", m_tool_summary.empty() ? "" : ", ", count.get<int>(), name);
+    }
+    return result;
+}
+
+void AIPrintAssistantPanel::poll_features()
+{
+    if (!m_features)
         return;
     try {
-        auto wait = std::move(*m_scope_wait);
-        m_scope_wait.reset();
-        for (auto* button : {wait.confirm.get(), wait.keep.get()})
-            if (button)
-                button->Disable();
+        if (!m_features->run->done()) {
+            const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - m_features->since);
+            if (seconds.count() >= 2)
+                update_activity(wxString::Format(_L("Analysing the model... %ds"), int(seconds.count())));
+            return;
+        }
+        m_timer.Stop();
+        const auto wait = std::move(*m_features);
+        m_features.reset();
+        m_tool_summary.clear();
         json result;
-        if (confirmed) {
-            // Matches selected_scope(): the combo lists the scopes in enum order.
-            m_scope->SetSelection(int(wait.to));
-            invalidate_proposal();
-            result = {{"status", "switched"},
-                      {"previous_scope", AI::scope_name(wait.from)},
-                      {"edit_scope", AI::scope_name(wait.to)},
-                      {"message", "Read get_print_context again before proposing settings; earlier context IDs are stale."}};
-            if (!wait.preset.empty())
-                result["preset"] = wait.preset;
-            m_tool_summary = wxString::Format(_L("Switched the edit scope to %s."), scope_label(wait.to));
-        } else {
-            result         = {{"status", "declined"},
-                              {"edit_scope", AI::scope_name(wait.from)},
-                              {"message", "The user kept the current edit scope. Do not ask again for this change; explain what they can "
-                                          "do instead."}};
-            m_tool_summary = wxString::Format(_L("Kept the edit scope %s."), scope_label(wait.from));
+        bool failed = false;
+        try {
+            result = features_result(*wait.run);
+        } catch (const std::exception& error) {
+            failed = true;
+            result = {{"message", error.what()}};
         }
-        if (wait.outcome) {
-            wait.outcome->SetLabel(m_tool_summary);
-            wait.outcome->Show();
-        }
-        add_tool_card(wait.call, result, false);
-        m_history.push_back(AI::chat_tool_result(m_provider, wait.call, result, false));
+        record_tool_result(wait.call, std::move(result), failed);
         update_activity(_L("Thinking..."));
         run_tools();
     } catch (const std::exception& error) {
@@ -1582,8 +1761,7 @@ void AIPrintAssistantPanel::poll_slice()
                 m_tool_summary += "\n" + wxString::Format(_L("Slicing warnings: %d"), int(warnings));
         } else
             m_tool_summary = from_utf8(result.value("error", result.value("message", "")));
-        add_tool_card(call, result, false);
-        m_history.push_back(AI::chat_tool_result(m_provider, call, result, false));
+        record_tool_result(call, std::move(result), false);
         update_activity(_L("Thinking..."));
         run_tools();
     } catch (const std::exception& error) {
@@ -1641,8 +1819,7 @@ void AIPrintAssistantPanel::poll_generation()
                 result["openscad_output"] = outcome.messages;
             m_tool_summary = from_utf8(outcome.error);
         }
-        add_tool_card(wait.call, result, failed);
-        m_history.push_back(AI::chat_tool_result(m_provider, wait.call, result, failed, images));
+        record_tool_result(wait.call, std::move(result), failed, images);
         update_activity(_L("Thinking..."));
         run_tools();
     } catch (const std::exception& error) {
@@ -1823,16 +2000,19 @@ void AIPrintAssistantPanel::abandon_tools()
                                                  true));
         m_slice.reset();
     }
-    if (m_scope_wait) {
-        m_history.push_back(AI::chat_tool_result(m_provider, m_scope_wait->call,
-                                                 {{"status", "stopped"},
-                                                  {"edit_scope", AI::scope_name(m_scope_wait->from)},
-                                                  {"message", "The user stopped the assistant without answering. The edit scope did not change."}},
-                                                 true));
-        for (auto* button : {m_scope_wait->confirm.get(), m_scope_wait->keep.get()})
+    if (m_confirmation) {
+        m_history.push_back(AI::chat_tool_result(m_provider, m_confirmation->call, m_confirmation->stopped, true));
+        for (auto* button : {m_confirmation->accept.get(), m_confirmation->decline.get()})
             if (button)
                 button->Disable();
-        m_scope_wait.reset();
+        m_confirmation.reset();
+    }
+    if (m_features) {
+        m_features->run->cancel();
+        m_history.push_back(AI::chat_tool_result(
+            m_provider, m_features->call,
+            {{"status", "stopped"}, {"message", "The user stopped the assistant while the model was being analysed."}}, true));
+        m_features.reset();
     }
     if (m_generation) {
         m_generation->run->cancel();
@@ -1995,7 +2175,7 @@ bool AIPrintAssistantPanel::restore_preview(bool notify)
     }
 }
 
-void AIPrintAssistantPanel::display_proposal(AI::Proposal proposal)
+void AIPrintAssistantPanel::display_proposal(AI::Proposal proposal, const t_config_option_keys& confirmed_defaults)
 {
     ModelObject* object  = nullptr;
     const auto   context = current_context(&object, proposal.object_id);
@@ -2008,7 +2188,7 @@ void AIPrintAssistantPanel::display_proposal(AI::Proposal proposal)
         return;
     }
     AI::Transaction transaction;
-    auto            candidate = AI::prepare_apply(context, proposal, transaction);
+    auto            candidate = AI::prepare_apply(context, proposal, transaction, confirmed_defaults);
     if (target_tab())
         validate_preset_candidate(candidate);
     begin_preview();
@@ -2155,7 +2335,6 @@ AI::Scope AIPrintAssistantPanel::selected_scope() const
     switch (m_scope->GetSelection()) {
     case 1: return AI::Scope::Process;
     case 2: return AI::Scope::Filament;
-    case 3: return AI::Scope::Printer;
     default: return AI::Scope::Object;
     }
 }
@@ -2164,9 +2343,7 @@ Tab* AIPrintAssistantPanel::target_tab() const
 {
     if (selected_scope() == AI::Scope::Object)
         return nullptr;
-    auto* tab = wxGetApp().get_tab(selected_scope() == AI::Scope::Process  ? Preset::TYPE_PRINT :
-                                   selected_scope() == AI::Scope::Filament ? Preset::TYPE_FILAMENT :
-                                                                             Preset::TYPE_PRINTER);
+    auto* tab = wxGetApp().get_tab(selected_scope() == AI::Scope::Process ? Preset::TYPE_PRINT : Preset::TYPE_FILAMENT);
     if (!tab || !tab->get_config())
         throw std::runtime_error("The selected preset is unavailable.");
     return tab;
@@ -2269,9 +2446,7 @@ void AIPrintAssistantPanel::validate_preset_candidate(const DynamicPrintConfig& 
     // Compose filament vectors exactly as the slicer does, without touching the
     // live presets or the tabs' pointers into their edited configurations.
     PresetBundle staged(*wxGetApp().preset_bundle);
-    auto&        presets               = selected_scope() == AI::Scope::Process  ? staged.prints :
-                                         selected_scope() == AI::Scope::Filament ? staged.filaments :
-                                                                                   staged.printers;
+    auto&        presets               = selected_scope() == AI::Scope::Process ? staged.prints : staged.filaments;
     presets.get_edited_preset().config = config;
     const auto errors                  = staged.full_config().validate(true);
     if (!errors.empty())
@@ -2299,7 +2474,7 @@ void AIPrintAssistantPanel::commit_preset(DynamicPrintConfig config)
         if (*tab->get_config() != config || bundle.project_config != before_project ||
             (selected_scope() != AI::Scope::Process && bundle.prints.get_edited_preset().config != before_print) ||
             (selected_scope() != AI::Scope::Filament && bundle.filaments.get_edited_preset().config != before_filament) ||
-            (selected_scope() != AI::Scope::Printer && bundle.printers.get_edited_preset().config != before_printer))
+            bundle.printers.get_edited_preset().config != before_printer)
             throw std::runtime_error("These settings require additional dependent changes. The proposal was rolled back; include those "
                                      "changes in a new proposal.");
         notify();

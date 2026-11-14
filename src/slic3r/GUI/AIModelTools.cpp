@@ -679,26 +679,35 @@ const ModelVolume& ai_generated_part(Plater& plater, const std::string& object_i
     throw std::runtime_error("The object no longer exists. Read get_model_context again.");
 }
 
-json ai_model_features(Plater& plater, const json& arguments)
+AIFeatureDetection::AIFeatureDetection(Plater& plater, const json& arguments)
 {
     if (!arguments.is_object() || !arguments.contains("object_id") || !arguments["object_id"].is_string())
         throw std::runtime_error("Give the object_id of an object on the active plate.");
     for (auto it = arguments.begin(); it != arguments.end(); ++it)
         if (it.key() != "object_id" && it.key() != "kinds" && it.key() != "limit")
             throw std::runtime_error("Unknown argument: " + it.key());
-    std::vector<std::string> kinds;
+    m_object_id = arguments["object_id"].get<std::string>();
     if (arguments.contains("kinds"))
-        kinds = arguments["kinds"].get<std::vector<std::string>>();
-    const size_t limit = arguments.value("limit", 8);
+        m_kinds = arguments["kinds"].get<std::vector<std::string>>();
+    const int limit = arguments.value("limit", 8);
     if (limit < 1 || limit > 50)
         throw std::runtime_error("Use a limit from 1 to 50.");
+    m_limit = size_t(limit);
+    // An unknown kind is refused before any work, not after detection.
+    AI::feature_report_json({}, m_kinds, m_limit);
     if (plater.printer_technology() != ptFFF)
         throw std::runtime_error("Feature detection supports filament printing only.");
-    auto*       plate   = plater.get_partplate_list().get_curr_plate();
+    // Reports of objects that no longer exist can never be asked for again.
+    auto&       reports = feature_reports();
     const auto& objects = plater.model().objects;
+    for (auto it = reports.begin(); it != reports.end();)
+        it = std::any_of(objects.begin(), objects.end(), [&](const ModelObject* o) { return std::to_string(o->id().id) == it->first; }) ?
+                 std::next(it) :
+                 reports.erase(it);
+    auto* plate = plater.get_partplate_list().get_curr_plate();
     for (size_t oi = 0; plate && oi < objects.size(); ++oi) {
         const auto& object = *objects[oi];
-        if (std::to_string(object.id().id) != arguments["object_id"].get<std::string>())
+        if (std::to_string(object.id().id) != m_object_id)
             continue;
         size_t instance = object.instances.size();
         for (size_t ii = 0; ii < object.instances.size() && instance == object.instances.size(); ++ii)
@@ -711,16 +720,53 @@ json ai_model_features(Plater& plater, const json& arguments)
             triangles += volume->mesh().facets_count();
         if (triangles > 500000)
             throw std::runtime_error("Feature detection supports objects up to 500,000 triangles.");
-        const auto settings = object_settings(object);
-        auto&      cached   = feature_reports()[arguments["object_id"].get<std::string>()];
-        if (cached.geometry_key != AI::feature_geometry_key(object, instance, settings) ||
-            cached.instance_id != std::to_string(object.instances[instance]->id().id)) {
-            wxBusyCursor busy;
-            cached = AI::detect_model_features(object, instance, settings);
+        auto       settings = object_settings(object);
+        const auto cached   = reports.find(m_object_id);
+        if (cached != reports.end() && cached->second.geometry_key == AI::feature_geometry_key(object, instance, settings) &&
+            cached->second.instance_id == std::to_string(object.instances[instance]->id().id)) {
+            m_done.store(true);
+            return;
         }
-        return AI::feature_report_json(cached, kinds, limit);
+        // The copy keeps the object's IDs and shares its meshes, which are never
+        // modified in place, so the worker cannot race with edits in the window.
+        m_model  = plater.model();
+        m_thread = std::thread([this, oi, instance, settings = std::move(settings)] {
+            try {
+                m_report = AI::detect_model_features(*m_model.objects[oi], instance, settings, [this] {
+                    if (m_cancel.load())
+                        throw std::runtime_error("Stopped by the user.");
+                });
+            } catch (const std::exception& error) {
+                m_error = error.what();
+            }
+            m_done.store(true);
+        });
+        return;
     }
     throw std::runtime_error("That object is not on the active plate. Read get_model_context for current IDs.");
+}
+
+AIFeatureDetection::~AIFeatureDetection()
+{
+    cancel();
+    if (m_thread.joinable())
+        m_thread.join();
+}
+
+json AIFeatureDetection::take()
+{
+    if (m_thread.joinable())
+        m_thread.join();
+    if (!m_error.empty())
+        throw std::runtime_error(m_error);
+    auto& reports = feature_reports();
+    if (m_report)
+        reports[m_object_id] = std::move(*m_report);
+    m_report.reset();
+    const auto cached = reports.find(m_object_id);
+    if (cached == reports.end())
+        throw std::runtime_error("The feature report is no longer available. Read get_model_features again.");
+    return AI::feature_report_json(cached->second, m_kinds, m_limit);
 }
 
 json ai_model_source(Plater& plater, const json& arguments)
