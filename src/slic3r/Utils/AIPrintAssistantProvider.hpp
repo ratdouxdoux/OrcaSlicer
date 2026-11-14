@@ -6,16 +6,26 @@
 
 namespace Slic3r::AIPrintAssistant {
 
-enum class Provider { OpenRouter, Anthropic, BigModel, BigModelCodingPlan, DeepSeek };
-inline constexpr Provider                DEFAULT_PROVIDER = Provider::OpenRouter;
-inline constexpr std::array<Provider, 5> PROVIDERS        = {Provider::OpenRouter, Provider::Anthropic, Provider::BigModel,
-                                                             Provider::BigModelCodingPlan, Provider::DeepSeek};
+// Gateway is Snapmaker's internal AI gateway: one OpenAI-compatible endpoint
+// and key that relays to DeepSeek and BigModel models. It is only reachable on
+// the company network.
+enum class Provider { OpenRouter, Anthropic, BigModel, BigModelCodingPlan, DeepSeek, Gateway };
+inline constexpr Provider                DEFAULT_PROVIDER = Provider::Gateway;
+// In the order the settings dialog lists them.
+inline constexpr std::array<Provider, 6> PROVIDERS        = {Provider::Gateway,  Provider::OpenRouter,         Provider::Anthropic,
+                                                             Provider::BigModel, Provider::BigModelCodingPlan, Provider::DeepSeek};
 inline constexpr bool is_bigmodel(Provider provider) { return provider == Provider::BigModel || provider == Provider::BigModelCodingPlan; }
-inline constexpr bool uses_chat_completions(Provider provider)
+inline constexpr bool uses_chat_completions(Provider provider) { return provider != Provider::Anthropic; }
+// DeepSeek and BigModel return their reasoning in reasoning_content and need it
+// sent back on later rounds; so does the gateway, which relays to both.
+inline constexpr bool uses_reasoning_content(Provider provider)
 {
-    return provider == Provider::OpenRouter || provider == Provider::DeepSeek || is_bigmodel(provider);
+    return is_bigmodel(provider) || provider == Provider::DeepSeek || provider == Provider::Gateway;
 }
-inline constexpr bool uses_reasoning_content(Provider provider) { return is_bigmodel(provider) || provider == Provider::DeepSeek; }
+// The API a request ends up at, which decides its thinking parameters. Through
+// the gateway the model name tells.
+enum class Upstream { Other, BigModel, DeepSeek };
+Upstream upstream(Provider provider, const std::string& model);
 
 struct ProviderInfo
 {

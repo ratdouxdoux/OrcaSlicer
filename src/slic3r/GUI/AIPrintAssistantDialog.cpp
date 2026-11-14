@@ -149,6 +149,16 @@ Button* activity_button(wxWindow* parent, const wxString& text)
 
 wxString disclosure_label(const wxString& text, bool expanded) { return wxString(expanded ? L"\u25BE  " : L"\u25B8  ") + text; }
 
+// The endpoint shown in settings. The company gateway also says where its keys come from.
+wxString endpoint_label(AI::Provider provider)
+{
+    auto text = from_utf8(AI::provider_info(provider).endpoint);
+    if (provider == AI::Provider::Gateway)
+        text += "\n" + _L("Company network only. For a key, sign in at sso.s.com, open ai-gateway, subscribe to the basic plan and "
+                          "create an API key.");
+    return text;
+}
+
 // The fixed-width font for code and tables: Consolas where it is installed
 // (Windows), otherwise the platform's own teletype face.
 wxFont code_font()
@@ -944,15 +954,15 @@ void AIPrintAssistantPanel::settings()
     auto* model = model_input->GetTextCtrl();
     grid->Add(model_input, 1, wxEXPAND);
     label(_L("API endpoint"));
-    auto* endpoint = add_label(&dialog, from_utf8(AI::provider_info(m_provider).endpoint), Label::Body_12, true);
+    auto* endpoint = add_label(&dialog, endpoint_label(m_provider), Label::Body_12, true);
     endpoint->Wrap(FromDIP(320));
     grid->Add(endpoint, 1, wxEXPAND);
     root->Add(grid, 0, wxEXPAND | wxALL, FromDIP(16));
     auto* disclosure =
         add_label(&dialog,
                   _L("Messages, images, model summaries, lettering, filament recipes and public settings (including custom G-code) go to "
-                     "your provider. OpenRouter forwards them to "
-                     "its model provider. API usage is billed by the provider. Keys are saved per provider in your operating system's "
+                     "your provider. The Snapmaker AI Gateway and OpenRouter forward them to the provider of the model you choose. "
+                     "API usage is billed by the provider. Keys are saved per provider in your operating system's "
                      "credential store. Clear the key and Save to remove it."),
                   Label::Body_12, true);
     disclosure->Wrap(FromDIP(440));
@@ -1044,7 +1054,7 @@ void AIPrintAssistantPanel::settings()
         }
         key->ChangeValue(drafts[displayed_provider].first);
         model->ChangeValue(drafts[displayed_provider].second);
-        endpoint->SetLabel(from_utf8(info.endpoint));
+        endpoint->SetLabel(endpoint_label(displayed_provider));
         endpoint->Wrap(dialog.FromDIP(320));
         dialog.Layout();
         dialog.Fit();

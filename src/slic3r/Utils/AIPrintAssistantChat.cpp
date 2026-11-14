@@ -283,12 +283,12 @@ std::string make_chat_request(Provider provider, const std::string& model, const
         messages.insert(messages.begin(), system_message);
         if (provider == Provider::OpenRouter)
             request["provider"] = {{"require_parameters", true}};
-        else if (is_bigmodel(provider)) {
+        else if (upstream(provider, model) == Upstream::BigModel) {
             // GLM requires its reasoning verbatim on subsequent tool rounds. Keep it
             // out of the transcript.
             request["thinking"]    = {{"type", "enabled"}, {"clear_thinking", false}};
             request["tool_stream"] = true;
-        } else if (provider == Provider::DeepSeek)
+        } else if (upstream(provider, model) == Upstream::DeepSeek)
             request["thinking"] = {{"type", "enabled"}};
         request["tool_choice"] = "auto";
     } else {

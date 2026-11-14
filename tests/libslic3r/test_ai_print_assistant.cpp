@@ -604,10 +604,12 @@ TEST_CASE("Assistant advice and questions never become applicable changes", "[AI
     }
 }
 
-TEST_CASE("Assistant defaults to OpenRouter and keeps provider protocols separate", "[AIPrintAssistant][fast]")
+TEST_CASE("Assistant defaults to the company gateway and keeps provider protocols separate", "[AIPrintAssistant][fast]")
 {
-    CHECK(AI::DEFAULT_PROVIDER == AI::Provider::OpenRouter);
-    CHECK(std::string(AI::provider_info(AI::DEFAULT_PROVIDER).endpoint) == "https://openrouter.ai/api/v1/chat/completions");
+    CHECK(AI::DEFAULT_PROVIDER == AI::Provider::Gateway);
+    CHECK(AI::PROVIDERS.front() == AI::Provider::Gateway);
+    CHECK(std::string(AI::provider_info(AI::DEFAULT_PROVIDER).endpoint) == "http://ai-gateway.s.com/v1/chat/completions");
+    CHECK(std::string(AI::provider_info(AI::Provider::OpenRouter).endpoint) == "https://openrouter.ai/api/v1/chat/completions");
     CHECK(std::string(AI::provider_info(AI::Provider::Anthropic).endpoint) == "https://api.anthropic.com/v1/messages");
     for (const auto provider : AI::PROVIDERS) {
         INFO(AI::provider_id(provider));
@@ -874,8 +876,9 @@ TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter paramet
         }
         CHECK_THROWS(AI::make_chat_request(provider, "z-ai/glm-5.3", history));
     }
-    const auto router = json::parse(AI::make_chat_request(AI::DEFAULT_PROVIDER, AI::provider_info(AI::DEFAULT_PROVIDER).default_model,
-                                                          json::array({AI::chat_user_message(AI::DEFAULT_PROVIDER, "Hello")})));
+    const auto router = json::parse(
+        AI::make_chat_request(AI::Provider::OpenRouter, AI::provider_info(AI::Provider::OpenRouter).default_model,
+                              json::array({AI::chat_user_message(AI::Provider::OpenRouter, "Hello")})));
     CHECK(router["provider"]["require_parameters"] == true);
     CHECK_FALSE(router.contains("tool_stream"));
     CHECK_FALSE(router.contains("thinking"));
@@ -887,9 +890,62 @@ TEST_CASE("Assistant BigModel routes use GLM requests without OpenRouter paramet
     CHECK_FALSE(anthropic.contains("thinking"));
 }
 
+TEST_CASE("Assistant company gateway speaks each model's own dialect over one endpoint", "[AIPrintAssistant][fast]")
+{
+    const auto provider = AI::Provider::Gateway;
+    CHECK(AI::uses_chat_completions(provider));
+    CHECK(AI::uses_reasoning_content(provider));
+    CHECK(std::string(AI::provider_id(provider)) == "snapmaker_gateway");
+    const auto user    = AI::chat_user_message(provider, "Inspect this photo", {{"image/jpeg", "YWJj", 1, 1}});
+    const auto history = json::array({user});
+    CHECK(user["content"][1]["image_url"]["url"] == "data:image/jpeg;base64,YWJj");
+    // The gateway relays to DeepSeek and BigModel, whose thinking parameters differ.
+    for (const auto* model : {"deepseek-flash", "deepseek-v4-pro"}) {
+        INFO(model);
+        CHECK(AI::upstream(provider, model) == AI::Upstream::DeepSeek);
+        const auto request = json::parse(AI::make_chat_request(provider, model, history));
+        CHECK(request["model"] == model);
+        CHECK(request["thinking"] == json({{"type", "enabled"}}));
+        CHECK_FALSE(request.contains("tool_stream"));
+    }
+    for (const auto* model : {"glm-5.3", "glm-5.3-flash"}) {
+        INFO(model);
+        CHECK(AI::upstream(provider, model) == AI::Upstream::BigModel);
+        const auto request = json::parse(AI::make_chat_request(provider, model, history));
+        CHECK(request["thinking"] == json({{"type", "enabled"}, {"clear_thinking", false}}));
+        CHECK(request["tool_stream"] == true);
+    }
+    // What every gateway request shares: the chat-completions shape, and nothing of OpenRouter's or Anthropic's.
+    const auto request = json::parse(AI::make_chat_request(provider, AI::provider_info(provider).default_model, history));
+    CHECK(request["messages"][0]["role"] == "system");
+    CHECK(request["messages"][1] == user);
+    CHECK(request["stream"] == true);
+    CHECK(request["tool_choice"] == "auto");
+    CHECK(request["max_tokens"] == 64000);
+    CHECK(request["tools"].size() == 14);
+    for (const char* absent : {"provider", "system", "cache_control", "response_format"}) {
+        INFO(absent);
+        CHECK_FALSE(request.contains(absent));
+    }
+    // A model the gateway adds later still gets a plain request; the direct providers keep their own dialect.
+    CHECK(AI::upstream(provider, "some-new-model") == AI::Upstream::Other);
+    CHECK_FALSE(json::parse(AI::make_chat_request(provider, "some-new-model", history)).contains("thinking"));
+    CHECK(AI::upstream(AI::Provider::DeepSeek, "glm-5.3") == AI::Upstream::DeepSeek);
+    CHECK(AI::upstream(AI::Provider::OpenRouter, "deepseek/deepseek-flash") == AI::Upstream::Other);
+    // Gateway model IDs have no vendor prefix.
+    CHECK_THROWS(AI::make_chat_request(provider, "deepseek/deepseek-flash", history));
+    // The host resolves only inside the company network, so a failed connection says how to reach it.
+    const auto offline = AI::provider_error(provider, 0, "", "sk-secret", "Could not resolve host: ai-gateway.s.com");
+    CHECK(offline.find("Snapmaker AI Gateway") != std::string::npos);
+    CHECK(offline.find("company network") != std::string::npos);
+    CHECK(offline.find("172.17.100.43") != std::string::npos);
+    CHECK(AI::provider_error(provider, 401, "").find("company network") == std::string::npos);
+    CHECK(AI::provider_error(AI::Provider::OpenRouter, 0, "").find("company network") == std::string::npos);
+}
+
 TEST_CASE("Assistant direct providers preserve streamed reasoning through tool continuations", "[AIPrintAssistant][fast]")
 {
-    for (const auto provider : {AI::Provider::BigModel, AI::Provider::BigModelCodingPlan, AI::Provider::DeepSeek}) {
+    for (const auto provider : {AI::Provider::BigModel, AI::Provider::BigModelCodingPlan, AI::Provider::DeepSeek, AI::Provider::Gateway}) {
         AI::ChatStream stream(provider);
         const auto     wire = router_delta({{"role", "assistant"}, {"content", nullptr}, {"reasoning_content", "Inspect "}}) +
                           router_delta({{"reasoning_content", "caf\xc3\xa9\n"}}) +

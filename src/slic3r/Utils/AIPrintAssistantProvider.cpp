@@ -96,8 +96,20 @@ ProviderInfo provider_info(Provider provider)
     case Provider::BigModelCodingPlan:
         return {"BigModel (Coding Plan)", "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", "glm-5.3-flash"};
     case Provider::DeepSeek: return {"DeepSeek", "https://api.deepseek.com/chat/completions", "deepseek-flash"};
+    // Plain HTTP on the company network, as the gateway is published. It serves
+    // deepseek-v4-pro, deepseek-flash, glm-5.3 and glm-5.3-flash.
+    case Provider::Gateway: return {"Snapmaker AI Gateway", "http://ai-gateway.s.com/v1/chat/completions", "deepseek-flash"};
     }
     throw std::runtime_error("Unknown assistant provider.");
+}
+
+Upstream upstream(Provider provider, const std::string& model)
+{
+    if (is_bigmodel(provider) || (provider == Provider::Gateway && model.rfind("glm", 0) == 0))
+        return Upstream::BigModel;
+    if (provider == Provider::DeepSeek || (provider == Provider::Gateway && model.rfind("deepseek", 0) == 0))
+        return Upstream::DeepSeek;
+    return Upstream::Other;
 }
 
 const char* provider_id(Provider provider)
@@ -108,6 +120,7 @@ const char* provider_id(Provider provider)
     case Provider::BigModel: return "bigmodel";
     case Provider::BigModelCodingPlan: return "bigmodel_coding_plan";
     case Provider::DeepSeek: return "deepseek";
+    case Provider::Gateway: return "snapmaker_gateway";
     }
     throw std::runtime_error("Unknown assistant provider.");
 }
@@ -138,6 +151,10 @@ std::string provider_error(
         message += " Check your account credits.";
     else if (status == 429)
         message += " Try again shortly.";
+    // The gateway's name resolves only inside the company network.
+    if (status == 0 && provider == Provider::Gateway)
+        message += " The gateway is reachable only on the company network. On the VPN, switch to the office network or set the DNS "
+                   "server to 172.17.100.43.";
 
     std::string detail;
     try {
