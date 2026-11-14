@@ -2,8 +2,10 @@
 #include "libslic3r/AIGeneratedModel.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 #include <boost/beast/core/detail/base64.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
@@ -19,6 +21,10 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <libproc.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace Slic3r::AIPrintAssistant {
@@ -27,8 +33,9 @@ namespace fs = boost::filesystem;
 namespace bp = boost::process;
 using Clock  = std::chrono::steady_clock;
 
-constexpr auto BUILD_TIME_LIMIT = std::chrono::seconds(90);
-constexpr auto VIEW_TIME_LIMIT  = std::chrono::seconds(30);
+constexpr auto          BUILD_TIME_LIMIT = std::chrono::seconds(90);
+constexpr auto          VIEW_TIME_LIMIT  = std::chrono::seconds(30);
+constexpr std::uint64_t MEMORY_LIMIT     = std::uint64_t(4) << 30;
 
 std::string read_file(const fs::path& path, uintmax_t limit)
 {
@@ -61,7 +68,7 @@ struct Job
             return;
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        limits.ProcessMemoryLimit               = SIZE_T(4) << 30;
+        limits.ProcessMemoryLimit               = SIZE_T(MEMORY_LIMIT);
         SetInformationJobObject(handle, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
         AssignProcessToJobObject(handle, child.native_handle());
     }
@@ -71,6 +78,21 @@ struct Job
             CloseHandle(handle);
     }
 };
+#else
+// The memory OpenSCAD holds in RAM, in bytes; 0 when it cannot be read. These
+// platforms have no job object, so the wait loop enforces the cap itself.
+std::uint64_t resident_memory(int pid)
+{
+#if defined(__APPLE__)
+    rusage_info_v0 info;
+    return proc_pid_rusage(pid, RUSAGE_INFO_V0, reinterpret_cast<rusage_info_t*>(&info)) == 0 ? info.ri_resident_size : 0;
+#else
+    std::ifstream statm("/proc/" + std::to_string(pid) + "/statm");
+    std::uint64_t total = 0, resident = 0;
+    statm >> total >> resident;
+    return statm ? resident * std::uint64_t(sysconf(_SC_PAGESIZE)) : 0;
+#endif
+}
 #endif
 
 // Returns OpenSCAD's exit code and its messages, which it prints to stderr. Throws when the user
@@ -106,6 +128,14 @@ int execute(const fs::path&                 openscad,
                                      " seconds. Simplify the design: lower $fn, and avoid minkowski, hull and long loops over many "
                                      "parts.");
         }
+#ifndef _WIN32
+        if (resident_memory(int(child.id())) > MEMORY_LIMIT) {
+            child.terminate(error);
+            child.wait(error);
+            throw std::runtime_error("OpenSCAD needed more than 4 GB of memory. Simplify the design: lower $fn, and avoid minkowski, "
+                                     "hull and long loops over many parts.");
+        }
+#endif
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     child.wait(error);
