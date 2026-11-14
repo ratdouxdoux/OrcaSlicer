@@ -62,6 +62,13 @@ struct Range
 };
 // Object names and messages come from user files; replace invalid UTF-8 so the request still serializes.
 std::string utf8(const std::string& text) { return json::parse(json(text).dump(-1, ' ', false, json::error_handler_t::replace)).get<std::string>(); }
+json utf8(const std::vector<std::string>& texts)
+{
+    json out = json::array();
+    for (const auto& text : texts)
+        out.push_back(utf8(text));
+    return out;
+}
 } // namespace
 
 json slice_query_schema()
@@ -137,8 +144,10 @@ json summarize_slice(const GCodeProcessorResult& result, int plate_index, const 
     // Warnings originate in the slicer, including native diagnostic codes/parameters.
     for (size_t i = 0; i < std::min(size_t(100), result.warnings.size()); ++i) {
         const auto& warning = result.warnings[i];
-        out["warnings"].push_back(
-            {{"level", warning.level}, {"message", warning.msg}, {"code", warning.error_code}, {"parameters", warning.params}});
+        out["warnings"].push_back({{"level", warning.level},
+                                   {"message", utf8(warning.msg)},
+                                   {"code", utf8(warning.error_code)},
+                                   {"parameters", utf8(warning.params)}});
     }
     out["warnings_truncated"] = result.warnings.size() > 100;
     for (const auto& [role, seconds] : mode.roles_times)
@@ -154,12 +163,12 @@ json summarize_slice(const GCodeProcessorResult& result, int plate_index, const 
     out["tool_numbering"] = "Zero-based G-code tool numbers (T0, T1, ...).";
     if (result.conflict_result) {
         const auto& conflict     = *result.conflict_result;
-        out["toolpath_conflict"] = {{"first_object", conflict._objName1},
-                                    {"second_object", conflict._objName2},
+        out["toolpath_conflict"] = {{"first_object", utf8(conflict._objName1)},
+                                    {"second_object", utf8(conflict._objName2)},
                                     {"height_mm", conflict._height}};
     }
     if (!result.bed_match_result.match)
-        out["bed_mismatch"] = {{"bed_type", result.bed_match_result.bed_type_name}, {"tool", result.bed_match_result.extruder_id}};
+        out["bed_mismatch"] = {{"bed_type", utf8(result.bed_match_result.bed_type_name)}, {"tool", result.bed_match_result.extruder_id}};
     if (!args.contains("height_mm"))
         return out;
 
@@ -348,10 +357,10 @@ json gcode_issues(const GCodeProcessorResult& result, size_t limit)
              {"message", "The plate type " + utf8(result.bed_match_result.bed_type_name) + " does not support filament " +
                              std::to_string(result.bed_match_result.extruder_id + 1) + "."}});
     for (const auto& warning : result.warnings)
-        add({{"code", warning.error_code},
+        add({{"code", utf8(warning.error_code)},
              {"severity", warning.level >= 2 ? "error" : warning.level == 1 ? "warning" : "info"},
              {"message", utf8(warning.msg)},
-             {"parameters", warning.params}});
+             {"parameters", utf8(warning.params)}});
     return issues;
 }
 } // namespace Slic3r::AIPrintAssistant

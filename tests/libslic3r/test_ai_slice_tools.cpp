@@ -236,6 +236,11 @@ TEST_CASE("Assistant G-code issues list native G-code checks compactly", "[AIPri
     CHECK(AI::gcode_issues(result, 2).size() == 2);
     result.conflict_result = ConflictResult(std::string("Bad\xff name"), "Tower", 1.0, nullptr, nullptr);
     CHECK_NOTHROW(AI::gcode_issues(result).dump());
+    // The slice summary carries the same names and warning text, and must serialize too.
+    result.warnings.push_back({1, "Bad\xff warning", "Bad\xff code", {"Bad\xff parameter"}});
+    result.bed_match_result = BedMatchResult(false, "Bad\xff plate", 1);
+    CHECK_NOTHROW(AI::gcode_issues(result).dump());
+    CHECK_NOTHROW(AI::summarize_slice(result, 0, json::object()).dump());
 }
 
 TEST_CASE("Assistant print warnings are empty for a print that has not been sliced", "[AIPrintAssistant][fast]")
