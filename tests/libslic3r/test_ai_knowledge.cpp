@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include "libslic3r/AIKnowledgeBase.hpp"
+#include "libslic3r/AIPrintAssistant.hpp"
 #include "slic3r/Utils/AIPrintAssistantChat.hpp"
 
 #include <functional>
@@ -141,6 +142,27 @@ TEST_CASE("Assistant shipped knowledge base is valid and covers every Snapmaker 
         CHECK_FALSE(knowledge.search({{"query", query}, {"machine", "any"}})["results"].empty());
     }
     CHECK(knowledge.search({{"query", "stringing"}, {"limit", 10}, {"machine", "all"}}).dump().size() < 64 * 1024);
+}
+
+TEST_CASE("Assistant shipped knowledge base has the expert cases and the keep-default list", "[AIPrintAssistant][fast]")
+{
+    const auto knowledge = AI::KnowledgeBase::load(std::string(AI_ASSISTANT_RESOURCE_DIR) + "/ai_knowledge/snapmaker_knowledge.json");
+    auto       found     = [&](const std::string& query, const std::string& id) {
+        const auto result = ids(knowledge.search({{"query", query}, {"limit", 10}}, "u1"));
+        return std::find(result.begin(), result.end(), id) != result.end();
+    };
+    CHECK(found("expert case benchy short bridges", "u1x-benchy-overhangs-short-bridges"));
+    CHECK(found("expert case small text top face", "u1x-small-top-text-arachne"));
+    CHECK(found("expert case tree support interface islands", "u1x-tree-support-interface-islands"));
+    CHECK(found("expert case large flat warping", "u1x-large-flat-first-layer-warping"));
+    // The entry that explains the keep-default list names exactly the settings the application protects.
+    const auto            listed = knowledge.search({{"query", "keep default process settings not changed lightly"}, {"limit", 10}}, "u1");
+    std::set<std::string> keys;
+    for (const auto& item : listed["results"])
+        if (item["id"] == "u1x-keep-default-process-settings")
+            for (const auto& setting : item["settings"])
+                keys.insert(setting["key"].get<std::string>());
+    CHECK(keys == std::set<std::string>(AI::keep_default_settings().begin(), AI::keep_default_settings().end()));
 }
 
 // Hidden: prints rankings for representative questions so knowledge refreshes can be reviewed.

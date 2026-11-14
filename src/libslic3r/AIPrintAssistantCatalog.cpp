@@ -149,6 +149,37 @@ bool setting_in_scope(const std::string& key, Scope scope)
     return std::find(keys.begin(), keys.end(), key) != keys.end();
 }
 
+const std::vector<std::string>& keep_default_settings()
+{
+    // Snapmaker's expert list of process settings that print well at their
+    // defaults (see the u1x-keep-default-process-settings knowledge entry).
+    static const std::vector<std::string> keys = {"seam_slope_type",
+                                                  "precise_outer_wall",
+                                                  "precise_z_height",
+                                                  "hole_to_polyhole",
+                                                  "small_area_infill_flow_compensation",
+                                                  "enable_extra_bridge_layer",
+                                                  "counterbore_hole_bridging",
+                                                  "detect_overhang_wall",
+                                                  "make_overhang_printable",
+                                                  "extra_perimeters_on_overhangs",
+                                                  "detect_narrow_internal_solid_infill",
+                                                  "ensure_vertical_shell_thickness",
+                                                  "accel_to_decel_enable",
+                                                  "max_volumetric_extrusion_rate_slope",
+                                                  "wipe_tower_no_sparse_layers",
+                                                  "wipe_tower_wall_gap",
+                                                  "single_extruder_multi_material_priming",
+                                                  "ooze_prevention"};
+    return keys;
+}
+
+bool keep_default_setting(const std::string& key)
+{
+    const auto& keys = keep_default_settings();
+    return std::find(keys.begin(), keys.end(), key) != keys.end();
+}
+
 json setting_value(const ConfigBase& config, const std::string& key)
 {
     const auto& def    = definition(key);

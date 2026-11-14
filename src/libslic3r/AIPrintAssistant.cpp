@@ -14,6 +14,12 @@ namespace Slic3r::AIPrintAssistant {
 namespace {
 using json = nlohmann::json;
 
+// Part of every editable context, whose catalog marks the keep-default settings.
+constexpr const char* PROTECTED_SETTINGS_NOTE =
+    "The settings in keep_default_settings (marked keep_default in the catalog) already print well at their defaults. Leave them "
+    "alone when tuning a print; propose one only when the user asks for that setting, and the app then asks the user to confirm. "
+    "Printer settings are read-only.";
+
 const char* type_name(ConfigOptionType type)
 {
     switch (type) {
@@ -228,6 +234,8 @@ void populate_settings(Context& context)
                              {"value_source", context.scope != Scope::Object ? "edited_preset" :
                                               context.overrides.has(key)     ? "object_override" :
                                                                                "inherited"}};
+        if (keep_default_setting(key))
+            entry["keep_default"] = true;
         if (!def->enum_values.empty())
             entry["allowed_values"] = def->enum_values;
         if (value.is_array() && (def->type != coPoints || key == "extruder_offset"))
@@ -329,7 +337,8 @@ Context capture_context(const DynamicPrintConfig& inherited,
            "Only settings in the selected edit scope can be changed.",
            "Preset edits can affect all objects using the preset. Object or plate overrides may shadow them.",
            "Inside a modifier volume its settings override the object's; change them with the set_modifier_settings model "
-           "operation."}}};
+           "operation.",
+           PROTECTED_SETTINGS_NOTE}}};
 
     populate_settings(context);
 
@@ -377,7 +386,8 @@ Context capture_preset_context(const DynamicPrintConfig& inherited,
     context.public_context["limitations"] =
         {"Preset edits affect all objects using the preset. Object, part or plate overrides may shadow them.",
          "Copy the empty object_id for preset changes; no object selection is required.",
-         "Use get_slice_context separately to inspect an existing slice."};
+         "Use get_slice_context separately to inspect an existing slice.",
+         PROTECTED_SETTINGS_NOTE};
     context.public_context.erase("context_id");
     context.id = fingerprint({{"context", context.public_context}, {"target_identity", target_identity}}, context, nullptr);
     context.public_context["context_id"] = context.id;
@@ -394,6 +404,9 @@ Context capture_read_context(const DynamicPrintConfig& inherited,
     const auto* technology = inherited.option("printer_technology");
     if (technology && static_cast<PrinterTechnology>(technology->getInt()) != ptFFF)
         throw std::runtime_error("The print assistant currently supports filament printing only.");
+    // Every context lists the printer's settings as read-only values instead.
+    if (scope == Scope::Printer)
+        throw std::runtime_error("The assistant does not edit printer settings. Tell the user which printer setting to change.");
     Context context;
     context.read_only       = true;
     context.scope           = scope;
@@ -528,7 +541,22 @@ Proposal parse_proposal(const std::string& text)
     return proposal;
 }
 
-DynamicPrintConfig prepare_apply(const Context& current, const Proposal& proposal, Transaction& transaction)
+t_config_option_keys keep_default_changes(const Context& current, const Proposal& proposal)
+{
+    t_config_option_keys keys;
+    for (const auto& key : proposal.changes.keys()) {
+        const auto* now   = current.effective.option(key);
+        const auto* after = proposal.changes.option(key);
+        if (keep_default_setting(key) && now && now->type() == after->type() && *now != *after)
+            keys.push_back(key);
+    }
+    return keys;
+}
+
+DynamicPrintConfig prepare_apply(const Context&              current,
+                                 const Proposal&             proposal,
+                                 Transaction&                transaction,
+                                 const t_config_option_keys& confirmed_defaults)
 {
     if (current.read_only)
         throw std::runtime_error("This is a read-only plate overview. Read get_print_context with an object_id before proposing settings.");
@@ -553,19 +581,11 @@ DynamicPrintConfig prepare_apply(const Context& current, const Proposal& proposa
         if (!before->is_scalar() && (before->type() != coPoints || key == "extruder_offset") &&
             dynamic_cast<const ConfigOptionVectorBase*>(before)->size() != dynamic_cast<const ConfigOptionVectorBase*>(after)->size())
             throw std::runtime_error("Keep the number and order of array elements unchanged: " + key);
-        if (key == "printable_area") {
-            const auto& points = dynamic_cast<const ConfigOptionPoints*>(after)->values;
-            double      area   = 0.;
-            for (size_t i = 0; i < points.size(); ++i) {
-                const auto& a = points[i];
-                const auto& b = points[(i + 1) % points.size()];
-                area += a.x() * b.y() - b.x() * a.y();
-            }
-            if (points.size() < 3 || !std::isfinite(area) || std::abs(area) < 1e-6)
-                throw std::runtime_error("The printable area must be a polygon with nonzero area.");
-        }
         if (*before == *after)
             continue;
+        if (keep_default_setting(key) && std::find(confirmed_defaults.begin(), confirmed_defaults.end(), key) == confirmed_defaults.end())
+            throw std::runtime_error(key + " normally stays at its default, which already prints well. The assistant may change it only "
+                                           "when the user asked for this setting, and the user must confirm the change in the chat.");
         candidate.set_key_value(key, proposal.changes.option(key)->clone());
         prepared.changed_keys.push_back(key);
     }
@@ -611,6 +631,10 @@ DynamicPrintConfig prepare_modifier_settings(const DynamicPrintConfig& object_se
             throw std::runtime_error("A modifier cannot change " + it.key() +
                                      ". Modifiers take per-region settings such as walls, infill and speeds; object-wide settings such "
                                      "as layer height apply to the whole object.");
+        // The confirmation for these settings belongs to propose_settings.
+        if (keep_default_setting(it.key()))
+            throw std::runtime_error(it.key() + " normally stays at its default, which already prints well, and cannot be set in a "
+                                                "modifier. If the user asked for it, propose it for the object with propose_settings.");
         if (it.value().is_null()) {
             result.erase(it.key());
             continue;

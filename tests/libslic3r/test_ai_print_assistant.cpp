@@ -73,10 +73,13 @@ TEST_CASE("Assistant catalogs every editable native setting and preserves its ty
 {
     Fixture               fixture;
     std::set<std::string> covered;
-    for (const auto scope : {AI::Scope::Object, AI::Scope::Process, AI::Scope::Filament, AI::Scope::Printer}) {
+    for (const auto scope : {AI::Scope::Object, AI::Scope::Process, AI::Scope::Filament}) {
         const auto context = AI::capture_context(fixture.inherited, *fixture.object, scope, &fixture.inherited, "test preset");
         INFO(AI::scope_name(scope));
         CHECK(context.editable_keys.size() > 20);
+        // Printer settings are visible in every scope and editable in none.
+        CHECK(context.public_context["read_only_settings"].contains("nozzle_diameter"));
+        CHECK(std::find(context.editable_keys.begin(), context.editable_keys.end(), "nozzle_diameter") == context.editable_keys.end());
         for (const auto& entry : context.public_context["settings"]) {
             const auto key = entry["key"].get<std::string>();
             INFO(key);
@@ -91,10 +94,83 @@ TEST_CASE("Assistant catalogs every editable native setting and preserves its ty
     for (const auto& key : fixture.inherited.keys()) {
         const auto* def = print_config_def.get(key);
         if (!def->readonly && !def->label.empty() && def->printer_technology != ptSLA &&
-            (AI::setting_in_scope(key, AI::Scope::Process) || AI::setting_in_scope(key, AI::Scope::Filament) ||
-             AI::setting_in_scope(key, AI::Scope::Printer)))
+            (AI::setting_in_scope(key, AI::Scope::Process) || AI::setting_in_scope(key, AI::Scope::Filament)))
             CHECK(covered.count(key) == 1);
     }
+}
+
+TEST_CASE("Assistant never edits printer settings", "[AIPrintAssistant][fast]")
+{
+    Fixture fixture;
+    // No context is captured in the printer scope, editable or not.
+    CHECK_THROWS(AI::capture_context(fixture.inherited, *fixture.object, AI::Scope::Printer, &fixture.inherited, "test preset"));
+    CHECK_THROWS(AI::capture_preset_context(fixture.inherited, AI::Scope::Printer, fixture.inherited, "test preset"));
+    CHECK_THROWS(AI::capture_read_context(fixture.inherited, nullptr, AI::Scope::Printer, &fixture.inherited, "plate:0"));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "printer"}, {"reason", "The nozzle size is a printer setting."}}));
+    // A printer setting is refused from every scope that can be edited.
+    for (const auto scope : {AI::Scope::Object, AI::Scope::Process, AI::Scope::Filament}) {
+        INFO(AI::scope_name(scope));
+        auto            target   = fixture.inherited;
+        const auto      context  = AI::capture_context(fixture.inherited, *fixture.object, scope, &target, "test preset");
+        const auto      proposal = AI::parse_proposal(proposal_json(context, {{{"key", "nozzle_diameter"}, {"value", "[0.6]"}}}).dump());
+        AI::Transaction transaction;
+        CHECK_THROWS(AI::prepare_apply(context, proposal, transaction));
+    }
+    for (const auto provider : {AI::Provider::OpenRouter, AI::Provider::Anthropic}) {
+        const auto        request = json::parse(AI::make_chat_request(provider, AI::provider_info(provider).default_model,
+                                                                      json::array({AI::chat_user_message(provider, "Use a 0.6 nozzle.")})));
+        const std::string system  = AI::uses_chat_completions(provider) ? request["messages"][0]["content"].get<std::string>() :
+                                                                          request["system"][0]["text"].get<std::string>();
+        CHECK(system.find("Never change printer (machine) settings") != std::string::npos);
+    }
+}
+
+TEST_CASE("Assistant changes keep-default settings only with the user's confirmation", "[AIPrintAssistant][fast]")
+{
+    Fixture fixture;
+    // The expert list: every key is a process setting the catalog offers.
+    CHECK(AI::keep_default_settings().size() == 18);
+    for (const auto& key : AI::keep_default_settings()) {
+        INFO(key);
+        CHECK(AI::setting_in_scope(key, AI::Scope::Process));
+        CHECK(AI::keep_default_setting(key));
+    }
+    CHECK_FALSE(AI::keep_default_setting("wall_loops"));
+
+    for (const auto scope : {AI::Scope::Object, AI::Scope::Process}) {
+        INFO(AI::scope_name(scope));
+        auto       target  = fixture.inherited;
+        const auto context = AI::capture_context(fixture.inherited, *fixture.object, scope, &target, "test preset");
+        size_t     marked  = 0;
+        for (const auto& entry : context.public_context["settings"]) {
+            CHECK(entry.contains("keep_default") == AI::keep_default_setting(entry["key"].get<std::string>()));
+            marked += entry.contains("keep_default");
+        }
+        CHECK(marked > 0);
+        CHECK(context.public_context["limitations"].dump().find("keep_default") != std::string::npos);
+
+        const bool      on       = fixture.inherited.opt_bool("make_overhang_printable");
+        const auto      proposal = AI::parse_proposal(
+            proposal_json(context, {{{"key", "make_overhang_printable"}, {"value", !on}}, {{"key", "wall_loops"}, {"value", 5}}}).dump());
+        CHECK(AI::keep_default_changes(context, proposal) == t_config_option_keys{"make_overhang_printable"});
+        AI::Transaction transaction;
+        CHECK_THROWS(AI::prepare_apply(context, proposal, transaction));
+        CHECK(transaction.changed_keys.empty());
+        // Confirming another setting does not cover this one.
+        CHECK_THROWS(AI::prepare_apply(context, proposal, transaction, {"precise_z_height"}));
+        const auto candidate = AI::prepare_apply(context, proposal, transaction, {"make_overhang_printable"});
+        CHECK(candidate.opt_bool("make_overhang_printable") == !on);
+        CHECK(transaction.changed_keys.size() == 2);
+
+        // Proposing the value a keep-default setting already has needs no confirmation.
+        const auto same = AI::parse_proposal(
+            proposal_json(context, {{{"key", "make_overhang_printable"}, {"value", on}}, {{"key", "wall_loops"}, {"value", 5}}}).dump());
+        CHECK(AI::keep_default_changes(context, same).empty());
+        CHECK_NOTHROW(AI::prepare_apply(context, same, transaction));
+    }
+    // Modifiers cannot carry them at all: the confirmation belongs to propose_settings.
+    CHECK_THROWS(AI::prepare_modifier_settings(fixture.inherited, {}, {{"detect_overhang_wall", false}}));
+    CHECK_NOTHROW(AI::prepare_modifier_settings(fixture.inherited, {}, {{"wall_loops", 4}}));
 }
 
 TEST_CASE("Assistant native scopes exclude credentials bookkeeping and other targets", "[AIPrintAssistant][fast]")
@@ -103,8 +179,10 @@ TEST_CASE("Assistant native scopes exclude credentials bookkeeping and other tar
     fixture.inherited.set_key_value("printhost_apikey", new ConfigOptionString("private-api-key-sentinel"));
     fixture.inherited.set_key_value("print_host", new ConfigOptionString("private-host-sentinel"));
     for (const auto scope : {AI::Scope::Object, AI::Scope::Process, AI::Scope::Filament, AI::Scope::Printer}) {
-        const auto context = AI::capture_context(fixture.inherited, *fixture.object, scope, &fixture.inherited, "private-name-sentinel");
-        CHECK(context.public_context.dump().find("sentinel") == std::string::npos);
+        if (scope != AI::Scope::Printer) {
+            const auto context = AI::capture_context(fixture.inherited, *fixture.object, scope, &fixture.inherited, "private-name-sentinel");
+            CHECK(context.public_context.dump().find("sentinel") == std::string::npos);
+        }
         CHECK_FALSE(AI::setting_in_scope("printhost_apikey", scope));
         CHECK_FALSE(AI::setting_in_scope("print_host", scope));
         CHECK_FALSE(AI::setting_in_scope("inherits", scope));
@@ -143,12 +221,6 @@ TEST_CASE("Assistant applies and reverts native preset types without saving a pr
         changes = {{{"key", "nozzle_temperature"}, {"value", "[215]"}},
                    {{"key", "filament_start_gcode"}, {"value", "[\"; test\\nM104 S215\"]"}}};
     }
-    SECTION("Printer polygon and nozzle")
-    {
-        scope   = AI::Scope::Printer;
-        changes = {{{"key", "nozzle_diameter"}, {"value", "[0.6]"}},
-                   {{"key", "printable_area"}, {"value", "[[0,0],[200,0],[200,200],[0,200]]"}}};
-    }
     auto            target   = fixture.inherited;
     const auto      before   = target;
     auto            capture  = [&] { return AI::capture_context(fixture.inherited, *fixture.object, scope, &target, "test preset"); };
@@ -181,8 +253,8 @@ TEST_CASE("Assistant preserves vector cardinality nullable overrides and percent
     CHECK_THROWS(AI::assign_setting(config, "nozzle_diameter", json::array({nullptr})));
     CHECK_THROWS(AI::assign_setting(config, "enable_support", 1));
     auto            target   = fixture.inherited;
-    const auto      context  = AI::capture_context(fixture.inherited, *fixture.object, AI::Scope::Printer, &target, "test");
-    const auto      proposal = AI::parse_proposal(proposal_json(context, {{{"key", "nozzle_diameter"}, {"value", "[0.4,0.6]"}}}).dump());
+    const auto      context  = AI::capture_context(fixture.inherited, *fixture.object, AI::Scope::Filament, &target, "test");
+    const auto      proposal = AI::parse_proposal(proposal_json(context, {{{"key", "nozzle_temperature"}, {"value", "[215,220]"}}}).dump());
     AI::Transaction transaction;
     CHECK_THROWS(AI::prepare_apply(context, proposal, transaction));
     CHECK(transaction.changed_keys.empty());
@@ -930,6 +1002,10 @@ TEST_CASE("Assistant read tools use the actual catalog and never mutate settings
     const auto read    = AI::run_read_tool(context, {"a", "get_print_context", json::object()});
     CHECK(read["context_id"] == context.id);
     CHECK_FALSE(read.contains("settings"));
+    // The catalog is left out, so the protected settings are listed by key.
+    const auto kept = read["keep_default_settings"].get<std::vector<std::string>>();
+    CHECK(std::find(kept.begin(), kept.end(), "make_overhang_printable") != kept.end());
+    CHECK(std::find(kept.begin(), kept.end(), "wall_loops") == kept.end());
     const auto results = AI::run_read_tool(context, {"b", "search_settings", {{"query", "wall_generator"}}});
     REQUIRE_FALSE(results["settings"].empty());
     CHECK(results["settings"][0]["key"] == "wall_generator");
@@ -1145,7 +1221,7 @@ TEST_CASE("Assistant shared settings inspection works without an object and cann
     Fixture fixture;
     fixture.inherited.set_key_value("printhost_apikey", new ConfigOptionString("private-sentinel"));
     fixture.inherited.set_key_value("print_host", new ConfigOptionString("private-sentinel"));
-    for (auto scope : {AI::Scope::Object, AI::Scope::Process, AI::Scope::Filament, AI::Scope::Printer}) {
+    for (auto scope : {AI::Scope::Object, AI::Scope::Process, AI::Scope::Filament}) {
         const auto context = AI::capture_read_context(fixture.inherited, nullptr, scope, &fixture.inherited, "plate:0");
         CHECK(context.read_only);
         CHECK(context.object_id.invalid());
@@ -1245,11 +1321,6 @@ TEST_CASE("Assistant global presets can be edited without any object", "[AIPrint
         scope   = AI::Scope::Filament;
         changes = {{{"key", "nozzle_temperature"}, {"value", "[215]"}}};
     }
-    SECTION("Printer")
-    {
-        scope   = AI::Scope::Printer;
-        changes = {{{"key", "nozzle_diameter"}, {"value", "[0.6]"}}};
-    }
     auto       target  = fixture.inherited;
     const auto before  = target;
     auto       capture = [&] { return AI::capture_preset_context(fixture.inherited, scope, target, "global preset"); };
@@ -1305,7 +1376,7 @@ TEST_CASE("Assistant asks the user before switching the edit scope", "[AIPrintAs
                 continue;
             ++found;
             const auto schema = definition[AI::uses_chat_completions(provider) ? "parameters" : "input_schema"];
-            CHECK(schema["properties"]["scope"]["enum"] == json({"object", "process", "filament", "printer"}));
+            CHECK(schema["properties"]["scope"]["enum"] == json({"object", "process", "filament"}));
             CHECK(schema["required"] == json({"scope", "reason"}));
             CHECK(schema["additionalProperties"] == false);
         }
@@ -1316,7 +1387,7 @@ TEST_CASE("Assistant asks the user before switching the edit scope", "[AIPrintAs
         CHECK(system.find("do not ask again") != std::string::npos);
     }
 
-    for (const auto scope : {AI::Scope::Object, AI::Scope::Process, AI::Scope::Filament, AI::Scope::Printer}) {
+    for (const auto scope : {AI::Scope::Object, AI::Scope::Process, AI::Scope::Filament}) {
         const auto parsed = AI::parse_scope_request({{"scope", AI::scope_name(scope)}, {"reason", "Bed temperature is a filament setting."}});
         CHECK(parsed.scope == scope);
         CHECK(parsed.reason == "Bed temperature is a filament setting.");
@@ -1335,9 +1406,9 @@ TEST_CASE("Assistant asks the user before switching the edit scope", "[AIPrintAs
     CHECK_THROWS(AI::parse_scope_request({{"reason", "Missing scope."}}));
     CHECK_THROWS(AI::parse_scope_request({{"scope", "global"}, {"reason", "Unknown scope."}}));
     CHECK_THROWS(AI::parse_scope_request({{"scope", 1}, {"reason", "Scope is not a string."}}));
-    CHECK_THROWS(AI::parse_scope_request({{"scope", "printer"}}));
-    CHECK_THROWS(AI::parse_scope_request({{"scope", "printer"}, {"reason", " \n "}}));
-    CHECK_THROWS(AI::parse_scope_request({{"scope", "printer"}, {"reason", "Nozzle size."}, {"object_id", "1"}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "filament"}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "filament"}, {"reason", " \n "}}));
+    CHECK_THROWS(AI::parse_scope_request({{"scope", "filament"}, {"reason", "Bed temperature."}, {"object_id", "1"}}));
 
     // A proposal outside the active scope points the assistant at the tool.
     Fixture         fixture;

@@ -62,15 +62,17 @@ json tool_definitions(Provider provider)
         gcode_query_schema());
     add("propose_settings",
         "Validate settings and update the live preview immediately. Continue the remaining requested work; Apply keeps the entire preview "
-        "and Dismiss restores it.",
+        "and Dismiss restores it. A change to a setting the catalog marks keep_default is shown to the user first and returns "
+        "declined, with nothing changed, if they keep the default.",
         proposal_schema());
     add("request_edit_scope",
         "Ask the user to switch the edit scope when a needed change belongs to another scope: object for overrides on individual "
-        "objects, or process, filament or printer for the shared preset. The app shows your reason and waits for the user to confirm. "
-        "Returns switched, declined or unchanged. After a switch, read get_print_context again; earlier context IDs are stale.",
+        "objects, or process or filament for the shared preset. The app shows your reason and waits for the user to confirm. "
+        "Returns switched, declined or unchanged. After a switch, read get_print_context again; earlier context IDs are stale. "
+        "Printer settings have no edit scope: the assistant never changes them.",
         {{"type", "object"},
          {"properties",
-          {{"scope", {{"type", "string"}, {"enum", {"object", "process", "filament", "printer"}}}},
+          {{"scope", {{"type", "string"}, {"enum", {"object", "process", "filament"}}}},
            {"reason",
             {{"type", "string"},
              {"maxLength", 300},
@@ -237,10 +239,18 @@ std::string make_chat_request(Provider provider, const std::string& model, const
         "including other geometry inside it. Modifiers cannot change layer height or filament settings such as cooling. Name "
         "each modifier after its feature; change one with set_modifier_settings or remove it with delete and its volume_id. "
         "One edit scope is active at a time; other scopes are read-only. When a needed change belongs to another scope (a shared "
-        "process, filament or printer preset setting, or an override on one object), call request_edit_scope with the target scope "
+        "process or filament preset setting, or an override on one object), call request_edit_scope with the target scope "
         "and a one-sentence reason; the user confirms or declines in the app. After a switch, read get_print_context again before "
         "proposing. If they decline, keep the current scope and do not ask again for the same change. Global preset edits need no "
         "object; use their empty object_id. "
+        "Never change printer (machine) settings: they are read-only in every scope. When a print needs one changed, name the "
+        "setting and the value and let the user change it in the printer preset. "
+        "The settings in get_print_context's keep_default_settings, which the catalog marks keep_default, already print well "
+        "at their defaults. Do not change them to tune quality, "
+        "strength or speed, and do not put them in modifiers. Propose one only when the user asks for that setting by name; the "
+        "app then shows them the change and waits. If they keep the default, continue without it and do not propose it again. "
+        "For the settings Snapmaker's experts did change on test models with overhangs, bridges, supports, small text, tight fits "
+        "or large flat faces, search_knowledge for expert case and the feature. "
         "The active plate inventory is attached to every user turn. Inspect its objects directly; do not ask the user to select an object "
         "in the UI. get_model_context refreshes object IDs, names, dimensions and plate membership. "
         "get_print_context and search_settings accept object_id. With multiple objects, inspect the relevant IDs separately. "
@@ -337,10 +347,12 @@ ScopeRequest parse_scope_request(const json& arguments)
             throw std::runtime_error("Unexpected request_edit_scope argument.");
     ScopeRequest request;
     const auto   scope = arguments.contains("scope") && arguments["scope"].is_string() ? arguments["scope"].get<std::string>() : "";
-    const auto   known = {Scope::Object, Scope::Process, Scope::Filament, Scope::Printer};
+    if (scope == scope_name(Scope::Printer))
+        throw std::runtime_error("The assistant does not edit printer settings. Tell the user which printer setting to change.");
+    const auto   known = {Scope::Object, Scope::Process, Scope::Filament};
     const auto   match = std::find_if(known.begin(), known.end(), [&](Scope candidate) { return scope == scope_name(candidate); });
     if (match == known.end())
-        throw std::runtime_error("request_edit_scope requires scope object, process, filament or printer.");
+        throw std::runtime_error("request_edit_scope requires scope object, process or filament.");
     request.scope = *match;
     if (!arguments.contains("reason") || !arguments["reason"].is_string())
         throw std::runtime_error("request_edit_scope requires a reason to show the user.");
@@ -365,6 +377,12 @@ json run_read_tool(const Context& context, const ChatToolCall& call)
         result["current_settings"] = json::object();
         for (const auto& setting : result["settings"])
             result["current_settings"][setting["key"].get<std::string>()] = setting["current_value"];
+        // The catalog is left to search_settings, but which settings are
+        // protected has to be known before proposing anything.
+        result["keep_default_settings"] = json::array();
+        for (const auto& setting : result["settings"])
+            if (setting.contains("keep_default"))
+                result["keep_default_settings"].push_back(setting["key"]);
         result.erase("settings");
         result["editable_setting_count"] = context.editable_keys.size();
         return result;
