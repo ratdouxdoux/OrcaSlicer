@@ -725,6 +725,8 @@ void MainFrame::toggle_ai_print_assistant()
     Layout();
 }
 
+bool MainFrame::is_ai_print_assistant_shown() const { return m_ai_assistant != nullptr && m_ai_assistant->IsShown(); }
+
 void MainFrame::bind_diff_dialog()
 {
     auto get_tab = [](Preset::Type type) {
@@ -2991,13 +2993,6 @@ void MainFrame::init_menubar_as_editor()
         "", nullptr, []() { return true; }, this, 1);
     //parent_menu->Insert(1, preference_item);
 #endif
-    if (editMenu && m_plater) {
-        editMenu->AppendSeparator();
-        append_menu_item(editMenu, wxID_ANY, _L("AI assistant"), _L("Open the assistant chat sidebar"),
-            [this](wxCommandEvent&) { toggle_ai_print_assistant(); }, "", nullptr,
-            [this]() { return m_plater && m_plater->printer_technology() == ptFFF; }, this);
-    }
-
     // Help menu
     auto helpMenu = generate_help_menu();
 

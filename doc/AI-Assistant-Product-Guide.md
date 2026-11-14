@@ -20,7 +20,7 @@ The aim is to reduce the knowledge needed to get started while keeping experienc
 
 ## Getting started
 
-1. Open a project, or begin with an empty plate, and choose **Edit > AI assistant**.
+1. Open a project, or begin with an empty plate, and click the sparkle tab on the right edge of the 3D view.
 2. Open the assistant's **Settings** and connect an AI service. OpenRouter is the default; Anthropic, official DeepSeek, and BigModel are also available. DeepSeek starts with `deepseek-flash`. BigModel offers standard API and Coding Plan connections; choose the one your account is eligible to use. Enter the corresponding API key and choose a model that supports the assistant's actions and image input when needed.
 3. Describe the task. Include the object, desired result and anything that must stay unchanged.
 4. Add a photo or screenshot with **+ Images** if it would help explain the problem. PNG and JPEG are supported, with up to four images per message.

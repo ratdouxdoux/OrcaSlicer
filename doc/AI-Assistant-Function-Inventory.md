@@ -14,7 +14,7 @@ The assistant is a conversational interface inside Snorca/Snapmaker Orca for und
 
 | ID | Offered function | Capability boundary |
 | --- | --- | --- |
-| P01 | Open, hide and resize the assistant sidebar from Edit > AI assistant. | Hiding cancels an active request and retains the conversation in memory. |
+| P01 | Open the assistant sidebar from the sparkle tab on the right edge of the 3D view (Prepare and Preview); hide it with its close button and resize it by its left edge. | Hiding cancels an active request and retains the conversation in memory. |
 | P02 | Natural-language requests, follow-up questions, streamed answers and a new conversation. | Conversation history is session-only. Provider/model changes start a new conversation. |
 | P03 | Attach, preview and remove PNG/JPEG images; retain sent images in conversation context. | Up to four attachments per message. No automatic viewport capture, camera access or video analysis. The selected model must support images. |
 | P04 | Choose the Snapmaker AI Gateway, OpenRouter, Anthropic, official DeepSeek, BigModel or BigModel Coding Plan; edit the model ID and view the fixed endpoint. | Access depends on the provider account and model capabilities. A model ID does not change the selected endpoint or billing route. |

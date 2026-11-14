@@ -207,6 +207,7 @@ protected:
 public:
     MainFrame();
     void toggle_ai_print_assistant();
+    bool is_ai_print_assistant_shown() const;
     ~MainFrame() = default;
 
     //BBS GUI refactor

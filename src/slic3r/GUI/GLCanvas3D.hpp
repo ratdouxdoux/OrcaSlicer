@@ -576,6 +576,9 @@ private:
     std::unique_ptr<GLToolbarBackgroundTextureCache> m_toolbarBackgroundTextureCache;
     std::unique_ptr<GLSubTextureBindRenderer> m_subTextureBindRenderer;
     mutable float m_paint_toolbar_width;
+    // How far the AI assistant tab has widened under the mouse, from 0 to 1.
+    float                                 m_ai_assistant_tab_hover{0.f};
+    std::chrono::steady_clock::time_point m_ai_assistant_tab_time;
 
     //BBS: add canvas type for assemble view usage
     ECanvasType m_canvas_type;
@@ -1316,6 +1319,7 @@ private:
     void _render_imgui_select_plate_toolbar();
     void _render_assemble_view_toolbar() const;
     void _render_return_toolbar() const;
+    void _render_ai_assistant_tab();
     void _render_separator_toolbar_right() const;
     void _render_separator_toolbar_left() const;
     void _render_collapse_toolbar() const;

@@ -8880,6 +8880,7 @@ void GLCanvas3D::_render_overlays()
     //BBS: GUI refactor: GLToolbar
     _render_imgui_select_plate_toolbar();
     _render_return_toolbar();
+    _render_ai_assistant_tab();
     // BBS
     //_render_view_toolbar();
     _render_paint_toolbar();
@@ -9643,6 +9644,96 @@ void GLCanvas3D::_render_return_toolbar() const
     ImGui::PopStyleVar(1);
 
     imgui.end();
+}
+
+// A small tab on the right edge of the canvas that opens the AI assistant
+// sidebar. It widens while the mouse is over it, and it is hidden while the
+// sidebar is open, which has its own close button.
+void GLCanvas3D::_render_ai_assistant_tab()
+{
+    const auto* frame  = wxGetApp().mainframe;
+    const auto* plater = wxGetApp().plater();
+    // The variable layer height bar occupies the right edge while it is edited.
+    if (m_canvas_type == ECanvasType::CanvasAssembleView || m_layers_editing.is_enabled() || !wxGetApp().is_editor() || frame == nullptr ||
+        plater == nullptr || plater->printer_technology() != ptFFF || frame->is_ai_print_assistant_shown()) {
+        m_ai_assistant_tab_hover = 0.f;
+        return;
+    }
+
+    ImGuiWrapper& imgui    = *wxGetApp().imgui();
+    const float   em       = ImGui::GetFontSize();
+    const Size    cnv_size = get_canvas_size();
+    const float   canvas_w = float(cnv_size.get_width());
+    const float   canvas_h = float(cnv_size.get_height());
+    // Ease out, so the tab settles instead of stopping dead.
+    const float t      = 1.f - (1.f - m_ai_assistant_tab_hover) * (1.f - m_ai_assistant_tab_hover);
+    const float width  = em * (1.3f + 0.8f * t);
+    const float height = em * 3.4f;
+    // In the preview the layer slider owns the middle of the right edge, so the tab sits above it.
+    const float center_y = m_canvas_type == ECanvasType::CanvasPreview ? std::max(0.05f * canvas_h, 0.5f * height + 0.3f * em) : 0.5f * canvas_h;
+
+    // The window is exactly the tab, so nothing beside it takes the mouse from the canvas.
+    imgui.set_next_window_pos(canvas_w, center_y, ImGuiCond_Always, 1.f, 0.5f);
+    imgui.set_next_window_size(width, height, ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(1.f, 1.f));
+    imgui.begin(std::string("ai_assistant_tab"), ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground |
+                                                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                                                     ImGuiWindowFlags_NoNav);
+
+    const ImVec2 min     = ImGui::GetWindowPos();
+    const bool   clicked = ImGui::InvisibleButton("##open", ImVec2(width, height));
+    const bool   hovered = ImGui::IsItemHovered();
+    const bool   pressed = ImGui::IsItemActive();
+
+    auto mix = [](const ImVec4& a, const ImVec4& b, float k) {
+        return ImVec4(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k, a.z + (b.z - a.z) * k, a.w + (b.w - a.w) * k);
+    };
+    const ImVec4 accent = ImGuiWrapper::COL_ORCA;
+    ImVec4       back   = mix(m_is_dark ? ImGuiWrapper::COL_TOOLBAR_BG_DARK : ImGuiWrapper::COL_TOOLBAR_BG, accent, t);
+    if (pressed)
+        back = mix(back, ImVec4(0.f, 0.f, 0.f, back.w), 0.15f);
+    const ImU32 icon = ImGui::GetColorU32(mix(accent, ImVec4(1.f, 1.f, 1.f, 1.f), t));
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(min, ImVec2(min.x + width, min.y + height), ImGui::GetColorU32(back), 0.45f * em, ImDrawFlags_RoundCornersLeft);
+    // Two four-pointed sparkles, each drawn as a tall and a wide diamond.
+    auto sparkle = [draw, icon](const ImVec2& center, float radius) {
+        const float  waist   = 0.28f * radius;
+        const ImVec2 tall[4] = {{center.x, center.y - radius}, {center.x + waist, center.y}, {center.x, center.y + radius}, {center.x - waist, center.y}};
+        const ImVec2 wide[4] = {{center.x - radius, center.y}, {center.x, center.y - waist}, {center.x + radius, center.y}, {center.x, center.y + waist}};
+        draw->AddConvexPolyFilled(tall, 4, icon);
+        draw->AddConvexPolyFilled(wide, 4, icon);
+    };
+    const ImVec2 middle(min.x + 0.5f * width, min.y + 0.5f * height);
+    sparkle(ImVec2(middle.x - 0.08f * em, middle.y + 0.22f * em), em * (0.42f + 0.10f * t));
+    sparkle(ImVec2(middle.x + em * (0.26f + 0.08f * t), middle.y - em * (0.62f + 0.06f * t)), em * (0.20f + 0.04f * t));
+
+    if (hovered)
+        imgui.tooltip(_L("AI assistant"), 20.f * em);
+
+    imgui.end();
+    ImGui::PopStyleVar(3);
+
+    // Widen or narrow over about a tenth of a second, drawing frames until it settles.
+    const auto  now     = std::chrono::steady_clock::now();
+    const float elapsed = std::min(std::chrono::duration<float>(now - m_ai_assistant_tab_time).count(), 1.f / 30.f);
+    m_ai_assistant_tab_time = now;
+    const float target      = hovered ? 1.f : 0.f;
+    if (m_ai_assistant_tab_hover != target) {
+        const float step         = elapsed / 0.12f;
+        m_ai_assistant_tab_hover = hovered ? std::min(1.f, m_ai_assistant_tab_hover + step) : std::max(0.f, m_ai_assistant_tab_hover - step);
+        request_extra_frame();
+    }
+
+    // Opening the sidebar lays the window out again, which must not happen while this canvas is drawing.
+    if (clicked)
+        wxGetApp().CallAfter([] {
+            auto* main_frame = wxGetApp().mainframe;
+            if (main_frame != nullptr && !main_frame->is_ai_print_assistant_shown())
+                main_frame->toggle_ai_print_assistant();
+        });
 }
 
 void GLCanvas3D::_render_separator_toolbar_right() const
